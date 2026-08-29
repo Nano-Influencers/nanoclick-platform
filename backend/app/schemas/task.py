@@ -41,6 +41,19 @@ class SubmissionResponse(BaseModel):
     submitted_at: datetime
     model_config = {"from_attributes": True}
 
+class SubmissionWithTaskResponse(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    task_title: str
+    status: str
+    proof_urls: list[str]
+    rejection_reason: str | None
+    query_reason: str | None
+    client_rating: float | None
+    pay_ngn: float
+    submitted_at: datetime
+    reviewed_at: datetime | None
+
 class TaskReportCreate(BaseModel):
     reason: str
 

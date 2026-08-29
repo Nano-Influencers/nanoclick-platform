@@ -36,6 +36,20 @@ class Settings(BaseSettings):
     FACEBOOK_CLIENT_SECRET: str = ""
 
     OAUTH_REDIRECT_BASE: str = "http://localhost:8000"
+    # Where to send the browser after a *web* OAuth login (click-workers is a
+    # Flutter Web build, so the mobile deep link nanoclick://oauth?... doesn't
+    # apply to it — see /auth/google/login?platform=web).
+    OAUTH_WEB_REDIRECT_URL: str = "http://localhost:5173/oauth-callback"
+
+    # Gamification amounts (kobo). Not discoverable from the existing
+    # Firestore-based client, since it wrote these values directly without
+    # a server-authoritative source of truth — these are a documented,
+    # conservative starting point, easy to retune without a code change.
+    REFERRAL_BONUS_KOBO: int = 20000          # ₦200, paid to the referrer on the referred worker's first approved submission
+    CHECKIN_BASE_REWARD_KOBO: int = 5000       # ₦50 on day 1 of a check-in streak
+    CHECKIN_STREAK_STEP_KOBO: int = 2500       # +₦25 per consecutive day, capped at CHECKIN_STREAK_CAP_DAYS
+    CHECKIN_STREAK_CAP_DAYS: int = 7           # streak reward plateaus after a 7-day cycle, then repeats
+    SPIN_COOLDOWN_HOURS: int = 24
 
     @property
     def allowed_origins(self) -> list[str]:

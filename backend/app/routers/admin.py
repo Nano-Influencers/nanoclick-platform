@@ -43,6 +43,11 @@ async def approve_submission(submission_id: uuid.UUID, client_rating: float = 5.
     sub.client_rating = max(0.0, min(5.0, client_rating))
     task.slots_filled = min(task.slots_filled + 1, task.slots_total)
     if task.slots_filled >= task.slots_total: task.status = "completed"
+    from app.services import rewards_service
+    from app.services.notification_service import notify
+    await rewards_service.award_referral_bonus_if_first_approval(db, sub.worker_id)
+    await notify(db, sub.worker_id, "task_approved", "Task approved!",
+                 f"\"{task.title}\" was approved — you earned ₦{task.pay_kobo/100:,.2f}.")
     from app.workers.notification_tasks import notify_task_approved
     notify_task_approved.delay(str(sub.worker_id), task.title, task.pay_kobo/100)
     return {"message": "Approved", "click_points_awarded": cps, "amount_ngn": task.pay_kobo/100}
@@ -55,10 +60,14 @@ async def reject_submission(submission_id: uuid.UUID, reason: str,
     if not sub: raise HTTPException(404, "Submission not found")
     if sub.status not in ("pending","under_review","queried"): raise HTTPException(400, f"Cannot reject status '{sub.status}'")
     sub.status = "rejected"; sub.rejection_reason = reason; sub.reviewed_at = datetime.utcnow()
+    from app.services.notification_service import notify
     from app.workers.notification_tasks import notify_task_rejected
     task_r = await db.execute(select(Task).where(Task.id==sub.task_id))
     task = task_r.scalar_one_or_none()
-    if task: notify_task_rejected.delay(str(sub.worker_id), task.title, reason)
+    if task:
+        await notify(db, sub.worker_id, "task_rejected", "Task rejected",
+                     f"\"{task.title}\" was rejected: {reason}")
+        notify_task_rejected.delay(str(sub.worker_id), task.title, reason)
     return {"message": "Rejected", "reason": reason}
 
 @router.post("/submissions/{submission_id}/query")
@@ -79,6 +88,9 @@ async def approve_campaign(campaign_id: uuid.UUID, db: AsyncSession = Depends(ge
     campaign.status = "active"
     tasks_r = await db.execute(select(Task).where(Task.campaign_id==campaign_id))
     for task in tasks_r.scalars(): task.status = "available"
+    from app.services.notification_service import notify
+    await notify(db, campaign.owner_id, "campaign_approved", "Campaign is live",
+                 f"\"{campaign.title}\" was approved and is now live for workers.")
     return {"message": "Campaign approved and tasks are now live"}
 
 @router.post("/campaigns/{campaign_id}/reject")
@@ -92,6 +104,9 @@ async def reject_campaign(campaign_id: uuid.UUID, reason: str,
         await wallet_service.credit(db=db, user_id=campaign.owner_id, amount_kobo=campaign.escrow_kobo,
             tx_type="escrow_release", description=f"Campaign rejected: {reason}", reference=str(campaign_id))
         campaign.escrow_kobo = 0
+    from app.services.notification_service import notify
+    await notify(db, campaign.owner_id, "campaign_rejected", "Campaign rejected",
+                 f"\"{campaign.title}\" was rejected: {reason}. Your budget has been refunded.")
     return {"message": "Campaign rejected and budget refunded"}
 
 @router.get("/reports/pending")
@@ -140,7 +155,11 @@ async def approve_kyc(user_id: uuid.UUID, db: AsyncSession = Depends(get_db), _:
     kyc.status = "approved"; kyc.reviewed_at = datetime.utcnow()
     user_r = await db.execute(select(User).where(User.id==user_id))
     user = user_r.scalar_one_or_none()
-    if user: user.kyc_verified = True
+    if user:
+        user.kyc_verified = True
+        from app.services.notification_service import notify
+        await notify(db, user.id, "kyc_approved", "KYC approved",
+                     "Your identity verification was approved — you now have access to targeted campaigns.")
     return {"message": "KYC approved"}
 
 @router.post("/kyc/{user_id}/reject")
@@ -149,7 +168,17 @@ async def reject_kyc(user_id: uuid.UUID, reason: str, db: AsyncSession = Depends
     kyc = kyc_r.scalar_one_or_none()
     if not kyc: raise HTTPException(404, "KYC not found")
     kyc.status = "rejected"; kyc.reviewed_at = datetime.utcnow()
+    from app.services.notification_service import notify
+    await notify(db, user_id, "kyc_rejected", "KYC rejected", reason)
     return {"message": "KYC rejected", "reason": reason}
+
+@router.post("/rewards/distribute-pool")
+async def distribute_reward_pool(track: str, pool_ngn: float, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    """Split a pooled prize (e.g. the 'share of ₦1,000,000' promised to
+    Level-10 Grit/Gratis achievers) equally among every worker who has
+    reached Level 10 on that track and hasn't already been paid from it."""
+    from app.services import rewards_service
+    return await rewards_service.distribute_reward_pool(db, track, int(pool_ngn * 100))
 
 @router.get("/stats")
 async def platform_stats(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):

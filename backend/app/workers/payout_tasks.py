@@ -10,16 +10,19 @@ def _run(coro):
         loop.close()
 
 @celery_app.task(name="app.workers.payout_tasks.process_withdrawal", queue="payouts")
-def process_withdrawal(user_id: str, amount_kobo: int, reference: str, account_number: str):
-    _run(_do_withdrawal(user_id, amount_kobo, reference, account_number))
+def process_withdrawal(user_id: str, amount_kobo: int, reference: str, account_number: str, bank_code: str, account_name: str):
+    _run(_do_withdrawal(user_id, amount_kobo, reference, account_number, bank_code, account_name))
 
-async def _do_withdrawal(user_id, amount_kobo, reference, account_number):
+async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_code, account_name):
     import uuid
     from app.database import AsyncSessionLocal
     from app.services import paystack, wallet_service
     async with AsyncSessionLocal() as db:
         try:
-            await paystack.initiate_transfer(amount_kobo, account_number, reference)
+            # Paystack transfers require a registered recipient_code — a raw
+            # account number is not a valid transfer target.
+            recipient_code = await paystack.create_transfer_recipient(account_number, bank_code, account_name)
+            await paystack.initiate_transfer(amount_kobo, recipient_code, reference)
         except Exception as e:
             await wallet_service.credit(db, uuid.UUID(user_id), amount_kobo,
                 tx_type="withdrawal_reversal",
