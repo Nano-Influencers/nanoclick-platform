@@ -1,8 +1,9 @@
+import uuid
 from datetime import datetime
 from pydantic import BaseModel
 
 class WalletResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     balance_kobo: int
     balance_ngn: float
     escrow_kobo: int
@@ -28,7 +29,7 @@ class WalletResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 class TransactionResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     type: str
     task_category: str | None
     amount_kobo: int

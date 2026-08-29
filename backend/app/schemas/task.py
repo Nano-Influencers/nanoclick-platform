@@ -1,9 +1,10 @@
+import uuid
 from datetime import datetime
 from pydantic import BaseModel
 
 class TaskResponse(BaseModel):
-    id: str
-    campaign_id: str
+    id: uuid.UUID
+    campaign_id: uuid.UUID
     title: str
     description: str | None
     link: str | None
@@ -22,8 +23,8 @@ class TaskResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 class AcceptTaskResponse(BaseModel):
-    acceptance_id: str
-    task_id: str
+    acceptance_id: uuid.UUID
+    task_id: uuid.UUID
     expires_at: datetime
     message: str
 
@@ -32,8 +33,8 @@ class SubmissionCreate(BaseModel):
     proof_link: str | None = None
 
 class SubmissionResponse(BaseModel):
-    id: str
-    task_id: str
+    id: uuid.UUID
+    task_id: uuid.UUID
     status: str
     proof_urls: list[str]
     rejection_reason: str | None
@@ -54,7 +55,7 @@ class PresignedUrlResponse(BaseModel):
 
 class LeaderboardEntryResponse(BaseModel):
     rank: int
-    worker_id: str
+    worker_id: uuid.UUID
     full_name: str
     total_score: float
     ts_score: float
