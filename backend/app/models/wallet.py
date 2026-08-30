@@ -31,6 +31,11 @@ class Wallet(Base):
     daily_unpaid_kobo: Mapped[int] = mapped_column(Integer, default=0)
     daily_reset_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Spin-to-win / daily check-in gamification (once-per-24h actions)
+    last_spin_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_checkin_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    checkin_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     # Per-category lifetime earnings
     total_one_off_single_kobo: Mapped[int] = mapped_column(Integer, default=0)
     total_one_off_grouped_kobo: Mapped[int] = mapped_column(Integer, default=0)
@@ -63,6 +68,7 @@ class Transaction(Base):
 
     # type: deposit | withdrawal | withdrawal_reversal | escrow_lock | escrow_release
     #        task_earning | referral_bonus | report_reward | spin_win | checkin_reward
+    #        reward_tier_bonus
     type: Mapped[str] = mapped_column(String(30), nullable=False)
     task_category: Mapped[str | None] = mapped_column(String(40), nullable=True)
     amount_kobo: Mapped[int] = mapped_column(Integer, nullable=False)

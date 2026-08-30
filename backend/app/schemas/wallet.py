@@ -1,8 +1,9 @@
+import uuid
 from datetime import datetime
 from pydantic import BaseModel
 
 class WalletResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     balance_kobo: int
     balance_ngn: float
     escrow_kobo: int
@@ -25,10 +26,20 @@ class WalletResponse(BaseModel):
     daily_trend_push_cps: int
     daily_skill_based_cps: int
     daily_unpaid_cps: int
+    total_one_off_single_kobo: int
+    total_one_off_grouped_kobo: int
+    total_repeating_single_kobo: int
+    total_repeating_grouped_kobo: int
+    total_trend_push_kobo: int
+    total_skill_based_kobo: int
+    total_unpaid_kobo: int
+    last_spin_at: datetime | None
+    last_checkin_at: datetime | None
+    checkin_streak: int
     model_config = {"from_attributes": True}
 
 class TransactionResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     type: str
     task_category: str | None
     amount_kobo: int
@@ -50,3 +61,18 @@ class WithdrawRequest(BaseModel):
     amount_ngn: float
     bank_code: str
     account_number: str
+
+class ResolveAccountResponse(BaseModel):
+    account_number: str
+    account_name: str
+    bank_code: str
+
+class SpinResultResponse(BaseModel):
+    kind: str          # click_points | cash_kobo
+    value: int
+    next_spin_at: str
+
+class CheckinResultResponse(BaseModel):
+    streak_day: int
+    reward_kobo: int
+    reward_ngn: float

@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -42,7 +43,7 @@ class CampaignCreate(BaseModel):
     video_subtype: str | None = None
 
 class CampaignResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     title: str
     platform: str
     action_type: str

@@ -7,7 +7,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_worker
 from app.models.user import User
 from app.models.task import Task, TaskAcceptance, Submission, TaskReport, LeaderboardScore
-from app.schemas.task import TaskResponse, AcceptTaskResponse, SubmissionCreate, SubmissionResponse, TaskReportCreate, PresignedUrlRequest, PresignedUrlResponse, LeaderboardEntryResponse
+from app.schemas.task import TaskResponse, AcceptTaskResponse, SubmissionCreate, SubmissionResponse, SubmissionWithTaskResponse, TaskReportCreate, PresignedUrlRequest, PresignedUrlResponse, LeaderboardEntryResponse
 from app.services import wallet_service
 from app.services.clickpoints import calculate_click_points
 from app.services.storage import generate_presigned_upload_url, compute_image_hash
@@ -33,6 +33,27 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
     result = await db.execute(select(Task).where(and_(*conds)).order_by(Task.is_urgent.desc(), Task.created_at.desc()).limit(50))
     return [{**{c.name: getattr(t, c.name) for c in t.__table__.columns}, "id": str(t.id), "pay_ngn": t.pay_kobo/100} for t in result.scalars()]
+
+@router.get("/my-submissions", response_model=list[SubmissionWithTaskResponse])
+async def my_submissions(status: str = Query(None), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+    conds = [Submission.worker_id == current_user.id]
+    if status: conds.append(Submission.status == status)
+    result = await db.execute(
+        select(Submission, Task.title, Task.pay_kobo)
+        .join(Task, Task.id == Submission.task_id)
+        .where(and_(*conds))
+        .order_by(Submission.submitted_at.desc())
+        .limit(100)
+    )
+    out = []
+    for sub, title, pay_kobo in result.all():
+        out.append(SubmissionWithTaskResponse(
+            id=sub.id, task_id=sub.task_id, task_title=title, status=sub.status,
+            proof_urls=sub.proof_urls, rejection_reason=sub.rejection_reason,
+            query_reason=sub.query_reason, client_rating=sub.client_rating,
+            pay_ngn=pay_kobo / 100, submitted_at=sub.submitted_at, reviewed_at=sub.reviewed_at,
+        ))
+    return out
 
 @router.post("/{task_id}/accept", response_model=AcceptTaskResponse)
 async def accept_task(task_id: uuid.UUID, current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
@@ -83,6 +104,21 @@ async def report_task(task_id: uuid.UUID, body: TaskReportCreate, current_user: 
     db.add(TaskReport(task_id=task_id, reporter_id=current_user.id, reason=body.reason))
     return {"message": "Report submitted. Thank you for keeping the platform safe."}
 
+@router.post("/{task_id}/cancel", status_code=200)
+async def cancel_acceptance(task_id: uuid.UUID, current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+    """Release a worker's own active (not-yet-submitted) acceptance, freeing
+    the slot back up for someone else. Once a submission exists, the
+    acceptance is no longer cancellable — the submission review flow
+    (approve/reject/query) takes over from there."""
+    acc_r = await db.execute(select(TaskAcceptance).where(
+        TaskAcceptance.task_id == task_id, TaskAcceptance.worker_id == current_user.id,
+        TaskAcceptance.status == "active").with_for_update())
+    acceptance = acc_r.scalar_one_or_none()
+    if not acceptance:
+        raise HTTPException(404, "No active acceptance for this task to cancel")
+    acceptance.status = "cancelled"
+    return {"message": "Acceptance cancelled — the task is available again."}
+
 @router.post("/upload-url", response_model=PresignedUrlResponse)
 async def get_upload_url(body: PresignedUrlRequest, current_user: User = Depends(require_worker)):
     try: return generate_presigned_upload_url(body.file_extension)
@@ -101,3 +137,14 @@ async def get_leaderboard(period: str, db: AsyncSession = Depends(get_db), curre
             "ts_score": s.ts_score, "cr_score": s.cr_score, "ar_score": s.ar_score,
             "tq_score": s.tq_score, "td_score": s.td_score})
     return entries
+
+# NOTE: this generic /{task_id} route is intentionally defined last — FastAPI
+# matches routes in definition order, and this pattern would otherwise shadow
+# literal-path GETs above it (e.g. /tasks/my-submissions) since path-param
+# type validation happens *after* routing, not as part of the route match.
+@router.get("/{task_id}", response_model=TaskResponse)
+async def get_task_detail(task_id: uuid.UUID, current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Task).where(Task.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task: raise HTTPException(404, "Task not found")
+    return {**{c.name: getattr(task, c.name) for c in task.__table__.columns}, "id": str(task.id), "pay_ngn": task.pay_kobo / 100}

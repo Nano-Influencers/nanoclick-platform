@@ -19,7 +19,8 @@ async def _auto_approve():
     from app.database import AsyncSessionLocal
     from app.models.task import Submission, Task
     from app.models.campaign import Campaign
-    from app.services import wallet_service
+    from app.services import wallet_service, rewards_service
+    from app.services.notification_service import notify
     from app.services.clickpoints import calculate_click_points
     from sqlalchemy import select, and_
 
@@ -49,6 +50,9 @@ async def _auto_approve():
             task.slots_filled = min(task.slots_filled + 1, task.slots_total)
             if task.slots_filled >= task.slots_total:
                 task.status = "completed"
+            await rewards_service.award_referral_bonus_if_first_approval(db, sub.worker_id)
+            await notify(db, sub.worker_id, "task_approved", "Task auto-approved",
+                         f"\"{task.title}\" was automatically approved after {settings.AUTO_APPROVE_HOURS}h — you earned ₦{task.pay_kobo/100:,.2f}.")
         await db.commit()
 
 @celery_app.task(name="app.workers.submission_tasks.expire_stale_acceptances")
