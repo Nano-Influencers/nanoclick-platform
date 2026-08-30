@@ -89,11 +89,13 @@ async def get_campaign(campaign_id: uuid.UUID, current_user: User = Depends(requ
 
 @router.patch("/{campaign_id}/status")
 async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
-    if new_status not in {"paused","cancelled"}: raise HTTPException(400, "Status must be paused or cancelled")
+    if new_status not in {"paused", "cancelled", "active"}: raise HTTPException(400, "Status must be paused, active (resume), or cancelled")
     r = await db.execute(select(Campaign).where(Campaign.id==campaign_id, Campaign.owner_id==current_user.id))
     campaign = r.scalar_one_or_none()
     if not campaign: raise HTTPException(404, "Campaign not found")
     if campaign.status in ("completed","cancelled"): raise HTTPException(400, f"Cannot change a {campaign.status} campaign")
+    if new_status == "active" and campaign.status != "paused":
+        raise HTTPException(400, "Only a paused campaign can be resumed")
     if new_status == "cancelled" and campaign.escrow_kobo > 0:
         await wallet_service.credit(db, current_user.id, campaign.escrow_kobo, "escrow_release",
             description="Campaign cancelled — budget refunded", reference=str(campaign_id))
