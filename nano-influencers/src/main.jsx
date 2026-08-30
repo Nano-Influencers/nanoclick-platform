@@ -211,6 +211,7 @@ function AuthedApp(){
         <Route path="campaigns" element={<ManageCampaigns setModal={setModal}/>}/>
         <Route path="campaigns/ongoing" element={<CampaignList title="Ongoing Campaigns" status="ongoing" setModal={setModal}/>}/>
         <Route path="campaigns/pending" element={<CampaignList title="Pending Campaigns" status="pending" setModal={setModal}/>}/>
+        <Route path="campaigns/paused" element={<CampaignList title="Paused Campaigns" status="paused" setModal={setModal}/>}/>
         <Route path="notifications" element={<Notifications/>}/>
         <Route path="wallet" element={<Wallet setModal={setModal}/>}/>
         <Route path="gifts" element={<Gifts/>}/>
@@ -335,6 +336,7 @@ function ManageCampaigns({setModal}) {
   const {campaigns, notifications} = useData();
   const ongoing=campaigns.filter(c=>uiStatus(c.status)==="ongoing");
   const pending=campaigns.filter(c=>uiStatus(c.status)==="pending");
+  const paused=campaigns.filter(c=>uiStatus(c.status)==="paused");
   return <div className="page list-page manage-page">
     <div className="page-header"><h1>Manage Campaign</h1><a className="history-link" onClick={()=>navigate("/app/notifications")}>History</a></div>
     <div className="list-stack">
@@ -347,6 +349,11 @@ function ManageCampaigns({setModal}) {
       {pending.slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal}/>)}
       {!pending.length&&<p className="muted-empty">No Pending Campaign at the Moment</p>}
       <button className="outline-btn" onClick={()=>navigate("/app/campaigns/pending")}>See All</button>
+
+      <h3 className="section-title">Paused Campaigns</h3>
+      {paused.slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal}/>)}
+      {!paused.length&&<p className="muted-empty">No Paused Campaign at the Moment</p>}
+      <button className="outline-btn" onClick={()=>navigate("/app/campaigns/paused")}>See All</button>
 
       <div className="section-head" style={{marginTop:20}}><h3 className="section-title" style={{margin:0}}>Campaign Notification</h3><a onClick={()=>navigate("/app/notifications")}>See All</a></div>
       {notifications.slice(0,2).map((n)=><article key={n.id} className="notification"><span className="bell-badge"><Icon name="bell"/></span><div><b>{n.title}</b><p>{n.body}</p></div><small>{fmtRelative(n.created_at)}</small></article>)}
