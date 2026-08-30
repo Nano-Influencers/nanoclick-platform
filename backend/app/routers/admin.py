@@ -79,6 +79,14 @@ async def query_submission(submission_id: uuid.UUID, query_reason: str,
     sub.status = "queried"; sub.query_reason = query_reason
     return {"message": "Submission queried"}
 
+@router.get("/campaigns/pending")
+async def list_pending_campaigns(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    r = await db.execute(select(Campaign).where(Campaign.status == "pending_admin").order_by(Campaign.created_at.asc()).limit(100))
+    return [{"id": str(c.id), "owner_id": str(c.owner_id), "title": c.title, "platform": c.platform,
+             "action_type": c.action_type, "tni_service_type": c.tni_service_type,
+             "client_budget_kobo": c.client_budget_kobo, "slots_total": c.slots_total,
+             "created_at": c.created_at} for c in r.scalars()]
+
 @router.post("/campaigns/{campaign_id}/approve")
 async def approve_campaign(campaign_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
     r = await db.execute(select(Campaign).where(Campaign.id==campaign_id))
@@ -146,6 +154,17 @@ async def dismiss_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db
     if not report or report.status != "pending": raise HTTPException(404, "Report not found or already reviewed")
     report.status = "dismissed"; report.reviewed_at = datetime.utcnow()
     return {"message": "Report dismissed"}
+
+@router.get("/kyc/pending")
+async def list_pending_kyc(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    r = await db.execute(
+        select(KycProfile, User.full_name)
+        .join(User, User.id == KycProfile.user_id)
+        .where(KycProfile.status == "pending")
+        .order_by(KycProfile.submitted_at.asc()).limit(100)
+    )
+    return [{"id": str(k.id), "user_id": str(k.user_id), "full_name": full_name,
+             "document_type": k.document_type, "submitted_at": k.submitted_at} for k, full_name in r.all()]
 
 @router.post("/kyc/{user_id}/approve")
 async def approve_kyc(user_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):

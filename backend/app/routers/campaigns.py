@@ -2,6 +2,7 @@ import uuid, math
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_advertiser
@@ -105,7 +106,11 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
 
 @router.get("/{campaign_id}/audience")
 async def preview_audience(campaign_id: uuid.UUID, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(Campaign).where(Campaign.id==campaign_id, Campaign.owner_id==current_user.id))
+    # Eager-load targeting — under AsyncSession, touching a lazy relationship
+    # outside an awaited context (like the plain attribute access below)
+    # raises sqlalchemy.exc.MissingGreenlet instead of lazy-loading it.
+    r = await db.execute(select(Campaign).options(selectinload(Campaign.targeting)).where(
+        Campaign.id==campaign_id, Campaign.owner_id==current_user.id))
     campaign = r.scalar_one_or_none()
     if not campaign: raise HTTPException(404, "Campaign not found")
     if not campaign.targeting:
