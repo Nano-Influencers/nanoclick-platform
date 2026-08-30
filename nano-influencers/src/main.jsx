@@ -1,7 +1,9 @@
-import React, {useMemo, useState} from "react";
+import React, {createContext, useContext, useEffect, useState} from "react";
 import {createRoot} from "react-dom/client";
-import {BrowserRouter, NavLink, Route, Routes, useNavigate, useLocation} from "react-router-dom";
+import {BrowserRouter, NavLink, Route, Routes, useNavigate, useLocation, Navigate} from "react-router-dom";
 import "./styles.css";
+import {api, ApiError} from "./api.js";
+import {AuthProvider, useAuth, ProtectedRoute, LoginPage, RegisterPage, OAuthCallbackPage} from "./auth.jsx";
 
 const icons = {
   home: <svg viewBox="0 0 24 24"><path d="M3 10.8 12 3l9 7.8v9.2a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>,
@@ -37,36 +39,21 @@ function Icon({name, size=20}) {
   return <span className="icon" style={{width:size,height:size}}>{icons[name]}</span>;
 }
 
+// [name, glyph, color, apiPlatformValue]
 const platforms = [
-  ["Facebook","f","#1877F2"],["YouTube","▶","#FF0000"],["X","X","#000000"],["WhatsApp","◉","#25D366"],
-  ["Instagram","◎","#C1327A"],["Telegram","➤","#229ED9"],["TikTok","♪","#111111"],["LinkedIn","in","#0A66C2"],
-  ["Audiomack","♫","#FFA200"],["Spotify","●","#1DB954"],["BoomPlay","B","#E4405F"],["YT Music","▶","#FF0033"]
+  ["Facebook","f","#1877F2","facebook"],["YouTube","▶","#FF0000","youtube"],["X","X","#000000","twitter"],["WhatsApp","◉","#25D366","whatsapp"],
+  ["Instagram","◎","#C1327A","instagram"],["Telegram","➤","#229ED9","telegram"],["TikTok","♪","#111111","tiktok"],["LinkedIn","in","#0A66C2","linkedin"],
+  ["Audiomack","♫","#FFA200","audiomack"],["Spotify","●","#1DB954","spotify"],["BoomPlay","B","#E4405F","boomplay"],["YT Music","▶","#FF0033","youtube_music"]
 ];
 
-const notifications = [
-  ["Campaign Deleted","You just deleted your Twitter Like Campaign; you would be refunded 95% of the unspent balance."],
-  ["Campaign Approved","Your IG Engaged Growth Campaign has been Approved by Admin."],
-  ["Campaign Paused","You have paused your YouTube subscribe Campaign."],
-  ["Campaign has been Completed","Congratulations, your Word of Mouth Campaign has been Completed."],
-  ["Campaign has been Rejected","Unfortunately your FB report Campaign has been rejected due to violation of T&C."],
-  ["Campaign Resumed","Your X follower Campaign has been resumed."],
-  ["Campaign Modified/Edited","Your X follower Campaign has been resumed."]
+const actionTypes = [
+  ["like","Like"],["follow","Follow"],["comment","Comment"],["share","Share"],
+  ["subscribe","Subscribe"],["join","Join"],["repost","Repost"],["stream","Stream"],["trend","Trend / Push"]
 ];
 
 const services = [
-  {name:"Engaged Growth", purpose:"Build Long-Term Community", delivery:"Assigned followers in your niche who follow permanently & continually engage with your content while sharing on WhatsApp for more audience", platform:"Instagram, Facebook, X (Twitter), YouTube, LinkedIn, and TikTok", best:"Creators, Brands, Influencers, Businesses and anyone seeking constant visibility.", tone:"blue"},
-  {name:"Word of Mouth", purpose:"Expand Reach", delivery:"Natural sharing and recommendation from people who genuinely discover your profile or campaign.", platform:"WhatsApp, Instagram, Facebook and other social channels", best:"Brands and creators seeking social proof and awareness.", tone:"red"}
-];
-
-// Campaign type shown as the two-tone header label above the bordered task box
-// (matches Figma). Tasks created from "Other Services" (single platform reposts)
-// carry no type label, matching the design.
-const initialCampaigns = [
-  {id:1,type:"Engaged Growth",name:"Engaged Growth",task:"Chisom's Page Link 1",status:"ongoing",created:"7/12/25 Time: 7:35pm",proof:"485",linksUsed:5,linksRemaining:10,showLinksFeature:true},
-  {id:2,type:"Word of Mouth",name:"Word of Mouth",task:"My Music Promotion",status:"ongoing",created:"7/12/25 Time: 7:35pm",proof:"465"},
-  {id:3,type:null,name:"Facebook Repost",task:"Facebook Repost",status:"ongoing",created:"7/12/25 Time: 7:35pm",proof:"465"},
-  {id:4,type:null,name:"Twitter Repost",task:"Twitter Repost",status:"pending",created:"7/12/25 Time: 7:20pm",proof:""},
-  {id:5,type:null,name:"Twitter Repost",task:"Twitter Repost",status:"pending",created:"7/12/25 Time: 7:05pm",proof:""}
+  {name:"Engaged Growth", tni:"engaged_growth", action:"follow", purpose:"Build Long-Term Community", delivery:"Assigned followers in your niche who follow permanently & continually engage with your content while sharing on WhatsApp for more audience", platform:"Instagram, Facebook, X (Twitter), YouTube, LinkedIn, and TikTok", best:"Creators, Brands, Influencers, Businesses and anyone seeking constant visibility.", tone:"blue"},
+  {name:"Word of Mouth", tni:"word_of_mouth", action:"share", purpose:"Expand Reach", delivery:"Natural sharing and recommendation from people who genuinely discover your profile or campaign.", platform:"WhatsApp, Instagram, Facebook and other social channels", best:"Brands and creators seeking social proof and awareness.", tone:"red"}
 ];
 
 // ---------- Landing page content (transcribed from the marketing PDF) ----------
@@ -119,61 +106,145 @@ const faqs = [
   {q:"How do I track campaign performance?", a:"Your dashboard's Campaign Analytics section shows reach, impressions and engagement for every active and completed campaign."}
 ];
 
-function App({balance,setBalance,totalFunded,campaigns,setCampaigns}) {
-  const [modal,setModal] = useState(null);
+// ==================== DATA LAYER ====================
+// Replaces the old window "nano-action" event bus + local demo state with
+// real backend-backed data. Fetched once the advertiser is authenticated.
+const DataContext = createContext(null);
+function useData(){ return useContext(DataContext); }
+
+function DataProvider({children}) {
+  const [wallet,setWallet] = useState(null);
+  const [campaigns,setCampaigns] = useState([]);
+  const [transactions,setTransactions] = useState([]);
+  const [notifications,setNotifications] = useState([]);
+  const [loading,setLoading] = useState(true);
   const [toast,setToast] = useState("");
-  const notify = (m) => { setToast(m); setTimeout(()=>setToast(""),2500); };
-  const updateCampaign = (id,status) => {
-    setCampaigns(c=>c.map(x=>x.id===id?{...x,status}:x).filter(x=>x.status!=="deleted"));
-    setModal(null);
-    notify(status==="paused"?"Campaign paused.":status==="deleted"?"Campaign deleted.":"Campaign updated.");
+  const notify = (m) => { setToast(m); setTimeout(()=>setToast(""),3000); };
+
+  const refreshWallet = async () => { try { setWallet(await api.getBalance()); } catch {} };
+  const refreshTransactions = async () => { try { setTransactions(await api.getTransactions()); } catch {} };
+  const refreshCampaigns = async () => { try { setCampaigns(await api.listCampaigns()); } catch {} };
+  const refreshNotifications = async () => { try { setNotifications(await api.listNotifications()); } catch {} };
+  const refreshAll = async () => {
+    setLoading(true);
+    await Promise.all([refreshWallet(), refreshTransactions(), refreshCampaigns(), refreshNotifications()]);
+    setLoading(false);
   };
-  const addCampaign = (data) => {
-    setCampaigns(c=>[{id:Date.now(),type:null,name:data.service,task:data.task||"New Campaign",status:"pending",created:"Just now",proof:""},...c]);
-    setModal(null); notify("Campaign created successfully.");
+
+  useEffect(()=>{ refreshAll(); },[]);
+
+  const createCampaign = async (payload) => {
+    await api.createCampaign(payload);
+    await refreshCampaigns();
+    await refreshWallet();
+    notify("Campaign created — pending admin approval.");
   };
+  const updateCampaignStatus = async (id, status) => {
+    await api.updateCampaignStatus(id, status);
+    await refreshCampaigns();
+    if (status === "cancelled") await refreshWallet();
+    notify(status==="paused"?"Campaign paused.":status==="active"?"Campaign resumed.":status==="cancelled"?"Campaign cancelled and budget refunded.":"Campaign updated.");
+  };
+  const markRead = async (id) => { await api.markNotificationRead(id); await refreshNotifications(); };
+  const markAllRead = async () => { await api.markAllNotificationsRead(); await refreshNotifications(); };
+  const fundWallet = async (amountNgn) => {
+    const data = await api.initiateDeposit(amountNgn);
+    window.location.href = data.authorization_url;
+  };
+
+  const unreadCount = notifications.filter(n=>!n.is_read).length;
+
+  return <DataContext.Provider value={{
+    wallet, campaigns, transactions, notifications, unreadCount, loading, notify, toast,
+    refreshAll, refreshWallet, refreshCampaigns, refreshNotifications,
+    createCampaign, updateCampaignStatus, markRead, markAllRead, fundWallet,
+  }}>{children}</DataContext.Provider>;
+}
+
+// campaign.status (backend) -> UI bucket used by the existing components
+function uiStatus(status){
+  if (status==="active") return "ongoing";
+  if (status==="pending_admin") return "pending";
+  return status; // paused | completed | cancelled
+}
+function fmtDate(iso){
+  if(!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined,{month:"numeric",day:"numeric",year:"2-digit"}) + " Time: " + d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+}
+function fmtRelative(iso){
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs/60000);
+  if(mins < 1) return "Just now";
+  if(mins < 60) return mins+"m ago";
+  const hrs = Math.floor(mins/60);
+  if(hrs < 24) return hrs+"h ago";
+  return Math.floor(hrs/24)+"d ago";
+}
+
+// ==================== APP ====================
+function App() {
+  return <Routes>
+    <Route path="/" element={<LandingPage/>}/>
+    <Route path="/login" element={<LoginPage/>}/>
+    <Route path="/register" element={<RegisterPage/>}/>
+    <Route path="/oauth-callback" element={<OAuthCallbackPage/>}/>
+    <Route path="/app/*" element={
+      <ProtectedRoute>
+        <DataProvider>
+          <AuthedApp/>
+        </DataProvider>
+      </ProtectedRoute>
+    }/>
+    <Route path="*" element={<LandingPage/>}/>
+  </Routes>
+}
+
+function AuthedApp(){
+  const {toast} = useData();
+  const [modal,setModal] = useState(null);
   return <>
-    <Routes>
-      <Route path="/" element={<LandingPage/>}/>
-      <Route path="/app/*" element={
-        <AppShell balance={balance} modal={modal} setModal={setModal}>
-          <Routes>
-            <Route path="" element={<Dashboard balance={balance} setModal={setModal} notify={notify} campaigns={campaigns}/>}/>
-            <Route path="campaign" element={<CampaignPage setModal={setModal} addCampaign={addCampaign} campaigns={campaigns}/>}/>
-            <Route path="campaigns" element={<ManageCampaigns campaigns={campaigns} setModal={setModal} updateCampaign={updateCampaign}/>}/>
-            <Route path="campaigns/ongoing" element={<CampaignList title="Ongoing Campaigns" status="ongoing" campaigns={campaigns} setModal={setModal} updateCampaign={updateCampaign}/>}/>
-            <Route path="campaigns/pending" element={<CampaignList title="Pending Campaigns" status="pending" campaigns={campaigns} setModal={setModal} updateCampaign={updateCampaign}/>}/>
-            <Route path="notifications" element={<Notifications/>}/>
-            <Route path="wallet" element={<Wallet balance={balance} totalFunded={totalFunded} setModal={setModal} setBalance={setBalance}/>}/>
-            <Route path="gifts" element={<Gifts/>}/>
-            <Route path="referral" element={<ReferralPage/>}/>
-            <Route path="*" element={<Dashboard balance={balance} setModal={setModal} notify={notify} campaigns={campaigns}/>}/>
-          </Routes>
-        </AppShell>
-      }/>
-      <Route path="*" element={<LandingPage/>}/>
-    </Routes>
+    <AppShell modal={modal} setModal={setModal}>
+      <Routes>
+        <Route path="" element={<Dashboard setModal={setModal}/>}/>
+        <Route path="campaign" element={<CampaignPage setModal={setModal}/>}/>
+        <Route path="campaigns" element={<ManageCampaigns setModal={setModal}/>}/>
+        <Route path="campaigns/ongoing" element={<CampaignList title="Ongoing Campaigns" status="ongoing" setModal={setModal}/>}/>
+        <Route path="campaigns/pending" element={<CampaignList title="Pending Campaigns" status="pending" setModal={setModal}/>}/>
+        <Route path="notifications" element={<Notifications/>}/>
+        <Route path="wallet" element={<Wallet setModal={setModal}/>}/>
+        <Route path="gifts" element={<Gifts/>}/>
+        <Route path="referral" element={<ReferralPage/>}/>
+        <Route path="*" element={<Dashboard setModal={setModal}/>}/>
+      </Routes>
+    </AppShell>
+    {modal && <Modal modal={modal} close={()=>setModal(null)}/>}
     {toast && <div className="toast">{toast}</div>}
   </>
 }
 
-function AppShell({children,balance,modal,setModal}) {
+function AppShell({children,modal,setModal}) {
   const location=useLocation();
+  const {user,logout} = useAuth();
   const isDashboard = location.pathname==="/app";
+  const initial = (user?.full_name||"?").trim().charAt(0).toUpperCase();
   return <div className="app">
     {isDashboard && <header className="topbar">
-      <div className="brand"><span className="avatar">Z</span><div><small>Welcome</small><strong>Zeal</strong></div></div>
-      <div className="top-actions"><HeaderBell/><button><Icon name="settings"/></button></div>
+      <div className="brand"><span className="avatar">{initial}</span><div><small>Welcome</small><strong>{user?.full_name?.split(" ")[0] || "there"}</strong></div></div>
+      <div className="top-actions"><HeaderBell/><button onClick={logout} title="Log out"><Icon name="settings"/></button></div>
     </header>}
     <main>{children}</main>
     <BottomNav/>
-    {modal && <Modal modal={modal} close={()=>setModal(null)}/>}
   </div>
 }
 
 function HeaderBell(){
   const navigate=useNavigate();
-  return <button aria-label="Notifications" onClick={()=>navigate("/app/notifications")}><Icon name="bell"/></button>;
+  const {unreadCount} = useData();
+  return <button aria-label="Notifications" onClick={()=>navigate("/app/notifications")} style={{position:"relative"}}>
+    <Icon name="bell"/>
+    {unreadCount>0 && <span className="notif-dot">{unreadCount>9?"9+":unreadCount}</span>}
+  </button>;
 }
 
 function BottomNav() {
@@ -183,14 +254,16 @@ function BottomNav() {
 function Gifts(){return <div className="page simple-page"><PageHeader title="Gifts" back/><div className="content-wrap"><Promo title="Win Gifts" text="Get 1% cashback + a chance to win in our weekly raffle when you create a campaign & share us on WhatsApp!" button="See Gifts" tone="red"/></div></div>}
 function ReferralPage(){return <div className="page simple-page"><PageHeader title="Referral" back/><div className="content-wrap"><Referral/></div></div>}
 
-function Dashboard({balance,setModal,campaigns}) {
-  const ongoing=campaigns.filter(c=>c.status==="ongoing").length;
+function Dashboard({setModal}) {
+  const {wallet, campaigns, loading} = useData();
+  const ongoing = campaigns.filter(c=>uiStatus(c.status)==="ongoing").length;
+  const balance = wallet?.balance_ngn ?? 0;
   return <div className="page dashboard">
     <section className="hero-dark">
-      <div className="balance"><span>Current Balance</span><b>₦{balance.toLocaleString()}</b></div>
+      <div className="balance"><span>Current Balance</span><b>{loading ? "…" : "₦"+balance.toLocaleString()}</b></div>
       <div className="stat-grid">
-        <StatCard title="Active Campaigns" value={ongoing} icon="campaign" action="See Campaign" to="/app/campaigns"/>
-        <StatCard title="Spend Overview" value={"₦"+balance.toLocaleString()} action="View Wallet" to="/app/wallet"/>
+        <StatCard title="Active Campaigns" value={loading?"…":ongoing} icon="campaign" action="See Campaign" to="/app/campaigns"/>
+        <StatCard title="Spend Overview" value={loading?"…":"₦"+balance.toLocaleString()} action="View Wallet" to="/app/wallet"/>
       </div>
     </section>
     <div className="content-wrap">
@@ -198,7 +271,7 @@ function Dashboard({balance,setModal,campaigns}) {
       <section className="fund-card" onClick={()=>setModal({type:"fund"})}><div><Icon name="wallet"/><div><h2>Add Funds</h2><p>(Click on the Plus sign to fund your wallet)</p></div></div><button><Icon name="plus"/></button></section>
       <Referral/>
       <div className="promo-row"><Promo title="Win Gifts" text="Get 1% cashback + a chance to win in our weekly raffle when you create a campaign & share us on WhatsApp!" button="See Gifts" tone="red"/></div>
-      <div className="promo-row"><Promo title="Try for Free" text="Try our services for free (Limited Order) – 2 free trial chances every week!" button="Try Freemium" tone="blue"/></div>
+      <div className="promo-row"><Promo title="Try for Free" text="Try our services for free (Limited Order) – 2 free trial chances every week!" button="Try Freemium" tone="blue" onClick={()=>setModal({type:"freemium"})}/></div>
       <Analytics/>
       <Activity/>
       <Support onClick={()=>setModal({type:"support"})}/>
@@ -210,18 +283,40 @@ function StatCard({title,value,icon,action,to}) {
   const navigate=useNavigate();
   return <div className="stat-card"><div><h2>{title}</h2><b>{value}</b></div>{icon&&<span className="round-icon"><Icon name={icon}/></span>}<button onClick={()=>navigate(to)}>{action}</button></div>
 }
-function Referral(){return <section className="referral"><small>Refer a Friend</small><p>Earn 2% on every campaign your referral starts & qualify for our bi-weekly Gadgets giveaway</p><div className="ref-input"><span>https://nano-influencers.com/kddk2l0s</span><button>✓</button></div></section>}
-function Promo({title,text,button,tone}){return <section className={"promo "+tone}><div><h2>{title}</h2><p>{text}</p></div><button>{button}</button></section>}
+function Referral(){
+  const {user} = useAuth();
+  const [copied,setCopied] = useState(false);
+  const link = user ? `https://nano-influencers.com/r/${user.referral_code}` : "";
+  const copy = () => { navigator.clipboard?.writeText(link); setCopied(true); setTimeout(()=>setCopied(false),1500); };
+  return <section className="referral"><small>Refer a Friend</small><p>Earn 2% on every campaign your referral starts & qualify for our bi-weekly Gadgets giveaway</p><div className="ref-input"><span>{link}</span><button onClick={copy}>{copied?"✓":"⧉"}</button></div></section>
+}
+function Promo({title,text,button,tone,onClick}){return <section className={"promo "+tone}><div><h2>{title}</h2><p>{text}</p></div><button onClick={onClick}>{button}</button></section>}
 function Analytics(){return <section className="analytics"><div className="section-head"><h3>Last Campaign Analytics</h3><a>Performance Metrics</a></div><div className="legend"><span><i/>Reach</span><span><i/>Impression</span><span><i/>Engagement</span></div><div className="chart"><svg viewBox="0 0 800 210" preserveAspectRatio="none"><path d="M20 120 L200 125 L390 122 L560 170 L780 160"/><path d="M20 90 L200 105 L390 96 L560 135 L780 45"/><path d="M20 165 L200 160 L390 150 L560 178 L780 168"/></svg></div><div className="periods"><span>○ Hourly</span><span>○ Daily</span><span>○ Weekly</span><span>◉ Monthly</span></div><a className="center-link">View all Campaign Analytics</a></section>}
-function Activity(){return <section className="activity"><div className="section-head"><h3>Latest Activity</h3><a>Show all ›</a></div>{["Deposit Alert","New Campaign Created","Deposit Alert"].map((x,i)=><div className="activity-item" key={i}><span className="activity-dot">◌</span><div><b>{x}</b>{i===1&&<small>(Engaged Growth)</small>}</div><div className="activity-right"><b>₦0</b><small>Just Now</small></div></div>)}</section>}
+function Activity(){
+  const {transactions} = useData();
+  const items = transactions.slice(0,3);
+  return <section className="activity"><div className="section-head"><h3>Latest Activity</h3><a>Show all ›</a></div>
+    {items.length===0 && <p className="muted-empty" style={{textAlign:"left"}}>No activity yet.</p>}
+    {items.map((tx)=><div className="activity-item" key={tx.id}>
+      <span className="activity-dot">◌</span>
+      <div><b>{txLabel(tx.type)}</b>{tx.description && <small>{tx.description}</small>}</div>
+      <div className="activity-right"><b>₦{Number(tx.amount_ngn).toLocaleString()}</b><small>{fmtRelative(tx.created_at)}</small></div>
+    </div>)}
+  </section>
+}
+function txLabel(type){
+  const map = {deposit:"Deposit Alert", withdrawal:"Withdrawal", escrow_lock:"Campaign Funded", escrow_release:"Budget Refunded", task_earning:"Task Earning"};
+  return map[type] || type.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+}
 function Support({onClick}){return <section className="support"><div className="section-head"><h3>Dispute and Support</h3></div><div className="support-row"><span><Icon name="support"/> Any Issues?</span><button onClick={onClick}>Contact Support</button></div></section>}
 
-function CampaignPage({setModal,addCampaign,campaigns}) {
+function CampaignPage({setModal}) {
   const [platformsExpanded,setPlatformsExpanded]=useState(false);
   const navigate=useNavigate();
+  const {campaigns} = useData();
   return <div className="page campaign-page">
-    <section className="campaign-hero"><div className="own-header"><h1>Campaign</h1><div className="own-header-actions"><button><Icon name="settings"/></button><button onClick={()=>navigate("/app/notifications")}><Icon name="bell"/></button></div></div><div className="service-label">Our Service:</div><div className="service-track">{services.map(s=><ServiceCard key={s.name} service={s} onStart={()=>setModal({type:"create",service:s.name})}/>)}</div><a className="video-link">Watch Video to Learn More</a></section>
-    <section className="other-services"><SectionPill>Other Services</SectionPill><p>Great for single/one-time tasks</p><PlatformGrid expanded={platformsExpanded}/><a>Watch Video for more info about this Service</a>{!platformsExpanded && <button className="red-btn" onClick={()=>setPlatformsExpanded(true)}>See More</button>}</section>
+    <section className="campaign-hero"><div className="own-header"><h1>Campaign</h1><div className="own-header-actions"><button onClick={()=>navigate("/app/notifications")}><Icon name="bell"/></button></div></div><div className="service-label">Our Service:</div><div className="service-track">{services.map(s=><ServiceCard key={s.name} service={s} onStart={()=>setModal({type:"create",service:s})}/>)}</div><a className="video-link">Watch Video to Learn More</a></section>
+    <section className="other-services"><SectionPill>Other Services</SectionPill><p>Great for single/one-time tasks</p><PlatformGrid expanded={platformsExpanded} onPick={(p)=>setModal({type:"platform",platform:p})}/><a>Watch Video for more info about this Service</a>{!platformsExpanded && <button className="red-btn" onClick={()=>setPlatformsExpanded(true)}>See More</button>}</section>
     <section className="custom-task"><p>Great for Multiple task creation<br/>across any type of Platform.</p><button onClick={()=>setModal({type:"custom"})}>Create Custom Task</button></section>
     <ManagePreview campaigns={campaigns} setModal={setModal}/>
     <section className="special-services"><SectionPill>Special Services</SectionPill><div className="special-grid">{["Get a Google form","Get Website for your Business","Buy/Sell Crypto","Buy Business Plan/Ideas"].map(x=><button key={x}>{x}</button>)}</div></section>
@@ -229,84 +324,104 @@ function CampaignPage({setModal,addCampaign,campaigns}) {
 }
 function SectionPill({children}){return <div className="pill">{children}</div>}
 function ServiceCard({service,onStart}){return <article className={"service-card "+service.tone}><h2>{service.name}</h2><div className="service-row"><b>Purpose</b><span>{service.purpose}</span></div><div className="service-row"><b>Delivery</b><span>{service.delivery}</span></div><div className="service-row"><b>Platform</b><span>{service.platform}</span></div><div className="service-row"><b>Best For</b><span>{service.best}</span></div><button onClick={onStart}>Start Now</button></article>}
-function PlatformGrid({expanded}){
+function PlatformGrid({expanded,onPick}){
   const shown = expanded?platforms:platforms.slice(0,8);
-  return <div className="platform-grid">{shown.map(([n,i,color])=><button key={n} title={n}><strong style={{background:color}}>{i}</strong><small>{n}</small></button>)}</div>
+  return <div className="platform-grid">{shown.map(p=><button key={p[0]} title={p[0]} onClick={()=>onPick(p)}><strong style={{background:p[2]}}>{p[1]}</strong><small>{p[0]}</small></button>)}</div>
 }
-function ManagePreview({campaigns,setModal}){return <section className="manage-preview"><h3>Manage Campaigns</h3>{campaigns.slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal}/>)}{!campaigns.length&&<p>No Campaign Available at the Moment</p>}<button className="outline-btn">Go to Campaign Management</button></section>}
+function ManagePreview({campaigns,setModal}){return <section className="manage-preview"><h3>Manage Campaigns</h3>{campaigns.filter(c=>uiStatus(c.status)!=="cancelled").slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal}/>)}{!campaigns.length&&<p>No Campaign Available at the Moment</p>}<button className="outline-btn" onClick={()=>{}}>Go to Campaign Management</button></section>}
 
-function ManageCampaigns({campaigns,setModal,updateCampaign}) {
+function ManageCampaigns({setModal}) {
   const navigate=useNavigate();
-  const ongoing=campaigns.filter(c=>c.status==="ongoing");
-  const pending=campaigns.filter(c=>c.status==="pending");
+  const {campaigns, notifications} = useData();
+  const ongoing=campaigns.filter(c=>uiStatus(c.status)==="ongoing");
+  const pending=campaigns.filter(c=>uiStatus(c.status)==="pending");
   return <div className="page list-page manage-page">
     <div className="page-header"><h1>Manage Campaign</h1><a className="history-link" onClick={()=>navigate("/app/notifications")}>History</a></div>
     <div className="list-stack">
       <h3 className="section-title">Ongoing Campaigns</h3>
-      {ongoing.slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal} updateCampaign={updateCampaign}/>)}
+      {ongoing.slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal}/>)}
       {!ongoing.length&&<p className="muted-empty">No Ongoing Campaign at the Moment</p>}
       <button className="outline-btn" onClick={()=>navigate("/app/campaigns/ongoing")}>See All Ongoing Campaign</button>
 
       <h3 className="section-title">Pending Campaign</h3>
-      {pending.slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal} updateCampaign={updateCampaign}/>)}
+      {pending.slice(0,2).map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal}/>)}
       {!pending.length&&<p className="muted-empty">No Pending Campaign at the Moment</p>}
       <button className="outline-btn" onClick={()=>navigate("/app/campaigns/pending")}>See All</button>
 
       <div className="section-head" style={{marginTop:20}}><h3 className="section-title" style={{margin:0}}>Campaign Notification</h3><a onClick={()=>navigate("/app/notifications")}>See All</a></div>
-      {notifications.slice(2,4).map((n,i)=><article key={i} className="notification"><span className="bell-badge"><Icon name="bell"/></span><div><b>{n[0]}</b><p>{n[1]}</p></div><small>Just now</small></article>)}
+      {notifications.slice(0,2).map((n)=><article key={n.id} className="notification"><span className="bell-badge"><Icon name="bell"/></span><div><b>{n.title}</b><p>{n.body}</p></div><small>{fmtRelative(n.created_at)}</small></article>)}
+      {!notifications.length && <p className="muted-empty">No notifications yet</p>}
     </div>
   </div>
 }
 
-function CampaignList({title,status,campaigns,setModal,updateCampaign}) {
-  const list=campaigns.filter(c=>c.status===status);
-  return <div className="page list-page"><PageHeader title={title} back backStyle="text"/><div className="list-stack">{list.map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal} updateCampaign={updateCampaign}/>)}</div>{!list.length&&<Empty title={"No "+status+" campaigns"} button="Go Back" />}</div>
+function CampaignList({title,status,setModal}) {
+  const {campaigns} = useData();
+  const list=campaigns.filter(c=>uiStatus(c.status)===status);
+  return <div className="page list-page"><PageHeader title={title} back backStyle="text"/><div className="list-stack">{list.map(c=><CampaignCard key={c.id} campaign={c} setModal={setModal}/>)}</div>{!list.length&&<Empty title={"No "+status+" campaigns"} button="Go Back" />}</div>
 }
 
 // Campaign card: matches the Figma structure — a plain header row (service type +
 // created date) sits above a distinctly bordered box containing the task name and
 // its action buttons; proof / link-submission content sits below that box.
-function CampaignCard({campaign,setModal,updateCampaign}) {
-  const showProof = campaign.status==="ongoing" || campaign.status==="paused";
-  const nameParts = campaign.type ? campaign.type.split(" ") : null;
+function CampaignCard({campaign,setModal}) {
+  const st = uiStatus(campaign.status);
+  const showProof = st==="ongoing" || st==="paused";
+  const label = SERVICE_LABELS[campaign.tni_service_type];
+  const nameParts = label ? label.split(" ") : null;
   return <article className="campaign-card">
     <div className="card-top">
       {nameParts ? <b>{nameParts.slice(0,-1).join(" ")} <span className="hl">{nameParts[nameParts.length-1]}</span></b> : <span/>}
-      <small>Created: {campaign.created}</small>
+      <small>Created: {fmtDate(campaign.created_at)}</small>
     </div>
     <div className="card-box">
-      <h4>{campaign.task}</h4>
+      <h4>{campaign.title}</h4>
       <div className="card-actions">
-        {campaign.status==="pending" && <><button onClick={()=>setModal({type:"edit",campaign})}>Edit</button><button onClick={()=>setModal({type:"delete",campaign})}>Delete</button></>}
-        {campaign.status==="ongoing" && <><button onClick={()=>setModal({type:"edit",campaign})}>Modify</button><button onClick={()=>setModal({type:"pause",campaign})}>Pause</button><button onClick={()=>setModal({type:"delete",campaign})}>Delete</button></>}
-        {campaign.status==="paused" && <><button onClick={()=>setModal({type:"edit",campaign})}>Edit</button><button onClick={()=>setModal({type:"resume",campaign})}>Turn on</button><button onClick={()=>setModal({type:"delete",campaign})}>Delete</button></>}
+        <button onClick={()=>setModal({type:"details",campaign})}>Details</button>
+        {st==="ongoing" && <button onClick={()=>setModal({type:"pause",campaign})}>Pause</button>}
+        {st==="paused" && <button onClick={()=>setModal({type:"resume",campaign})}>Turn on</button>}
+        {(st==="ongoing"||st==="pending"||st==="paused") && <button onClick={()=>setModal({type:"delete",campaign})}>Delete</button>}
       </div>
     </div>
-    {showProof && <><p>Proof Submitted: {campaign.proof}</p><button className="proof-btn">See Proofs</button></>}
-    {showProof && campaign.showLinksFeature && <>
-      <p>Add links of New Post made on Profile<br/><b>({campaign.linksUsed} links used {campaign.linksRemaining} remaining)</b></p>
-      <button className="orange-btn">Add Links to New Post</button>
-    </>}
+    {showProof && <p>Slots filled: {campaign.slots_filled} / {campaign.slots_total}</p>}
   </article>
 }
+const SERVICE_LABELS = {engaged_growth:"Engaged Growth", word_of_mouth:"Word of Mouth", single_one_time:null, custom:null, try_for_free:"Try for Free", trend_on_x:"Trend on X", high_value:"High Value"};
 
 function Notifications() {
   const navigate=useNavigate();
-  const notes=notifications;
-  if(!notes.length) return <div className="page notifications"><PageHeader title="Campaign Notifications" back gradient/><div className="empty"><h2>No Notifications Available</h2><button onClick={()=>navigate("/app")}>Go Back Home</button></div></div>;
-  return <div className="page notifications"><PageHeader title="Campaign Notifications" back gradient/><div className="notification-list">{notes.map((n,i)=><NotificationRow key={i} n={n} i={i}/>)}</div></div>
+  const {notifications, markRead, markAllRead} = useData();
+  if(!notifications.length) return <div className="page notifications"><PageHeader title="Campaign Notifications" back gradient/><div className="empty"><h2>No Notifications Available</h2><button onClick={()=>navigate("/app")}>Go Back Home</button></div></div>;
+  return <div className="page notifications">
+    <PageHeader title="Campaign Notifications" back gradient/>
+    <button className="filter" onClick={markAllRead}>Mark all as read</button>
+    <div className="notification-list">{notifications.map((n)=><NotificationRow key={n.id} n={n} onOpen={()=>!n.is_read && markRead(n.id)}/>)}</div>
+  </div>
 }
-function NotificationRow({n,i}){
-  const [modal,setModal]=useState(null);
-  return <><article className="notification"><span className="bell-badge"><Icon name="bell"/></span><div><b>{n[0]}</b><p>{n[1]}</p></div><small>Just now</small>{(i===1||i===3||i===4)&&<button onClick={()=>setModal({type:i===4?"reject":"proof",title:n[0]})}>{i===4?"See Why":"View Proof"}</button>}</article>{modal && <Modal modal={modal} close={()=>setModal(null)}/>}</>
+function NotificationRow({n,onOpen}){
+  return <article className={"notification"+(n.is_read?"":" unread")} onClick={onOpen}>
+    <span className="bell-badge"><Icon name="bell"/></span>
+    <div><b>{n.title}</b><p>{n.body}</p></div>
+    <small>{fmtRelative(n.created_at)}</small>
+  </article>
 }
 
-function Wallet({balance,totalFunded,setModal,setBalance}) {
+function Wallet({setModal}) {
   const navigate=useNavigate();
+  const {wallet, transactions, loading} = useData();
+  const balance = wallet?.balance_ngn ?? 0;
+  const totalFunded = wallet ? (wallet.total_spent_kobo + wallet.balance_kobo)/100 : 0;
   return <div className="page wallet-page">
     <div className="own-header wallet-own-header"><h1><Icon name="wallet" size={22}/> My Wallet</h1><div className="own-header-actions"><button onClick={()=>navigate("/app/notifications")}><Icon name="bell"/></button></div></div>
-    <section className="wallet-head"><div><span>Available Balance</span><b>₦{balance.toLocaleString()}</b><small className="paid-today">Amount Paid Today: ₦0</small></div><div className="wallet-total"><span>Total Amount</span><b>₦{totalFunded.toLocaleString()}</b></div></section>
-    <div className="wallet-body"><section className="fund-card large" onClick={()=>setModal({type:"fund"})}><div><h2>Add Funds</h2><p>(Click on the Plus sign to fund your wallet)</p></div><button><Icon name="plus"/></button></section><section className="recent"><h3>Recent Wallet Activity</h3><div className="wallet-activity"><span>●</span><div><small>Just now</small></div></div><button>View all Details</button></section><Support onClick={()=>setModal({type:"support"})}/></div>
+    <section className="wallet-head"><div><span>Available Balance</span><b>{loading?"…":"₦"+balance.toLocaleString()}</b></div><div className="wallet-total"><span>Total Amount Funded</span><b>{loading?"…":"₦"+totalFunded.toLocaleString()}</b></div></section>
+    <div className="wallet-body">
+      <section className="fund-card large" onClick={()=>setModal({type:"fund"})}><div><h2>Add Funds</h2><p>(Click on the Plus sign to fund your wallet)</p></div><button><Icon name="plus"/></button></section>
+      <section className="recent"><h3>Recent Wallet Activity</h3>
+        {transactions.slice(0,5).map(tx=><div className="wallet-activity" key={tx.id}><span>●</span><div><b>{txLabel(tx.type)} — ₦{Number(tx.amount_ngn).toLocaleString()}</b><small>{fmtRelative(tx.created_at)}</small></div></div>)}
+        {!transactions.length && <p className="muted-empty">No wallet activity yet</p>}
+      </section>
+      <Support onClick={()=>setModal({type:"support"})}/>
+    </div>
   </div>
 }
 
@@ -321,27 +436,207 @@ function PageHeader({title,back,backStyle="arrow",gradient}) {
 }
 function Empty({title,button}){const navigate=useNavigate();return <div className="empty"><h2>{title}</h2><button onClick={()=>navigate("/app")}>{button}</button></div>}
 
+// ==================== MODALS ====================
 function Modal({modal,close}) {
-  const [amount,setAmount]=useState("");
-  const [task,setTask]=useState("");
-  const [service,setService]=useState(modal.service||"Engaged Growth");
-  const [message,setMessage]=useState("");
+  const {createCampaign, updateCampaignStatus, fundWallet, notify} = useData();
   const navigate=useNavigate();
-  const dispatch = (type,payload={}) => {
-    window.dispatchEvent(new CustomEvent("nano-action",{detail:{type,...payload}}));
-  };
-  if(modal.type==="fund") return <Overlay close={close}><div className="modal"><button className="modal-close" onClick={close}><Icon name="close"/></button><h2>Add Funds</h2><p>Enter the amount you want to add to your wallet.</p><input className="field" type="number" placeholder="Amount (₦)" value={amount} onChange={e=>setAmount(e.target.value)}/><button className="primary-btn" onClick={()=>{dispatch("fund",{amount});close();}}>Continue</button></div></Overlay>;
-  if(modal.type==="campaign"||modal.type==="create"||modal.type==="custom") return <Overlay close={close}><div className="modal"><button className="modal-close" onClick={close}><Icon name="close"/></button><h2>{modal.type==="campaign"?"Launch a Campaign":"Create Campaign"}</h2><label>Service<select className="field" value={service} onChange={e=>setService(e.target.value)}>{services.map(s=><option key={s.name}>{s.name}</option>)}<option>Social Promotion</option></select></label><label>Campaign / profile link<input className="field" value={task} onChange={e=>setTask(e.target.value)} placeholder="https://..."/></label><button className="primary-btn" onClick={()=>{dispatch("create",{service,task});close();navigate("/app/campaigns")}}>Create Campaign</button></div></Overlay>;
-  if(modal.type==="support") return <Overlay close={close}><div className="modal"><button className="modal-close" onClick={close}><Icon name="close"/></button><h2>Any Issues?</h2><p>Send a message to our support team and we'll get back to you.</p><textarea className="field textarea" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Describe your issue..."/><button className="primary-btn" onClick={close}>Contact Support</button></div></Overlay>;
-  if(modal.type==="pause") return <Overlay close={close}><div className="modal confirm"><button className="modal-close" onClick={close}><Icon name="close"/></button><p className="confirm-lead">The Campaign would be on hold until you Turn it on again.</p><button className="primary-btn" onClick={()=>{dispatch("pause",{id:modal.campaign?.id});close();}}>Pause Now</button></div></Overlay>;
-  if(modal.type==="resume") return <Overlay close={close}><div className="modal confirm"><button className="modal-close" onClick={close}><Icon name="close"/></button><p className="confirm-lead">Your campaign will resume and continue running.</p><button className="primary-btn" onClick={()=>{dispatch("resume",{id:modal.campaign?.id});close();}}>Turn On</button></div></Overlay>;
-  if(modal.type==="delete") return <Overlay close={close}><div className="modal confirm"><button className="modal-close" onClick={close}><Icon name="close"/></button><h2 className="danger-heading">Your Campaign Would be Deleted</h2><input className="field" placeholder='Type "Delete" to delete campaign'/><button className="danger-btn" onClick={()=>{dispatch("delete",{id:modal.campaign?.id});close();}}>OK</button></div></Overlay>;
-  if(modal.type==="edit") return <Overlay close={close}><div className="modal confirm"><button className="modal-close" onClick={close}><Icon name="close"/></button><h2>Modify Campaign</h2><p>Update your campaign settings and submit changes.</p><button className="primary-btn" onClick={()=>{dispatch("edit",{id:modal.campaign?.id});close();}}>Save Changes</button></div></Overlay>;
-  if(modal.type==="reject") return <Overlay close={close}><div className="modal confirm"><button className="modal-close" onClick={close}><Icon name="close"/></button><h2 className="danger-heading">Violation of our Terms and Condition.</h2><p>Send an appeal<br/><a className="appeal-email" href="mailto:nanoinfluencer@gmail.com">nanoinfluencer@gmail.com</a></p><button className="danger-btn" onClick={close}>View Terms &amp; Condition</button></div></Overlay>;
-  if(modal.type==="proof") return <Overlay close={close}><div className="modal confirm"><button className="modal-close" onClick={close}><Icon name="close"/></button><h2>{modal.title}</h2><p>Proof submitted for this campaign is under review.</p><button className="primary-btn" onClick={close}>Close</button></div></Overlay>;
+
+  if(modal.type==="fund") return <FundModal close={close} fundWallet={fundWallet} notify={notify}/>;
+  if(modal.type==="create"||modal.type==="platform"||modal.type==="custom"||modal.type==="freemium")
+    return <CampaignFormModal modal={modal} close={close} createCampaign={createCampaign} notify={notify} navigate={navigate}/>;
+  if(modal.type==="support") return <SupportModal close={close}/>;
+  if(modal.type==="details") return <DetailsModal close={close} campaign={modal.campaign}/>;
+  if(modal.type==="pause") return <ConfirmModal close={close} lead="The Campaign would be on hold until you Turn it on again." confirmLabel="Pause Now"
+    onConfirm={async()=>{await updateCampaignStatus(modal.campaign.id,"paused");close();}}/>;
+  if(modal.type==="resume") return <ConfirmModal close={close} lead="Your campaign will resume and continue running." confirmLabel="Turn On"
+    onConfirm={async()=>{await updateCampaignStatus(modal.campaign.id,"active");close();}}/>;
+  if(modal.type==="delete") return <DeleteModal close={close} onConfirm={async()=>{await updateCampaignStatus(modal.campaign.id,"cancelled");close();}}/>;
   return null;
 }
 function Overlay({children,close}){return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}>{children}</div>}
+
+function FundModal({close,fundWallet,notify}){
+  const [amount,setAmount]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState("");
+  const submit = async () => {
+    const n = Number(amount);
+    if(!n || n < 100){ setError("Minimum deposit is ₦100"); return; }
+    setBusy(true); setError("");
+    try{ await fundWallet(n); }
+    catch(err){ setError(err instanceof ApiError ? err.message : "Could not start the deposit — please try again."); setBusy(false); }
+  };
+  return <Overlay close={close}><div className="modal">
+    <button className="modal-close" onClick={close}><Icon name="close"/></button>
+    <h2>Add Funds</h2>
+    <p>Enter the amount you want to add to your wallet. You'll be redirected to Paystack to complete payment.</p>
+    {error && <div className="auth-error">{error}</div>}
+    <input className="field" type="number" placeholder="Amount (₦)" value={amount} onChange={e=>setAmount(e.target.value)}/>
+    <button className="primary-btn" disabled={busy} onClick={submit}>{busy?"Redirecting…":"Continue"}</button>
+  </div></Overlay>;
+}
+
+function SupportModal({close}){
+  const [message,setMessage]=useState("");
+  return <Overlay close={close}><div className="modal">
+    <button className="modal-close" onClick={close}><Icon name="close"/></button>
+    <h2>Any Issues?</h2>
+    <p>Email our support team and we'll get back to you.</p>
+    <textarea className="field textarea" value={message} onChange={e=>setMessage(e.target.value)} placeholder="Describe your issue..."/>
+    <a className="primary-btn" style={{display:"block",textAlign:"center",textDecoration:"none"}}
+       href={`mailto:nanoinfluencer@gmail.com?subject=Support%20Request&body=${encodeURIComponent(message)}`}
+       onClick={close}>Email Support</a>
+  </div></Overlay>;
+}
+
+function ConfirmModal({close,lead,confirmLabel,onConfirm}){
+  const [busy,setBusy]=useState(false);
+  return <Overlay close={close}><div className="modal confirm">
+    <button className="modal-close" onClick={close}><Icon name="close"/></button>
+    <p className="confirm-lead">{lead}</p>
+    <button className="primary-btn" disabled={busy} onClick={async()=>{setBusy(true);await onConfirm();}}>{busy?"Please wait…":confirmLabel}</button>
+  </div></Overlay>;
+}
+
+function DeleteModal({close,onConfirm}){
+  const [text,setText]=useState("");
+  const [busy,setBusy]=useState(false);
+  return <Overlay close={close}><div className="modal confirm">
+    <button className="modal-close" onClick={close}><Icon name="close"/></button>
+    <h2 className="danger-heading">Your Campaign Would be Deleted</h2>
+    <p>Cancelling refunds any unspent budget back to your wallet.</p>
+    <input className="field" placeholder='Type "Delete" to delete campaign' value={text} onChange={e=>setText(e.target.value)}/>
+    <button className="danger-btn" disabled={text!=="Delete"||busy} onClick={async()=>{setBusy(true);await onConfirm();}}>OK</button>
+  </div></Overlay>;
+}
+
+function DetailsModal({close,campaign}){
+  const [audience,setAudience]=useState(null);
+  useEffect(()=>{ api.previewAudience(campaign.id).then(setAudience).catch(()=>setAudience(null)); },[campaign.id]);
+  return <Overlay close={close}><div className="modal confirm">
+    <button className="modal-close" onClick={close}><Icon name="close"/></button>
+    <h2>{campaign.title}</h2>
+    <div className="details-grid">
+      <div><small>Status</small><b>{campaign.status.replace("_"," ")}</b></div>
+      <div><small>Platform</small><b>{campaign.platform}</b></div>
+      <div><small>Action</small><b>{campaign.action_type}</b></div>
+      <div><small>Slots</small><b>{campaign.slots_filled} / {campaign.slots_total}</b></div>
+      <div><small>Budget</small><b>₦{(campaign.client_budget_kobo/100).toLocaleString()}</b></div>
+      <div><small>Worker pay/action</small><b>₦{(campaign.worker_pay_per_action_kobo/100).toLocaleString()}</b></div>
+    </div>
+    {audience && <p style={{fontSize:12,color:"var(--muted)",marginTop:12}}>
+      {audience.message || `Estimated reach: ${audience.found_quantity} of ${audience.desired_quantity} desired (${Math.round(audience.fulfillment_percentage||0)}%)`}
+    </p>}
+  </div></Overlay>;
+}
+
+// Unified campaign creation form used by all four entry points (named
+// service, single-platform "other services" grid, custom task, and the
+// "try for free" promo) — each just pre-fills / locks a different subset of
+// fields to match what the entry point already implies.
+function CampaignFormModal({modal,close,createCampaign,notify,navigate}){
+  const isService = modal.type==="create";
+  const isPlatform = modal.type==="platform";
+  const isFreemium = modal.type==="freemium";
+
+  const initialTni = isService ? modal.service.tni : isFreemium ? "try_for_free" : "custom";
+  const initialAction = isService ? modal.service.action : "follow";
+  const initialPlatform = isPlatform ? modal.platform[3] : "instagram";
+
+  const [title,setTitle] = useState(isService ? modal.service.name+" Campaign" : "");
+  const [platform,setPlatform] = useState(initialPlatform);
+  const [actionType,setActionType] = useState(initialAction);
+  const [commentSubtype,setCommentSubtype] = useState("");
+  const [targetUrl,setTargetUrl] = useState("");
+  const [description,setDescription] = useState("");
+  const [budget,setBudget] = useState("");
+  const [price,setPrice] = useState("");
+  const [urgent,setUrgent] = useState(false);
+  const [hasInstructions,setHasInstructions] = useState(false);
+  const [instructions,setInstructions] = useState("");
+  const [error,setError] = useState("");
+  const [busy,setBusy] = useState(false);
+
+  const platformLocked = isPlatform;
+  const heading = isService ? modal.service.name : isPlatform ? `${modal.platform[0]} Task` : isFreemium ? "Try for Free" : "Create Custom Task";
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    if(!title.trim()) return setError("Please give this campaign a title.");
+    if(!targetUrl.trim()) return setError("Please add the profile/post link.");
+    const budgetN = Number(budget), priceN = Number(price);
+    if(!budgetN || budgetN <= 0) return setError("Enter a total budget greater than ₦0.");
+    if(!priceN || priceN <= 0) return setError("Enter a price per action greater than ₦0.");
+    setBusy(true);
+    try {
+      await createCampaign({
+        title: title.trim(),
+        platform,
+        action_type: actionType,
+        tni_service_type: initialTni,
+        description: description || null,
+        target_url: targetUrl.trim(),
+        client_budget_ngn: budgetN,
+        client_price_per_action_ngn: priceN,
+        is_urgent: urgent,
+        has_instructions: hasInstructions,
+        instructions: hasInstructions ? instructions : null,
+        comment_subtype: actionType==="comment" ? (commentSubtype || null) : null,
+      });
+      close();
+      navigate("/app/campaigns");
+    } catch(err) {
+      setError(err instanceof ApiError ? err.message : "Could not create the campaign — please try again.");
+      setBusy(false);
+    }
+  };
+
+  return <Overlay close={close}><div className="modal">
+    <button className="modal-close" onClick={close}><Icon name="close"/></button>
+    <h2>{heading}</h2>
+    {error && <div className="auth-error">{error}</div>}
+    <form onSubmit={submit}>
+      <label>Campaign title
+        <input className="field" value={title} onChange={e=>setTitle(e.target.value)} placeholder="e.g. Instagram Growth — August"/>
+      </label>
+      {!platformLocked && <label>Platform
+        <select className="field" value={platform} onChange={e=>setPlatform(e.target.value)}>
+          {platforms.map(p=><option key={p[3]} value={p[3]}>{p[0]}</option>)}
+        </select>
+      </label>}
+      {!isService && <label>Action
+        <select className="field" value={actionType} onChange={e=>setActionType(e.target.value)}>
+          {actionTypes.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+        </select>
+      </label>}
+      {actionType==="comment" && <label>Comment style
+        <select className="field" value={commentSubtype} onChange={e=>setCommentSubtype(e.target.value)}>
+          <option value="">Standard</option>
+          <option value="personalized">Personalized (higher pay)</option>
+          <option value="premium">Premium</option>
+          <option value="interactive">Interactive</option>
+        </select>
+      </label>}
+      <label>Profile / post link
+        <input className="field" value={targetUrl} onChange={e=>setTargetUrl(e.target.value)} placeholder="https://..."/>
+      </label>
+      <label>Description <small className="auth-optional">(optional)</small>
+        <textarea className="field textarea" style={{minHeight:70}} value={description} onChange={e=>setDescription(e.target.value)} placeholder="What should workers know about this campaign?"/>
+      </label>
+      <label>Total budget (₦)
+        <input className="field" type="number" min="1" value={budget} onChange={e=>setBudget(e.target.value)} placeholder="e.g. 20000"/>
+      </label>
+      <label>Price per action (₦)
+        <input className="field" type="number" min="1" value={price} onChange={e=>setPrice(e.target.value)} placeholder="e.g. 100"/>
+      </label>
+      <label className="checkbox-row"><input type="checkbox" checked={urgent} onChange={e=>setUrgent(e.target.checked)}/> Mark as urgent (faster delivery)</label>
+      <label className="checkbox-row"><input type="checkbox" checked={hasInstructions} onChange={e=>setHasInstructions(e.target.checked)}/> Add special instructions</label>
+      {hasInstructions && <textarea className="field textarea" style={{minHeight:70}} value={instructions} onChange={e=>setInstructions(e.target.value)} placeholder="Any specific steps workers must follow..."/>}
+      <button className="primary-btn" disabled={busy} type="submit">{busy?"Creating…":"Create Campaign"}</button>
+    </form>
+  </div></Overlay>;
+}
 
 // ==================== LANDING PAGE ====================
 function LandingPage(){
@@ -356,8 +651,8 @@ function LandingPage(){
         <h1>Stop Going for Empty Clicks. Turn Everyday People into Your <span className="l-accent">Brand's Most Powerful Advertisers.</span></h1>
         <p>Advertise across Nigeria &amp; Ghana with Millions of nano-influencers who will share, engage, and recommend your brand, content or business in DMs, and Groups where people actually trust the message.</p>
         <div className="l-hero-actions">
-          <button className="l-btn l-btn-white" onClick={()=>navigate("/app")}>Get Started</button>
-          <button className="l-btn l-btn-navy" onClick={()=>navigate("/app")}>Login</button>
+          <button className="l-btn l-btn-white" onClick={()=>navigate("/register")}>Get Started</button>
+          <button className="l-btn l-btn-navy" onClick={()=>navigate("/login")}>Login</button>
         </div>
       </div>
     </section>
@@ -444,8 +739,8 @@ function LandingPage(){
       <h2>Start today for free. No wasted time, only real Result that satisfies!</h2>
       <p>Over 120,000 tasks completed.. Trusted by entrepreneurs, Creators and SMEs across 10,000 Nigerian and Ghanian users.</p>
       <div className="l-cta-actions">
-        <button className="l-btn l-btn-white" onClick={()=>navigate("/app")}>Sign-up Now</button>
-        <button className="l-btn l-btn-white" onClick={()=>navigate("/app")}>Login Now</button>
+        <button className="l-btn l-btn-white" onClick={()=>navigate("/register")}>Sign-up Now</button>
+        <button className="l-btn l-btn-white" onClick={()=>navigate("/login")}>Login Now</button>
       </div>
     </section>
 
@@ -478,19 +773,6 @@ function FaqSection(){
   </section>
 }
 
-function Root() {
-  const [campaigns,setCampaigns]=useState(initialCampaigns);
-  const [balance,setBalance]=useState(0);
-  const [totalFunded,setTotalFunded]=useState(0);
-  React.useEffect(()=>{
-    const handler=e=>{
-      const d=e.detail;
-      if(d.type==="fund"){const n=Number(d.amount||0);if(n>0){setBalance(b=>b+n);setTotalFunded(t=>t+n);}}
-      if(d.type==="create")setCampaigns(c=>[{id:Date.now(),type:null,name:d.service,task:d.task||"New Campaign",status:"pending",created:"Just now",proof:""},...c]);
-      if(["pause","delete","resume"].includes(d.type))setCampaigns(c=>c.map(x=>x.id===d.id?{...x,status:d.type==="pause"?"paused":d.type==="resume"?"ongoing":"deleted"}:x).filter(x=>x.status!=="deleted"));
-    };
-    window.addEventListener("nano-action",handler);return()=>window.removeEventListener("nano-action",handler);
-  },[]);
-  return <App balance={balance} setBalance={setBalance} totalFunded={totalFunded} campaigns={campaigns} setCampaigns={setCampaigns}/>;
-}
-createRoot(document.getElementById("root")).render(<BrowserRouter><Root/></BrowserRouter>);
+createRoot(document.getElementById("root")).render(
+  <BrowserRouter><AuthProvider><App/></AuthProvider></BrowserRouter>
+);

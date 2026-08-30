@@ -22,6 +22,34 @@
 .page-header.gradient{background:linear-gradient(100deg,#0d3d70,#4e9bd0)}
 .go-back-link{margin-left:auto;color:#fff;text-decoration:underline;font-size:13px;cursor:pointer}
 
+.auth-page{min-height:100vh;display:grid;place-items:center;background:var(--navy);background:linear-gradient(160deg,var(--navy),#0d3d70 60%,#164d82);padding:24px}
+.auth-card{width:min(420px,100%);background:#fff;border-radius:16px;padding:32px 28px;box-shadow:0 25px 60px #0005}
+.auth-brand{display:flex;align-items:center;gap:8px;font-weight:900;color:var(--navy);margin-bottom:18px;font-size:14px;text-transform:uppercase;letter-spacing:.03em}
+.auth-card h1{margin:0 0 6px;color:var(--navy);font-size:26px}
+.auth-sub{color:var(--muted);margin:0 0 18px}
+.auth-card label{display:block;font-weight:800;margin:14px 0;color:var(--ink)}
+.auth-optional{font-weight:400;color:var(--muted)}
+.auth-error{background:#fdeceb;color:#c0392b;border:1px solid #f3c2bd;border-radius:8px;padding:10px 14px;margin-bottom:8px;font-size:13px}
+.auth-switch{text-align:center;margin-top:18px;font-size:14px;color:var(--muted)}
+.auth-switch a{color:var(--orange);font-weight:800;text-decoration:none}
+.auth-loading{text-align:center;color:var(--navy);font-weight:700;padding:20px 0}
+.auth-oauth{margin-top:10px}
+.auth-divider{text-align:center;color:var(--muted);font-size:12px;margin:18px 0 12px;position:relative}
+.auth-divider::before,.auth-divider::after{content:"";position:absolute;top:50%;width:38%;height:1px;background:var(--line)}
+.auth-divider::before{left:0}
+.auth-divider::after{right:0}
+.oauth-btn{display:block;width:100%;text-align:center;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:11px;margin-bottom:10px;color:var(--ink);font-weight:800;background:#fff}
+.oauth-btn:hover{background:#f6f6f6}
+.notif-dot{position:absolute;top:-2px;right:-4px;background:var(--red);color:#fff;font-size:9px;font-weight:900;border-radius:10px;min-width:16px;height:16px;display:grid;place-items:center;padding:0 3px}
+.checkbox-row{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px}
+.checkbox-row input{width:16px;height:16px}
+.details-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.details-grid div{background:var(--cream);border-radius:8px;padding:10px 12px}
+.details-grid small{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.03em}
+.details-grid b{font-size:14px;text-transform:capitalize}
+.notification{cursor:pointer}
+.notification.unread{border-color:var(--orange);background:#fff8f5}
+
 @media(max-width:700px){
   body{font-size:13px}.topbar{height:66px;padding:11px 15px}.page{min-height:calc(100vh - 66px)}.brand small{font-size:11px}.brand strong{font-size:19px}.hero-dark{padding:0 12px 20px}.balance{padding:10px 0}.balance span{font-size:13px}.balance b{font-size:17px}.stat-grid{gap:8px}.stat-card{min-height:125px;padding:13px}.stat-card h2{font-size:17px}.stat-card>b{font-size:22px}.stat-card .round-icon{width:38px;height:38px;right:10px;top:10px}.stat-card button{left:10px;right:10px;height:38px;font-size:13px}.content-wrap{padding:10px 12px}.launch-card{padding:15px;display:block}.launch-card h2{font-size:21px}.launch-card p{font-size:13px}.white-cta{width:100%;margin-top:13px}.fund-card{padding:11px}.fund-card h2{font-size:20px}.fund-card p{font-size:11px}.referral p{font-size:13px}.promo{padding:13px;display:block}.promo h2{font-size:21px}.promo p{font-size:11px}.promo button{width:100%;min-width:0;margin-top:10px;font-size:14px}.analytics{margin:15px -12px 0;padding:15px;border-top-width:5px;border-bottom-width:5px}.chart{height:150px}.legend{font-size:10px;gap:10px}.periods{font-size:10px;gap:10px}.support-row{padding:8px}.support-row span{font-size:14px}.campaign-hero{padding-top:15px}.campaign-hero>h1{font-size:20px;margin-bottom:15px}.service-card{flex-basis:calc(100vw - 24px);padding:14px}.service-card h2{font-size:21px}.service-row{font-size:11px}.service-row b{font-size:12px}.service-card>button{width:80%}.other-services{padding:22px 10px}.custom-task{padding:20px}.wallet-head{padding:15px;display:block}.wallet-total{margin-top:10px;min-width:0}.wallet-body{padding:12px}.notification{grid-template-columns:35px 1fr auto}.notification p{font-size:9px}.tabs{overflow:auto;gap:14px}.bottom-nav{height:66px}.bottom-nav a:nth-child(3) .icon{width:42px!important;height:42px!important}.app{padding-bottom:66px}
 }
