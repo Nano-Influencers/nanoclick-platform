@@ -81,10 +81,10 @@ def _hard_filters(t: CampaignTargeting) -> list:
     f: list = []
 
     if t.target_religions:
-        f.append(KycProfile.religion.in_(t.target_religions))
+        f.append(func.lower(KycProfile.religion).in_([r.lower() for r in t.target_religions]))
 
     if t.target_income_ranges:
-        f.append(KycProfile.monthly_income_range.in_(t.target_income_ranges))
+        f.append(func.lower(KycProfile.monthly_income_range).in_([i.lower() for i in t.target_income_ranges]))
 
     if t.target_languages:
         f.append(or_(*[
@@ -176,9 +176,9 @@ class LocationExpander:
         if tier == 1:
             conds = []
             if cities:
-                conds.append(KycProfile.primary_city.in_(cities))
+                conds.append(func.lower(KycProfile.primary_city).in_(cities))
             if states:
-                conds.append(KycProfile.primary_state.in_(states))
+                conds.append(func.lower(KycProfile.primary_state).in_(states))
             return [or_(*conds)] if conds else []
 
         if tier == 2:
@@ -192,9 +192,9 @@ class LocationExpander:
             conds = []
             if cities:
                 conds += [
-                    KycProfile.occupation_location.in_(cities),
-                    KycProfile.study_location.in_(cities),
-                    KycProfile.trade_school_niche.in_(cities),
+                    func.lower(KycProfile.occupation_location).in_(cities),
+                    func.lower(KycProfile.study_location).in_(cities),
+                    func.lower(KycProfile.trade_school_niche).in_(cities),
                 ]
             return [or_(*conds)] if conds else []
 
@@ -208,15 +208,15 @@ class LocationExpander:
 
         if tier == 5:
             if cities:
-                return [KycProfile.majority_follower_location.in_(cities)]
+                return [func.lower(KycProfile.majority_follower_location).in_(cities)]
             return []
 
         if tier == 6:
             conds = []
             if states:
-                conds.append(KycProfile.state_of_origin.in_(states))
+                conds.append(func.lower(KycProfile.state_of_origin).in_(states))
             if cities:
-                conds.append(KycProfile.town_of_origin.in_(cities))
+                conds.append(func.lower(KycProfile.town_of_origin).in_(cities))
             return [or_(*conds)] if conds else []
 
         if tier == 7:
@@ -226,7 +226,7 @@ class LocationExpander:
                 neighbour_cities.update(NEIGHBOURING_LOCATIONS.get(city, []))
             neighbour_cities -= set(cities)  # exclude already-used
             if neighbour_cities:
-                return [KycProfile.primary_city.in_(list(neighbour_cities))]
+                return [func.lower(KycProfile.primary_city).in_(list(neighbour_cities))]
             return []
 
         if tier == 8:
@@ -253,7 +253,7 @@ class LocationExpander:
             # Also include explicitly targeted ethnicities
             ethnicities.update(self.ethnicities)
             if ethnicities:
-                return [KycProfile.ethnicity_tribe.in_(list(ethnicities))]
+                return [func.lower(KycProfile.ethnicity_tribe).in_(list(ethnicities))]
             return []
 
         return []
@@ -393,7 +393,7 @@ class GenderExpander:
 
     def _tier_filter(self, tier: int) -> list:
         if tier == 1:
-            return [KycProfile.gender.in_(self.genders)]
+            return [func.lower(KycProfile.gender).in_(self.genders)]
         if tier == 2:
             conds = []
             for g in self.genders:
@@ -504,7 +504,7 @@ class MaritalExpander:
 
         # Tier 1 — exact
         new_ids = await _run_query(
-            db, [KycProfile.marital_status.in_(self.statuses)], hard_filters, seen
+            db, [func.lower(KycProfile.marital_status).in_(self.statuses)], hard_filters, seen
         )
         for uid in new_ids:
             seen.add(uid)
@@ -538,7 +538,7 @@ class MaritalExpander:
         adj -= set(self.statuses)
         if adj:
             new_ids = await _run_query(
-                db, [KycProfile.marital_status.in_(list(adj))], hard_filters, seen
+                db, [func.lower(KycProfile.marital_status).in_(list(adj))], hard_filters, seen
             )
             for uid in new_ids:
                 seen.add(uid)
@@ -623,7 +623,7 @@ class TargetingEngine:
         if t.target_ethnicities and not (t.target_cities or t.target_states):
             new_ids = await _run_query(
                 db,
-                [KycProfile.ethnicity_tribe.in_(t.target_ethnicities)],
+                [func.lower(KycProfile.ethnicity_tribe).in_([e.lower() for e in t.target_ethnicities])],
                 hard,
                 self.seen,
             )
