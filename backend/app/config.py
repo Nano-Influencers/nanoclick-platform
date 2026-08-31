@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # Flutter Web build, so the mobile deep link nanoclick://oauth?... doesn't
     # apply to it — see /auth/google/login?platform=web).
     OAUTH_WEB_REDIRECT_URL: str = "http://localhost:5173/oauth-callback"
+    # Comma-separated allowlist of origins/URLs a caller may pass as its own
+    # ?redirect_uri= for web OAuth — required since nano-influencers and
+    # click-workers are two different web origins that both need their own
+    # callback page, and an unvalidated redirect_uri would let anyone mint
+    # a link that hands a freshly-issued token to an attacker-controlled page.
+    OAUTH_ALLOWED_WEB_REDIRECTS: str = "http://localhost:5173/oauth-callback,http://localhost:8080/oauth-callback"
 
     # Gamification amounts (kobo). Not discoverable from the existing
     # Firestore-based client, since it wrote these values directly without
