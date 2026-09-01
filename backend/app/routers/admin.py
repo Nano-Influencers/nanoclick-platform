@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin
@@ -89,7 +90,7 @@ async def list_pending_campaigns(db: AsyncSession = Depends(get_db), _: User = D
 
 @router.post("/campaigns/{campaign_id}/approve")
 async def approve_campaign(campaign_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    r = await db.execute(select(Campaign).where(Campaign.id==campaign_id))
+    r = await db.execute(select(Campaign).options(selectinload(Campaign.targeting)).where(Campaign.id==campaign_id))
     campaign = r.scalar_one_or_none()
     if not campaign: raise HTTPException(404, "Campaign not found")
     if campaign.status != "pending_admin": raise HTTPException(400, f"Campaign is already '{campaign.status}'")
@@ -99,6 +100,18 @@ async def approve_campaign(campaign_id: uuid.UUID, db: AsyncSession = Depends(ge
     from app.services.notification_service import notify
     await notify(db, campaign.owner_id, "campaign_approved", "Campaign is live",
                  f"\"{campaign.title}\" was approved and is now live for workers.")
+
+    # For a *targeted* campaign, proactively notify the specific workers it
+    # matches — an untargeted campaign is already visible to everyone via
+    # the normal task feed (GET /tasks), so a mass notification there would
+    # just be spam with no new information.
+    if campaign.targeting:
+        from app.services.targeting import get_eligible_worker_ids
+        worker_ids = await get_eligible_worker_ids(campaign.targeting, campaign.slots_total, db)
+        if worker_ids:
+            from app.workers.notification_tasks import notify_new_tasks_available
+            notify_new_tasks_available.delay([str(w) for w in worker_ids], campaign.title)
+
     return {"message": "Campaign approved and tasks are now live"}
 
 @router.post("/campaigns/{campaign_id}/reject")

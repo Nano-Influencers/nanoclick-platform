@@ -28,3 +28,14 @@ class UserResponse(BaseModel):
     referral_code: str
     kyc_verified: bool
     model_config = {"from_attributes": True}
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
