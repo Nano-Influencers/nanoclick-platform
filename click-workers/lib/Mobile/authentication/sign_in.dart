@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:click_workers/Mobile/authentication/utils/user.dart' as userid;
-import 'package:firebase_auth/firebase_auth.dart' as fire;
 import 'package:click_workers/Mobile/authentication/utils/google_sign_in.dart';
 import 'package:click_workers/Mobile/authentication/utils/facebook_sign_in.dart';
 import 'package:click_workers/Mobile/authentication/sign_up.dart';
@@ -60,16 +59,6 @@ class _SignInState extends State<SignIn> {
           style: TextStyle(color: Colors.black)),
     );
     ScaffoldMessenger.of(context).showSnackBar(snackBar);
-  }
-
-  //reset password
-  Future resetPassword() async {
-    try {
-      await fire.FirebaseAuth.instance
-          .sendPasswordResetEmail(email: emailEditingController.text.trim());
-    } on fire.FirebaseAuthException catch (e) {
-      return e.toString();
-    }
   }
 
   @override
@@ -179,14 +168,12 @@ class _SignInState extends State<SignIn> {
                         ),
                       ),
                       onPressed: () async {
+                        // This redirects the whole browser tab away to the
+                        // backend's OAuth flow and back — see
+                        // SignInWithFacebook for details. Nothing after
+                        // this call runs; the app reloads fresh once the
+                        // browser returns with tokens in the URL.
                         await SignInWithFacebook.signInWithFacebook();
-                        await _auth.createUserInFirestore(
-                            emailEditingController.text,
-                            passwordEditingController.text);
-                        await _auth.createUserWallet();
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                        }
                       },
                     ),
                     const Padding(padding: EdgeInsets.only(bottom: 14)),
@@ -215,14 +202,9 @@ class _SignInState extends State<SignIn> {
                         ),
                       ),
                       onPressed: () async {
+                        // Full-page redirect — see the comment on the
+                        // Facebook button above.
                         await SignInWithGoogle.signInWithGoogle();
-                        await _auth.createUserInFirestore(
-                            emailEditingController.text,
-                            passwordEditingController.text);
-                        await _auth.createUserWallet();
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                        }
                       },
                     ),
                   ],

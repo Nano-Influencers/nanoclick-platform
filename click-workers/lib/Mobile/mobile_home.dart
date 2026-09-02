@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import 'package:click_workers/services/app_user.dart';
 import '../Mobile/signed_in.dart';
 import '../Mobile/landing.dart';
 
@@ -16,7 +16,7 @@ class _MobileHomeState extends State<MobileHome> {
 
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<User?>(context);
+    final user = Provider.of<AppUser?>(context);
     if (user != null) {
       return const SignedIn();
     } else {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:click_workers/Mobile/authentication/utils/auth.dart';
 
 Future<void> showDeleteDialog(BuildContext context) async {
   final TextEditingController textController = TextEditingController();
@@ -67,26 +67,20 @@ Future<void> showDeleteDialog(BuildContext context) async {
                       ),
                       onPressed: () async {
                         if (formKey.currentState!.validate()) {
-                          try {
-                            User? user = FirebaseAuth.instance.currentUser;
-
-                            if (user != null) {
-                              await user
-                                  .delete(); // 🧨 This will throw if re-auth is required
-
-                              // Optionally sign out and redirect
-                              await FirebaseAuth.instance.signOut();
-                              if (context.mounted) {
-                                Navigator.of(context)
-                                    .pushReplacementNamed('/login');
-                              }
-                            }
-                          } on FirebaseAuthException catch (e) {
-                            if (e.code == 'requires-recent-login') {
-                              setState(() => error = e.message!);
-                            } else {
-                              setState(() => error = e.message!);
-                            }
+                          final auth = AuthProvider();
+                          final errorMessage = await auth.deleteAccount();
+                          if (errorMessage != null) {
+                            setState(() => error = errorMessage);
+                          } else if (context.mounted) {
+                            // deleteAccount() already signs out; popping
+                            // back to root lets the auth-state stream show
+                            // the landing/sign-in screen. (The previous
+                            // Navigator.pushReplacementNamed('/login') here
+                            // was already broken pre-Firebase-removal too —
+                            // this app has no named routes registered
+                            // anywhere for '/login' to resolve to.)
+                            Navigator.of(context)
+                                .popUntil((route) => route.isFirst);
                           }
                         }
                       },

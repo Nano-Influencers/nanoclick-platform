@@ -1,10 +1,8 @@
-//import 'package:firebase_auth/firebase_auth.dart' as fire;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:click_workers/Mobile/authentication/utils/auth.dart';
 import 'package:click_workers/Mobile/authentication/utils/google_sign_in.dart';
 import 'package:click_workers/Mobile/authentication/utils/facebook_sign_in.dart';
-import 'package:click_workers/Mobile/authentication/verify.dart';
 import 'package:click_workers/Mobile/authentication/sign_in.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -216,14 +214,10 @@ class _SignUpState extends State<SignUp> {
                         ),
                       ),
                       onPressed: () async {
+                        // Full-page redirect to the backend's OAuth flow —
+                        // nothing after this call runs; the app reloads
+                        // fresh once the browser returns with tokens.
                         await SignInWithFacebook.signInWithFacebook();
-                        await _auth.createUserInFirestore(
-                            fullNameEditingController.text,
-                            passwordEditingController.text);
-                        await _auth.createUserWallet();
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                        }
                       },
                     ),
                     const Padding(padding: EdgeInsets.only(bottom: 14)),
@@ -252,14 +246,8 @@ class _SignUpState extends State<SignUp> {
                         ),
                       ),
                       onPressed: () async {
+                        // Full-page redirect — see the Facebook button above.
                         await SignInWithGoogle.signInWithGoogle();
-                        await _auth.createUserInFirestore(
-                            fullNameEditingController.text,
-                            passwordEditingController.text);
-                        await _auth.createUserWallet();
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                        }
                       },
                     ),
                   ],
@@ -412,10 +400,6 @@ class _SignUpState extends State<SignUp> {
                                           emailEditingController.text,
                                           passwordEditingController.text,
                                           fullNameEditingController.text);
-                                  await _auth.createUserInFirestore(
-                                      fullNameEditingController.text,
-                                      passwordEditingController.text);
-                                  await _auth.createUserWallet();
                                   if (result.toString() !=
                                       "Instance of 'UserId'") {
                                     if (context.mounted) {
@@ -430,24 +414,19 @@ class _SignUpState extends State<SignUp> {
                                       isActive = true;
                                       isLoading = false;
                                     });
+                                    // registerWithEmailAndPassword already
+                                    // logs the new account in (the backend
+                                    // has no email/phone verification step
+                                    // to gate on, unlike the old
+                                    // Firebase-backed flow) — pop back to
+                                    // the root so the auth-state stream
+                                    // shows the signed-in app immediately,
+                                    // rather than a "check your email"
+                                    // screen that would always trivially
+                                    // pass with nothing real to verify.
                                     if (context.mounted) {
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (context) => VerifyScreen(
-                                                  value: emailEditingController
-                                                      .text,
-                                                  isNumber: isNumber,
-                                                  confirmationResult:
-                                                      confirmationResult,
-                                                  password:
-                                                      passwordEditingController
-                                                          .text,
-                                                  fullName:
-                                                      fullNameEditingController
-                                                          .text,
-                                                )),
-                                      );
+                                      Navigator.popUntil(
+                                          context, (route) => route.isFirst);
                                     }
                                   }
                                 }

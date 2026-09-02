@@ -1,31 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import '../KYC/user_agreement.dart';
-import '../authentication/utils/profile_photo_state.dart';
 import '../widgets/task_stream.dart';
-import '../widgets/wallet_stream.dart';
+import 'package:click_workers/services/dashboard_stream.dart';
 
+/// Was backed by three combined Firestore streams (wallet doc, user doc,
+/// leaderboard query — see the deleted wallet_stream.dart) plus direct
+/// FirebaseAuth.instance.currentUser reads scattered through the widget
+/// tree. Now backed by DashboardData, a typed bundle polled from the
+/// backend (see lib/services/dashboard_stream.dart) — no
+/// FirebaseFirestore/FirebaseAuth left anywhere in this file.
 class Dashboard extends StatefulWidget {
   const Dashboard({
     super.key,
     required this.controller,
-    required this.otherFirestore,
   });
 
   final PageController controller;
-  final FirebaseFirestore? otherFirestore;
 
   @override
   State<Dashboard> createState() => _DashboardState();
 }
 
 class _DashboardState extends State<Dashboard> {
-   late YoutubePlayerController _controller;
-  bool isVerified = true;
+  late YoutubePlayerController _controller;
   bool isLinkClicked = false;
 
   @override
@@ -41,26 +41,52 @@ class _DashboardState extends State<Dashboard> {
     );
   }
 
+  String _formatMoney(num n) {
+    return n.round().toString().replaceAllMapped(
+        RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
         backgroundColor: const Color(0xffeeeeee),
-        body: StreamBuilder<List<dynamic>>(
-            stream: multiDataStream(),
+        body: StreamBuilder<DashboardData>(
+            stream: dashboardStream(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
                 return const Center(
                     child: CircularProgressIndicator(color: Colors.black));
               }
 
-              final walletData = snapshot.data![0] as DocumentSnapshot;
-              final userData = snapshot.data![1] as DocumentSnapshot;
-              final walletDoc =
-                  walletData.data() as Map<String, dynamic>? ?? {};
-              final userDoc = userData.data() as Map<String, dynamic>? ?? {};
-              final leaderboardDoc = snapshot.data![2]!.docs;
-
-              //  firestoreValue = userDoc['status'];
+              final d = snapshot.data!;
+              final user = d.user;
+              final wallet = d.wallet;
+              final kycVerified = user.kycVerified;
+              // No partial-progress concept exists server-side (KYC is a
+              // single all-or-nothing submission, not a multi-step wizard
+              // with a real percentage) — this maps the four real statuses
+              // onto a progress bar as a reasonable approximation rather
+              // than an invented precise number.
+              final kycProgressValue = switch (d.kycStatus) {
+                'approved' => 1.0,
+                'pending' => 0.5,
+                _ => 0.0,
+              };
+              final kycButtonLabel = switch (d.kycStatus) {
+                'approved' => 'Completed',
+                'pending' => 'Pending Review',
+                'rejected' => 'Resubmit KYC',
+                _ => 'Complete Kyc',
+              };
+              final initial = user.fullName.isNotEmpty
+                  ? user.fullName.trim()[0].toUpperCase()
+                  : '?';
+              final displayName = user.fullName
+                  .split(" ")
+                  .where((w) => w.isNotEmpty)
+                  .map((w) => w[0].toUpperCase() + w.substring(1))
+                  .join(" ");
+              final leaderboard = d.leaderboardTop;
 
               return SingleChildScrollView(
                   child: Center(
@@ -82,75 +108,34 @@ class _DashboardState extends State<Dashboard> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              FirebaseAuth.instance.currentUser!.photoURL ==
-                                      null
-                                  ? CircleAvatar(
-                                      radius: 40,
-                                      backgroundColor: const Color(0xffeeeeee),
-                                      child: Center(
-                                          child: Text(
-                                              FirebaseAuth.instance.currentUser!
-                                                  .displayName![0]
-                                                  .toUpperCase(),
-                                              style: const TextStyle(
-                                                  fontSize: 40,
-                                                  color: Colors.black,
-                                                  fontWeight:
-                                                      FontWeight.bold))))
-                                  : ValueListenableBuilder<String?>(
-                                      valueListenable:
-                                          ProfilePhotoState.photoUrl,
-                                      builder: (context, photoUrl, _) {
-                                        return CircleAvatar(
-                                          radius: 40,
-                                          backgroundImage: photoUrl != null &&
-                                                  photoUrl.isNotEmpty
-                                              ? NetworkImage(
-                                                  FirebaseAuth.instance
-                                                      .currentUser!.photoURL
-                                                      .toString(),
-                                                )
-                                              : null,
-                                          child: photoUrl == null ||
-                                                  photoUrl.isEmpty
-                                              ? Center(
-                                                  child: Text(
-                                                      FirebaseAuth
-                                                          .instance
-                                                          .currentUser!
-                                                          .displayName![0]
-                                                          .toUpperCase(),
-                                                      style: const TextStyle(
-                                                          fontSize: 40,
-                                                          color: Colors.black,
-                                                          fontWeight: FontWeight
-                                                              .bold))) // placeholder icon
-                                              : null,
-                                        );
-                                      }),
+                              // No backend field/endpoint for a profile
+                              // picture exists yet (see AppUser.photoURL) —
+                              // always show an initials avatar.
+                              CircleAvatar(
+                                  radius: 40,
+                                  backgroundColor: const Color(0xffeeeeee),
+                                  child: Center(
+                                      child: Text(initial,
+                                          style: const TextStyle(
+                                              fontSize: 40,
+                                              color: Colors.black,
+                                              fontWeight:
+                                                  FontWeight.bold)))),
                               SizedBox(width: 3.w),
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    FirebaseAuth
-                                        .instance.currentUser!.displayName!
-                                        .split(" ")
-                                        .map((w) =>
-                                            w[0].toUpperCase() + w.substring(1))
-                                        .join(" "),
+                                    displayName,
                                     style: const TextStyle(
                                         color: Colors.white,
                                         fontWeight: FontWeight.bold),
                                   ),
                                   SizedBox(height: 1.h),
                                   Text(
-                                    userDoc['status'] == "Verified"
-                                        ? "  verified"
-                                        : "  Non verified",
+                                    kycVerified ? "  verified" : "  Non verified",
                                     style: TextStyle(
-                                        color: FirebaseAuth.instance
-                                                .currentUser!.emailVerified
+                                        color: kycVerified
                                             ? Colors.white
                                             : Colors.red,
                                         fontSize: 12,
@@ -159,7 +144,7 @@ class _DashboardState extends State<Dashboard> {
                                 ],
                               ),
                               SizedBox(width: 1.w),
-                              userDoc['status'] == "Verified"
+                              kycVerified
                                   ? const Icon(Icons.check_circle,
                                       color: Color(0xff22c55e), size: 22)
                                   : const SizedBox(
@@ -176,11 +161,8 @@ class _DashboardState extends State<Dashboard> {
                                       style:
                                           TextStyle(color: Color(0xffd1d5db))),
                                   Text(
-                                      (walletDoc['totalPoints'] ?? 0)
-                                          .toString()
-                                          .replaceAllMapped(
-                                              RegExp(r'\B(?=(\d{3})+(?!\d))'),
-                                              (match) => ','),
+                                      _formatMoney(
+                                          (wallet['click_points'] as num?) ?? 0),
                                       style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 16,
@@ -190,7 +172,7 @@ class _DashboardState extends State<Dashboard> {
                                   const Text("Current Rank",
                                       style:
                                           TextStyle(color: Color(0xffd1d5db))),
-                                  Text(walletDoc['currentRank'] ?? 'Platinum',
+                                  Text("Grit Lv. ${d.gritLevel}",
                                       style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 16,
@@ -224,7 +206,7 @@ class _DashboardState extends State<Dashboard> {
                                     )),
                                 SizedBox(height: 1.h),
                                 Text(
-                                    "₦${(walletDoc['totalEarnings'] ?? 0).toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',')}",
+                                    "₦${_formatMoney(((wallet['total_earned_kobo'] as num?) ?? 0) / 100)}",
                                     style: const TextStyle(
                                         fontWeight: FontWeight.bold)),
                               ])),
@@ -242,7 +224,7 @@ class _DashboardState extends State<Dashboard> {
                                     )),
                                 SizedBox(height: 1.h),
                                 Text(
-                                    "₦${(walletDoc['availableEarnings'] ?? 0).toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',')}",
+                                    "₦${_formatMoney(((wallet['balance_kobo'] as num?) ?? 0) / 100)}",
                                     style: const TextStyle(
                                         fontWeight: FontWeight.bold)),
                               ])),
@@ -280,7 +262,10 @@ class _DashboardState extends State<Dashboard> {
                               ]),
                               ElevatedButton(
                                 onPressed: () {
-                                  if (userDoc["kycCompleted"] == true) {
+                                  if (d.kycStatus == 'approved' ||
+                                      d.kycStatus == 'pending') {
+                                    // Nothing to do — already submitted or
+                                    // approved.
                                   } else {
                                     Navigator.push(
                                       context,
@@ -295,14 +280,10 @@ class _DashboardState extends State<Dashboard> {
                                   backgroundColor: Colors.black,
                                   foregroundColor: Colors.white,
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        10), // <-- Adjust the radius
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
                                 ),
-                                child: Text(
-                                    userDoc["kycCompleted"] == true
-                                        ? "Completed"
-                                        : "Complete Kyc",
+                                child: Text(kycButtonLabel,
                                     style: const TextStyle(fontSize: 12)),
                               ),
                             ],
@@ -316,7 +297,7 @@ class _DashboardState extends State<Dashboard> {
                                         fontWeight: FontWeight.bold,
                                         fontSize: 12)),
                                 Text(
-                                    '${((userDoc['kycProgress'] ?? 0.0) * 100).round()}%',
+                                    '${(kycProgressValue * 100).round()}%',
                                     style: const TextStyle(
                                         color: Color(0xff6b7280),
                                         fontSize: 12)),
@@ -325,7 +306,7 @@ class _DashboardState extends State<Dashboard> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(10),
                             child: LinearProgressIndicator(
-                              value: userDoc['kycProgress'], // from 0.0 to 1.0
+                              value: kycProgressValue,
                               minHeight: 6,
                               backgroundColor: const Color(0xffd9d9d9),
                               valueColor: const AlwaysStoppedAnimation<Color>(
@@ -365,7 +346,7 @@ class _DashboardState extends State<Dashboard> {
                               const Text("Ongoing Task",
                                   style:
                                       TextStyle(fontWeight: FontWeight.bold)),
-                              Text(userDoc['ongoingTasks'].toString(),
+                              Text(d.ongoingTasks.toString(),
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold)),
                             ],
@@ -380,7 +361,7 @@ class _DashboardState extends State<Dashboard> {
                               const Text("Completed Task",
                                   style:
                                       TextStyle(fontWeight: FontWeight.bold)),
-                              Text(userDoc['completedTasks'].toString(),
+                              Text(d.completedTasks.toString(),
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       color: Color(0xff22c55e))),
@@ -396,7 +377,7 @@ class _DashboardState extends State<Dashboard> {
                               const Text("Missed Task",
                                   style:
                                       TextStyle(fontWeight: FontWeight.bold)),
-                              Text(userDoc['missedTasks'].toString(),
+                              Text(d.missedTasks.toString(),
                                   style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       color: Color(0xffff0000))),
@@ -432,8 +413,7 @@ class _DashboardState extends State<Dashboard> {
                 SizedBox(height: 2.h),
                 SizedBox(
                   width: 90.w,
-                  child: TaskStream(
-                    otherFirestore: widget.otherFirestore!,
+                  child: const TaskStream(
                     isVertical: true,
                     limit: 2,
                   ),
@@ -460,122 +440,65 @@ class _DashboardState extends State<Dashboard> {
                   ),
                 ),
                 SizedBox(height: 3.h),
-                SizedBox(
-                  width: 90.w,
-                  child: Card(
-                    elevation: 6, // adds shadow
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    color: Colors.white,
-                    child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                        child: Row(children: [
-                          const CircleAvatar(
-                              radius: 22,
-                              backgroundColor: Color(0xffffb33a),
-                              child: Text("1")),
-                          SizedBox(width: 2.w),
-                          CircleAvatar(
-                              radius: 20,
-                              backgroundImage: leaderboardDoc[0]['dp'] == ''
-                                  ? const NetworkImage(
-                                      "https://res.cloudinary.com/dihpawfyc/image/upload/v1755085552/character_default_p7m3r2.png")
-                                  : NetworkImage(leaderboardDoc[0]['dp'])),
-                          SizedBox(width: 3.w),
-                          Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(leaderboardDoc[0]['name'] ?? "Unnamed",
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold)),
-                                Text(
-                                    "${leaderboardDoc[0]['clickPoints'].toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',')} points",
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold)),
-                              ])
-                        ])),
-                  ),
-                ),
-                SizedBox(height: 2.h),
-                SizedBox(
-                  width: 90.w,
-                  child: Card(
-                    elevation: 6, // adds shadow
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    color: Colors.white,
-                    child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                        child: Row(children: [
-                          const CircleAvatar(
-                              radius: 22,
-                              backgroundColor: Color(0xffd9d9d9),
-                              child: Text("2")),
-                          SizedBox(width: 2.w),
-                          CircleAvatar(
-                              radius: 20,
-                              backgroundImage: leaderboardDoc[1]['dp'] == ''
-                                  ? const NetworkImage(
-                                      "https://res.cloudinary.com/dihpawfyc/image/upload/v1755085552/character_default_p7m3r2.png")
-                                  : NetworkImage(leaderboardDoc[1]['dp'])),
-                          SizedBox(width: 3.w),
-                          Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(leaderboardDoc[1]['name'] ?? "Unnamed",
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold)),
-                                Text(
-                                    "${leaderboardDoc[1]['clickPoints'].toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',')} points",
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold)),
-                              ])
-                        ])),
-                  ),
-                ),
-                SizedBox(height: 2.h),
-                SizedBox(
-                  width: 90.w,
-                  child: Card(
-                    elevation: 6, // adds shadow
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    color: Colors.white,
-                    child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                        child: Row(children: [
-                          const CircleAvatar(
-                              radius: 22,
-                              backgroundColor: Color(0xffa67629),
-                              child: Text("3")),
-                          SizedBox(width: 2.w),
-                          CircleAvatar(
-                              radius: 20,
-                              backgroundImage: leaderboardDoc[2]['dp'] == ''
-                                  ? const NetworkImage(
-                                      "https://res.cloudinary.com/dihpawfyc/image/upload/v1755085552/character_default_p7m3r2.png")
-                                  : NetworkImage(leaderboardDoc[2]['dp'])),
-                          SizedBox(width: 3.w),
-                          Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(leaderboardDoc[2]['name'] ?? "Unnamed",
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold)),
-                                Text(
-                                    "${leaderboardDoc[2]['clickPoints'].toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',')} points",
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold)),
-                              ])
-                        ])),
-                  ),
-                ),
+                if (leaderboard.isEmpty)
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 2.h),
+                    child: const Text("No leaderboard data yet",
+                        style: TextStyle(color: Color(0xff6b7280))),
+                  )
+                else
+                  ...List.generate(leaderboard.length, (i) {
+                    final entry = leaderboard[i];
+                    final rankColors = [
+                      const Color(0xffffb33a),
+                      const Color(0xffd9d9d9),
+                      const Color(0xffa67629)
+                    ];
+                    final initials =
+                        entry.fullName.isNotEmpty ? entry.fullName[0].toUpperCase() : '?';
+                    return Padding(
+                      padding: EdgeInsets.only(bottom: 2.h),
+                      child: SizedBox(
+                        width: 90.w,
+                        child: Card(
+                          elevation: 6,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          color: Colors.white,
+                          child: Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                              child: Row(children: [
+                                CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: rankColors[i],
+                                    child: Text("${i + 1}")),
+                                SizedBox(width: 2.w),
+                                CircleAvatar(
+                                    radius: 20,
+                                    backgroundColor: const Color(0xffeeeeee),
+                                    child: Text(initials,
+                                        style: const TextStyle(
+                                            color: Colors.black,
+                                            fontWeight: FontWeight.bold))),
+                                SizedBox(width: 3.w),
+                                Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(entry.fullName,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold)),
+                                      Text(
+                                          "${_formatMoney(entry.score)} points",
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold)),
+                                    ])
+                              ])),
+                        ),
+                      ),
+                    );
+                  }),
                 SizedBox(height: 2.h),
                 SizedBox(
                   width: 90.w,
@@ -589,147 +512,40 @@ class _DashboardState extends State<Dashboard> {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Row(
+                          Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text("Level Progress",
+                                const Text("Level Progress (Grit)",
                                     style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 12)),
-                                Text("Level 1",
-                                    style: TextStyle(
+                                Text("Level ${d.gritLevel}",
+                                    style: const TextStyle(
                                         color: Color(0xff6b7280),
                                         fontSize: 12)),
                               ]),
                           SizedBox(height: 1.h),
                           ClipRRect(
                             borderRadius: BorderRadius.circular(10),
-                            child: const LinearProgressIndicator(
-                              value: 0.1, // from 0.0 to 1.0
+                            child: LinearProgressIndicator(
+                              value: d.gritLevel >= 10
+                                  ? 1.0
+                                  : 1 - (d.gritTasksToNextLevel / 20),
                               minHeight: 6,
-                              backgroundColor: Color(0xffd9d9d9),
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.black),
+                              backgroundColor: const Color(0xffd9d9d9),
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                  Colors.black),
                             ),
                           ),
                           SizedBox(height: 1.h),
-                          const Text("2,500 pts to next level",
-                              style: TextStyle(
+                          Text(
+                              d.gritLevel >= 10
+                                  ? "Max level reached!"
+                                  : "${d.gritTasksToNextLevel} difficult tasks to next level",
+                              style: const TextStyle(
                                   color: Color(0xff6b7280), fontSize: 12)),
                         ])),
                 SizedBox(height: 2.h),
-                SizedBox(
-                  width: 90.w,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      SizedBox(
-                        width: 22.w,
-                        height: 14.h,
-                        child: Card(
-                          elevation: 6, // adds shadow
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          color: Colors.white,
-                          child: Padding(
-                              padding: const EdgeInsets.fromLTRB(5, 10, 5, 10),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircleAvatar(
-                                        radius: 20,
-                                        child: Image.asset(
-                                            "assets/icons/streak.png")),
-                                    SizedBox(height: 0.5.h),
-                                    const Text("Streak Master",
-                                        style: TextStyle(
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.bold)),
-                                  ])),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 22.w,
-                        height: 14.h,
-                        child: Card(
-                          elevation: 6, // adds shadow
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          color: Colors.white,
-                          child: Padding(
-                              padding: const EdgeInsets.fromLTRB(5, 10, 5, 10),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircleAvatar(
-                                        radius: 20,
-                                        child: Image.asset(
-                                            "assets/icons/star.png")),
-                                    SizedBox(height: 1.h),
-                                    const Text("Elite",
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold)),
-                                  ])),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 22.w,
-                        height: 14.h,
-                        child: Card(
-                          elevation: 6, // adds shadow
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          color: Colors.white,
-                          child: Padding(
-                              padding: const EdgeInsets.fromLTRB(5, 10, 5, 10),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircleAvatar(
-                                        radius: 20,
-                                        child: Image.asset(
-                                            "assets/icons/cup.png")),
-                                    SizedBox(height: 1.h),
-                                    const Text("Champion",
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold)),
-                                  ])),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 22.w,
-                        height: 14.h,
-                        child: Card(
-                          elevation: 6, // adds shadow
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          color: Colors.white,
-                          child: Padding(
-                              padding: const EdgeInsets.fromLTRB(5, 10, 5, 10),
-                              child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    CircleAvatar(
-                                        radius: 20,
-                                        child: Image.asset(
-                                            "assets/icons/crown.png")),
-                                    SizedBox(height: 1.h),
-                                    const Text("Legend",
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold)),
-                                  ])),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
                  SizedBox(height: 2.h),
                   Center(
                   child: Container(
@@ -805,7 +621,7 @@ class _DashboardState extends State<Dashboard> {
                                         ),
                                         child: Center(
                                           child: Text(
-                                              "https://click-workers.com/${userDoc['refID']}",
+                                              "https://click-workers.com/${user.referralCode}",
                                               style: const TextStyle(
                                                   color: Colors.white,
                                                   fontSize: 12)),
@@ -814,7 +630,7 @@ class _DashboardState extends State<Dashboard> {
                                         onTap: () async {
                                           await Clipboard.setData(ClipboardData(
                                               text:
-                                                  "https://click-workers.com/${userDoc['refID']}"));
+                                                  "https://click-workers.com/${user.referralCode}"));
                                           setState(() {
                                             isLinkClicked = true;
                                           });
@@ -842,7 +658,7 @@ class _DashboardState extends State<Dashboard> {
                                     style: TextStyle(
                                         color: Colors.white, fontSize: 12)),
                                 Text(
-                                    "${walletDoc['referrals'].toString()} person(s)",
+                                    "${d.referralCount} person(s)",
                                     style: const TextStyle(
                                         color: Colors.white, fontSize: 12)),
                               ]),
@@ -853,7 +669,7 @@ class _DashboardState extends State<Dashboard> {
                                 const Text("Earnings from Referrals:",
                                     style: TextStyle(
                                         color: Colors.white, fontSize: 12)),
-                                Text("₦${walletDoc['totalReferralEarnings']}",
+                                Text("₦${_formatMoney(d.totalReferralEarningsKobo / 100)}",
                                     style: const TextStyle(
                                         color: Colors.white, fontSize: 12)),
                               ]),
@@ -863,4 +679,3 @@ class _DashboardState extends State<Dashboard> {
             }));
   }
 }
-

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:click_workers/Mobile/authentication/utils/auth.dart';
 
 Future<void> showSignOutDialog(BuildContext context) async {
   final shouldSignOut = await showDialog<bool>(
@@ -23,7 +23,7 @@ Future<void> showSignOutDialog(BuildContext context) async {
   );
 
   if (shouldSignOut == true) {
-    await FirebaseAuth.instance.signOut();
+    await AuthProvider().signOut();
 
     if (context.mounted) {
       Navigator.pop(context);
