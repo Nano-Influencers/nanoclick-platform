@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:click_workers/services/api_client.dart';
 
+/// `taskId` used to be an ambiguous "offendingUID" written straight into a
+/// Firestore 'reports' collection with no moderation workflow attached to
+/// it at all. The backend's POST /tasks/{task_id}/report is the real
+/// equivalent — it's tied to admin review (see app/routers/admin.py's
+/// reports/pending + uphold/dismiss endpoints), so a report here actually
+/// goes somewhere now instead of sitting in an uninspected collection.
 Future<void> showReportTaskDialog(
-    BuildContext context, String offendingUID, String offendingSubtext) async {
+    BuildContext context, String taskId, String offendingSubtext) async {
   final TextEditingController reasonController = TextEditingController();
 
   return showDialog(
@@ -43,16 +49,16 @@ Future<void> showReportTaskDialog(
               final reason = reasonController.text.trim();
 
               if (reason.isNotEmpty) {
-                await FirebaseFirestore.instance.collection('reports').add({
-                  'offendingUID': offendingUID,
-                  'offendingSubtext': offendingSubtext,
-                  'reason': reason,
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
-
+                try {
+                  await ApiClient.instance.reportTask(taskId, reason);
+                } catch (_) {
+                  // Reporting failure shouldn't block the worker from
+                  // dismissing the dialog — they can try again from the
+                  // task later if it matters.
+                }
                 if (context.mounted) {
                   Navigator.pop(context);
-                } // Close dialog after reporting
+                }
               }
             },
             child: const Text("Report"),

@@ -33,10 +33,11 @@ migrate_working_dir/
 # see /docs/architecture.md — this is stale hosting cache, not source)
 .firebase/
 
-# Contains a live Paystack secret key + Monnify keys — NEVER commit this file.
-# Removed from the initial commit; see docs/architecture.md for details and
-# use a proper .env loaded via --dart-define / a backend-side secret store instead.
-assets/env_temp.txt
+# assets/env_temp.txt used to contain a live Paystack secret key + Monnify
+# keys and was excluded from git entirely for that reason. It's since been
+# replaced with a safe, secret-free placeholder (see the file itself and
+# docs/architecture.md) now that payments go through the backend — so it's
+# fine to track normally and no longer needs an ignore entry here.
 .pub/
 /build/
 

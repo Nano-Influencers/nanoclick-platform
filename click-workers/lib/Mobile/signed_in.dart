@@ -2,9 +2,7 @@ import 'package:click_workers/Mobile/Home/account_settings.dart';
 import 'package:click_workers/Mobile/Home/notifications.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:click_workers/Mobile/authentication/utils/auth.dart';
 import 'package:click_workers/Mobile/Home/home.dart';
 import 'package:click_workers/Mobile/Ranking/ranking.dart';
 import 'package:click_workers/Mobile/Rewards/rewards.dart';
@@ -38,30 +36,10 @@ class _SignedInState extends State<SignedIn> {
   int _selectedIndex = 0;
   Map userDoc = {};
 
-  FirebaseFirestore? otherFirestore;
-
-  Future<void> readFromOtherFirestore() async {
-    final otherApp = await Firebase.initializeApp(
-        name: "Nano Influencers",
-        options: const FirebaseOptions(
-          apiKey: 'AIzaSyCgGNNEtmU5ZDZFsNbGMpRO5TSY_fL8wmU',
-          appId: '1:881328477265:web:ddd3979fd0d79742101470',
-          messagingSenderId: '881328477265',
-          projectId: 'nano-influencers',
-          authDomain: 'nano-influencers.firebaseapp.com',
-          storageBucket: 'nano-influencers.appspot.com',
-        ));
-
-    setState(() {
-      otherFirestore = FirebaseFirestore.instanceFor(app: otherApp);
-    });
-  }
-
   @override
   void initState() {
     super.initState();
     getFirstName();
-    readFromOtherFirestore();
     fetchUser();
     initProfilePhoto();
   }
@@ -205,13 +183,13 @@ class _SignedInState extends State<SignedIn> {
   // }
 
   void getFirstName() async {
-    User? user = FirebaseAuth.instance.currentUser;
-    await user!.reload();
-    if (user.displayName != null) {
+    final user = AuthProvider().currentUser;
+    if (user != null && user.fullName.isNotEmpty) {
       setState(() {
-        firstName = user.displayName!.split(' ').first;
-        lastName = user.displayName!.split(' ').last;
-        fullName = user.displayName!;
+        final parts = user.fullName.split(' ');
+        firstName = parts.first;
+        lastName = parts.last;
+        fullName = user.fullName;
       });
     } else {
       setState(() {
@@ -221,31 +199,20 @@ class _SignedInState extends State<SignedIn> {
   }
 
   void initProfilePhoto() {
-    final user = FirebaseAuth.instance.currentUser;
-    ProfilePhotoState.photoUrl.value = user?.photoURL;
-  }
-
-  Future<Map<String, dynamic>?> getUserDoc(String userId) async {
-    try {
-      final docRef = FirebaseFirestore.instance.collection('users').doc(userId);
-
-      final snapshot = await docRef.get();
-
-      if (snapshot.exists) {
-        return snapshot.data();
-      } else {
-        return null;
-      }
-    } catch (e) {
-      return null;
-    }
+    // No backend field/endpoint for a profile picture exists yet (see
+    // AppUser.photoURL) — always null in the meantime.
+    ProfilePhotoState.photoUrl.value = AuthProvider().currentUser?.photoURL;
   }
 
   void fetchUser() async {
-    final userData = await getUserDoc(FirebaseAuth.instance.currentUser!.uid);
-    if (userData != null) {
+    // Replaces a separate raw Firestore 'users' doc read (kept in its own
+    // getUserDoc() helper, now removed) — AuthProvider().currentUser
+    // already has everything userDoc was used for here (just
+    // kycCompleted, below).
+    final user = AuthProvider().currentUser;
+    if (user != null) {
       setState(() {
-        userDoc = userData;
+        userDoc = {'kycCompleted': user.kycVerified};
       });
     }
   }
@@ -253,9 +220,8 @@ class _SignedInState extends State<SignedIn> {
   @override
   Widget build(BuildContext context) {
     final tree = [
-      Dashboard(controller: controller, otherFirestore: otherFirestore),
+      Dashboard(controller: controller),
       Tasks(
-          otherFirestore: otherFirestore,
           isSelected: isSelected,
           category: selectedValue1,
           payout: selectedValue2,
@@ -358,9 +324,7 @@ class _SignedInState extends State<SignedIn> {
                           ],
                         ),
       backgroundColor: const Color(0xffd9d9d9),
-      body: otherFirestore == null
-          ? const Center(child: CircularProgressIndicator(color: Colors.black))
-          : ValueListenableBuilder<Map<String, dynamic>>(
+      body: ValueListenableBuilder<Map<String, dynamic>>(
               valueListenable: filterNotifier,
               builder: (context, filter, _) {
                 return PageView(

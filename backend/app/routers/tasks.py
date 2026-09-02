@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user, require_worker
@@ -33,6 +33,23 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
     result = await db.execute(select(Task).where(and_(*conds)).order_by(Task.is_urgent.desc(), Task.created_at.desc()).limit(50))
     return [{**{c.name: getattr(t, c.name) for c in t.__table__.columns}, "id": str(t.id), "pay_ngn": t.pay_kobo/100} for t in result.scalars()]
+
+@router.get("/my-stats")
+async def my_task_stats(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+    """At-a-glance counts for the worker home screen. No single existing
+    endpoint exposed these: 'ongoing' needs TaskAcceptance (not Submission)
+    data, which nothing else currently surfaces a per-worker view of."""
+    ongoing_r = await db.execute(select(func.count(TaskAcceptance.id)).where(
+        TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status == "active"))
+    completed_r = await db.execute(select(func.count(Submission.id)).where(
+        Submission.worker_id == current_user.id, Submission.status == "approved"))
+    missed_r = await db.execute(select(func.count(TaskAcceptance.id)).where(
+        TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status == "expired"))
+    return {
+        "ongoing_tasks": ongoing_r.scalar() or 0,
+        "completed_tasks": completed_r.scalar() or 0,
+        "missed_tasks": missed_r.scalar() or 0,
+    }
 
 @router.get("/my-submissions", response_model=list[SubmissionWithTaskResponse])
 async def my_submissions(status: str = Query(None), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):

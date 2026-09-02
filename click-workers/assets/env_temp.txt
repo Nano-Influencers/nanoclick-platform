@@ -1,0 +1,17 @@
+# This file previously contained live Paystack and Monnify SECRET keys,
+# shipped directly in a Flutter web client asset — anyone could open
+# devtools and read them. That was a real security hole, not a style
+# nitpick: secret keys must never leave the server.
+#
+# All payment operations (deposits, withdrawals) now go through the
+# backend (see lib/services/api_client.dart -> POST /wallet/deposit/initialize,
+# POST /wallet/withdraw), which holds the real Paystack secret key
+# server-side only (backend/.env, never committed).
+#
+# This file is kept as an empty placeholder purely so flutter_dotenv's
+# load() call in main.dart doesn't fail while lib/Mobile/Wallet/
+# withdraw_funds.dart still has direct dotenv.env[...] reads left over
+# from the old client-side Monnify/Paystack integration — that file is
+# next in line to be rewired to the backend endpoints above, at which
+# point this file (and the flutter_dotenv dependency entirely) can be
+# deleted.

@@ -211,23 +211,42 @@ class _ChangePasswordState extends State<ChangePassword> {
                         child: ElevatedButton(
                             onPressed: () async {
                               if (_formKey.currentState!.validate()) {
-                                var result = _auth.attemptPasswordChange(
+                                // NOTE: the original code called this
+                                // without `await`, so `result` was always
+                                // an unresolved Future — meaning the error
+                                // branch below fired unconditionally
+                                // regardless of whether the change actually
+                                // succeeded, and success was never
+                                // acknowledged at all. Fixed both here.
+                                var result = await _auth.attemptPasswordChange(
                                     currentPassword:
                                         currentPasswordEditingController.text,
                                     newPassword:
                                         newPasswordEditingController.text);
-                                if (result.toString() != "") {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        result.toString(),
-                                        style: const TextStyle(
-                                            color: Colors.white),
+                                if (result != null && result != "") {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          result,
+                                          style: const TextStyle(
+                                              color: Colors.white),
+                                        ),
+                                        backgroundColor: Colors.red,
+                                        duration: const Duration(seconds: 3),
                                       ),
-                                      backgroundColor: Colors.red,
-                                      duration: const Duration(seconds: 3),
+                                    );
+                                  }
+                                } else if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Password changed",
+                                          style: TextStyle(color: Colors.white)),
+                                      backgroundColor: Colors.green,
+                                      duration: Duration(seconds: 3),
                                     ),
                                   );
+                                  Navigator.pop(context);
                                 }
                               }
                             },

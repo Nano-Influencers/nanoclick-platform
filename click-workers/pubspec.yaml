@@ -35,10 +35,15 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.6
+  # firebase_core / firebase_auth / cloud_firestore: still required by
+  # files not yet converted to the backend API (wallet.dart, tasks.dart,
+  # ranking.dart, the Rewards/* subsystem — see docs/architecture.md for
+  # the remaining conversion plan). Do NOT remove these three until a
+  # `grep -rl "package:firebase\|package:cloud_firestore" lib/` comes back
+  # empty, or the build breaks for whatever hasn't been converted yet.
   firebase_core: ^2.27.0
   firebase_auth: ^4.17.3 # (or any other Firebase service)
   cloud_firestore: ^4.17.5
-  google_sign_in: ^6.2.2
   responsive_sizer: ^3.3.1
   material_duration_picker: ^0.1.1
   provider: ^6.1.5

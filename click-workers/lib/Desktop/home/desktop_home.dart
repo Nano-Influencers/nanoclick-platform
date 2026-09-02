@@ -1,8 +1,8 @@
 import 'package:click_workers/Desktop/widgets/landing_page.dart';
 import 'package:click_workers/Mobile/signed_in.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import 'package:click_workers/services/app_user.dart';
 
 
 class DesktopHome extends StatefulWidget {
@@ -17,7 +17,7 @@ class _DesktopHomeState extends State<DesktopHome> {
 
   @override
   Widget build(BuildContext context) {
-    final user = Provider.of<User?>(context);
+    final user = Provider.of<AppUser?>(context);
     if (user != null) {
       return const SignedIn();
     } else {

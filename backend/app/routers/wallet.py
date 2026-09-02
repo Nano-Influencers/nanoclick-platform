@@ -1,6 +1,6 @@
 import uuid, json
 from fastapi import APIRouter, Depends, Request, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_current_user, require_worker
@@ -35,6 +35,27 @@ async def get_transactions(current_user: User = Depends(get_current_user), db: A
     if not w: raise HTTPException(404, "Wallet not found")
     rt = await db.execute(select(Transaction).where(Transaction.wallet_id == w.id).order_by(Transaction.created_at.desc()).limit(100))
     return [{**{c.name: getattr(tx, c.name) for c in tx.__table__.columns}, "id": str(tx.id), "amount_ngn": tx.amount_kobo/100} for tx in rt.scalars()]
+
+@router.get("/referral-stats")
+async def referral_stats(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Count of people this user referred + total referral_bonus earnings.
+    No single existing endpoint exposed this: User.referred_by only tracks
+    the reverse direction (who referred *me*), so it needs its own small
+    aggregate query rather than being derivable client-side from data the
+    app already has."""
+    count_r = await db.execute(select(func.count(User.id)).where(User.referred_by == current_user.id))
+    referral_count = count_r.scalar() or 0
+
+    rw = await db.execute(select(Wallet).where(Wallet.user_id == current_user.id))
+    w = rw.scalar_one_or_none()
+    total_kobo = 0
+    if w:
+        sum_r = await db.execute(select(func.coalesce(func.sum(Transaction.amount_kobo), 0)).where(
+            Transaction.wallet_id == w.id, Transaction.type == "referral_bonus"))
+        total_kobo = sum_r.scalar() or 0
+
+    return {"referral_count": referral_count, "total_referral_earnings_kobo": total_kobo,
+            "total_referral_earnings_ngn": total_kobo / 100}
 
 @router.post("/deposit/initialize", response_model=InitiateDepositResponse)
 async def initiate_deposit(body: InitiateDepositRequest, current_user: User = Depends(get_current_user)):
