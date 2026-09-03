@@ -1,10 +1,9 @@
 import 'package:click_workers/Mobile/Tasks/task_submitted.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
 import 'package:click_workers/Mobile/Home/notifications.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:click_workers/services/api_client.dart';
 
 class SubmitTask extends StatefulWidget {
   const SubmitTask({
@@ -29,6 +28,8 @@ class SubmitTask extends StatefulWidget {
 class _SubmitTaskState extends State<SubmitTask> {
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _selectedFiles = [];
+  final TextEditingController _urlController = TextEditingController();
+  bool _submitting = false;
 
   /// Pick file from gallery/camera
   Future<void> pickFile() async {
@@ -109,17 +110,16 @@ class _SubmitTaskState extends State<SubmitTask> {
     );
   }
 
-  /// Firestore stream to get previous submissions for this task
-  Stream<List<Map<String, dynamic>>> getPreviousSubmissions(String userId) {
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(userId)
-        .collection('tasks')
-        .where('taskID', isEqualTo: widget.taskID)
-        .where('status', isEqualTo: "submitted")
-        .orderBy('date', descending: true)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) => doc.data()).toList());
+  /// Previous submissions for this specific task. GET /tasks/my-submissions
+  /// doesn't take a task_id filter (it's meant for a general history view),
+  /// so this filters client-side — the list is capped at 100 server-side,
+  /// which is small enough for that to be fine.
+  Future<List<Map<String, dynamic>>> getPreviousSubmissions() async {
+    final all = await ApiClient.instance.mySubmissions();
+    return all
+        .where((s) => (s as Map<String, dynamic>)['task_id'] == widget.taskID)
+        .cast<Map<String, dynamic>>()
+        .toList();
   }
 
   /// Widget for upload card
@@ -201,6 +201,7 @@ class _SubmitTaskState extends State<SubmitTask> {
               ),
               const SizedBox(height: 8),
               TextField(
+                controller: _urlController,
                 decoration: InputDecoration(
                   hintText: 'http://',
                   hintStyle: const TextStyle(color: Color(0xff6b7280)),
@@ -218,6 +219,23 @@ class _SubmitTaskState extends State<SubmitTask> {
     );
   }
 
+  /// Uploads every selected file to its own presigned URL, in order, and
+  /// returns the resulting public URLs. Was previously entirely unused —
+  /// the original "Submit" button never uploaded anything or called any
+  /// backend/Firestore write at all; it just navigated straight to a
+  /// confirmation screen regardless of what (if anything) was selected.
+  Future<List<String>> _uploadSelectedFiles() async {
+    final urls = <String>[];
+    for (final file in _selectedFiles) {
+      final ext = file.path.contains('.') ? file.path.split('.').last : 'jpg';
+      final presigned = await ApiClient.instance.requestUploadUrl(ext);
+      final bytes = await file.readAsBytes();
+      await ApiClient.instance.uploadToPresignedUrl(presigned['upload_url'], bytes);
+      urls.add(presigned['public_url'] as String);
+    }
+    return urls;
+  }
+
   /// Widget for submit button
   Widget submitButton() {
     return SizedBox(
@@ -229,20 +247,47 @@ class _SubmitTaskState extends State<SubmitTask> {
             borderRadius: BorderRadius.circular(10),
           ),
         ),
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => TaskSubmitted(
-                points: widget.points,
-                earnings: widget.earnings,
-                type: widget.type,
-                treasureID: widget.treasureID,
-              ),
-            ),
-          );
-        },
-        child: const Text("Submit"),
+        onPressed: _submitting
+            ? null
+            : () async {
+                if (_selectedFiles.isEmpty && _urlController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Add a proof screenshot or a link before submitting")),
+                  );
+                  return;
+                }
+                setState(() => _submitting = true);
+                try {
+                  final proofUrls = await _uploadSelectedFiles();
+                  await ApiClient.instance.submitTask(
+                    widget.taskID,
+                    proofUrls,
+                    proofLink: _urlController.text.trim().isEmpty
+                        ? null
+                        : _urlController.text.trim(),
+                  );
+                  if (!mounted) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TaskSubmitted(
+                        points: widget.points,
+                        earnings: widget.earnings,
+                        type: widget.type,
+                        treasureID: widget.treasureID,
+                      ),
+                    ),
+                  );
+                } catch (e) {
+                  if (mounted) {
+                    setState(() => _submitting = false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(e.toString())),
+                    );
+                  }
+                }
+              },
+        child: Text(_submitting ? "Submitting…" : "Submit"),
       ),
     );
   }
@@ -273,7 +318,13 @@ class _SubmitTaskState extends State<SubmitTask> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Image.network(photoUrl, fit: BoxFit.cover),
+            child: photoUrl.isEmpty
+                ? const Icon(Icons.link, color: Colors.grey)
+                : Image.network(
+                    photoUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
+                  ),
           ),
           Expanded(
             child: Column(
@@ -332,8 +383,8 @@ class _SubmitTaskState extends State<SubmitTask> {
       ),
       body: SingleChildScrollView(
         child: Center(
-          child: StreamBuilder<List<Map<String, dynamic>>>(
-            stream: getPreviousSubmissions(FirebaseAuth.instance.currentUser!.uid),
+          child: FutureBuilder<List<Map<String, dynamic>>>(
+            future: getPreviousSubmissions(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const CircularProgressIndicator(color: Colors.black);
@@ -374,22 +425,30 @@ class _SubmitTaskState extends State<SubmitTask> {
                             else
                               Column(
                                 children: submissions.map((submission) {
-                                  Timestamp timestamp = submission['date'];
-                                  DateTime dateTime = timestamp.toDate();
-                                  String date =
-                                      "${dateTime.year}-${dateTime.month.toString().padLeft(2, '0')}-${dateTime.day}";
+                                  final submittedAt = DateTime.tryParse(
+                                      (submission['submitted_at'] ?? '').toString());
+                                  final date = submittedAt != null
+                                      ? "${submittedAt.year}-${submittedAt.month.toString().padLeft(2, '0')}-${submittedAt.day}"
+                                      : '';
+                                  final status = (submission['status'] ?? 'pending').toString();
+                                  final proofUrls = (submission['proof_urls'] as List?) ?? [];
+                                  final photoUrl = proofUrls.isNotEmpty ? proofUrls.first.toString() : '';
+                                  final comment = status == 'rejected'
+                                      ? (submission['rejection_reason'] ?? 'Rejected').toString()
+                                      : "₦${submission['pay_ngn'] ?? 0}";
                                   return Padding(
                                     padding: const EdgeInsets.symmetric(vertical: 6.0),
                                     child: _buildSubmissionItem(
-                                      title: submission['title'],
-                                      photoUrl: submission['photoUrl'],
+                                      title: (submission['task_title'] ?? '').toString(),
+                                      photoUrl: photoUrl,
                                       date: date,
-                                      comment: submission['subtitle'],
-                                      status: submission['submissionStatus'],
-                                      statusColor:
-                                          submission['submissionStatus'] == "Pending"
-                                              ? Colors.orange
-                                              : Colors.green,
+                                      comment: comment,
+                                      status: status[0].toUpperCase() + status.substring(1),
+                                      statusColor: status == 'approved'
+                                          ? Colors.green
+                                          : status == 'rejected'
+                                              ? Colors.red
+                                              : Colors.orange,
                                     ),
                                   );
                                 }).toList(),

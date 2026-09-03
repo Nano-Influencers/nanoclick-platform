@@ -267,11 +267,21 @@ class ApiClient {
   Future<Map<String, dynamic>> myTaskStats() async =>
       await _request('GET', '/tasks/my-stats') as Map<String, dynamic>;
 
-  Future<Map<String, dynamic>> requestUploadUrl(String filename, String contentType) async =>
+  Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async =>
       await _request('POST', '/tasks/upload-url', body: {
-        'filename': filename,
-        'content_type': contentType,
+        'file_extension': fileExtension,
       }) as Map<String, dynamic>;
+
+  /// Uploads raw file bytes directly to the presigned S3/R2 URL from
+  /// requestUploadUrl — this is a direct-to-storage PUT, not a call to our
+  /// own backend, so it deliberately bypasses _request() (no auth header,
+  /// no base URL, no JSON body).
+  Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes) async {
+    final res = await http.put(Uri.parse(uploadUrl), body: bytes);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
+    }
+  }
 
   // ---------------- KYC ----------------
 

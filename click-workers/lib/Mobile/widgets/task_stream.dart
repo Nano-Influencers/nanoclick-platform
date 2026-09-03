@@ -178,63 +178,57 @@ class _TaskStreamState extends State<TaskStream> {
                                     )
                                   ])),
                               ElevatedButton(
-                                  onPressed: () {
-                                    if (widget.onAccept != null) {
-                                      if (widget.isVertical) {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                              builder: (context) =>
-                                                  TaskDetails(
-                                                    title: title,
-                                                    type: type,
-                                                    subtitle: subtitle,
-                                                    uid: taskId,
-                                                    taskID: taskId,
-                                                    pay: pay,
-                                                    // No per-task click-points
-                                                    // value exists ahead of
-                                                    // submission — see
-                                                    // app/services/clickpoints.py,
-                                                    // which computes it at
-                                                    // submission time from
-                                                    // category/urgency/time-
-                                                    // of-day, not stored on
-                                                    // the task itself. Showing
-                                                    // a precise-looking
-                                                    // fabricated number would
-                                                    // be worse than showing
-                                                    // none.
-                                                    clickPoints: '',
-                                                    difficulty: difficulty,
-                                                    timeLeft: timeLeft,
-                                                    link: link,
-                                                    description: description,
-                                                    treasureID: '',
-                                                  )),
+                                  onPressed: () async {
+                                    // The original UI navigated straight to
+                                    // TaskDetails (and, if onAccept was set,
+                                    // also fired that callback) with no real
+                                    // acceptance call anywhere — tapping
+                                    // "Accept" didn't actually reserve the
+                                    // task. Now it does, for both call
+                                    // shapes this widget supports.
+                                    try {
+                                      await ApiClient.instance.acceptTask(taskId);
+                                    } catch (e) {
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(e.toString())),
                                         );
                                       }
-                                      widget.onAccept!(data);
-                                    } else {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (context) => TaskDetails(
-                                                  title: title,
-                                                  type: type,
-                                                  subtitle: subtitle,
-                                                  uid: taskId,
-                                                  taskID: taskId,
-                                                  pay: pay,
-                                                  clickPoints: '',
-                                                  difficulty: difficulty,
-                                                  timeLeft: timeLeft,
-                                                  link: link,
-                                                  description: description,
-                                                  treasureID: '',
-                                                )),
-                                      );
+                                      return;
                                     }
+                                    if (!context.mounted) return;
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (context) => TaskDetails(
+                                                title: title,
+                                                type: type,
+                                                subtitle: subtitle,
+                                                uid: taskId,
+                                                taskID: taskId,
+                                                pay: pay,
+                                                // No per-task click-points
+                                                // value exists ahead of
+                                                // submission — see
+                                                // app/services/clickpoints.py,
+                                                // which computes it at
+                                                // submission time from
+                                                // category/urgency/time-
+                                                // of-day, not stored on
+                                                // the task itself. Showing
+                                                // a precise-looking
+                                                // fabricated number would
+                                                // be worse than showing
+                                                // none.
+                                                clickPoints: '',
+                                                difficulty: difficulty,
+                                                timeLeft: timeLeft,
+                                                link: link,
+                                                description: description,
+                                                treasureID: '',
+                                              )),
+                                    );
+                                    widget.onAccept?.call(data);
                                   },
                                   style: ElevatedButton.styleFrom(
                                     fixedSize: Size(

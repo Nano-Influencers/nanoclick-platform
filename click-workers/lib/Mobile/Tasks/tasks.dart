@@ -226,7 +226,22 @@ class _TasksState extends State<Tasks> {
                         )
                       ])),
                   ElevatedButton(
-                      onPressed: () {
+                      onPressed: () async {
+                        // The original UI navigated straight to TaskDetails
+                        // with no real acceptance call at all — tapping
+                        // "Accept" didn't actually reserve the task
+                        // anywhere. Now it does.
+                        try {
+                          await ApiClient.instance.acceptTask(taskId);
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(e.toString())),
+                            );
+                          }
+                          return;
+                        }
+                        if (!context.mounted) return;
                         Navigator.push(
                           context,
                           MaterialPageRoute(
