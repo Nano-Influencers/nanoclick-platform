@@ -1,8 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:click_workers/Mobile/Wallet/filter_modal.dart';
 import 'package:intl/intl.dart';
+import 'package:click_workers/services/api_client.dart';
 
 class WithdrawHistoryScreen extends StatefulWidget {
   const WithdrawHistoryScreen({super.key});
@@ -12,17 +11,6 @@ class WithdrawHistoryScreen extends StatefulWidget {
 }
 
 class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
-  final List<Map<String, String>> transactions = List.generate(10, (index) {
-    return {
-      "date": "April 15, 2025",
-      "time": "10:23 AM",
-      "amount": "₦12,700.00",
-      "status": ["Completed", "Pending", "Failed"][index % 3],
-      "gtbank": "GTBank-xxxxx",
-      "ref": "WB20234534534530"
-    };
-  });
-
   final TextEditingController _minAmountController = TextEditingController();
   final TextEditingController _maxAmountController = TextEditingController();
   String selectedStatus = 'All';
@@ -99,12 +87,9 @@ class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('wallets')
-                      .doc(FirebaseAuth.instance.currentUser!.uid)
-                      .collection('withdrawalHistory')
-                      .snapshots(),
+              FutureBuilder<List<dynamic>>(
+                  future: ApiClient.instance.getTransactions().then(
+                      (txs) => txs.where((t) => t['type'] == 'withdrawal').toList()),
                   builder: (context, snapshot) {
                     //  Loading state
                     if (snapshot.connectionState == ConnectionState.waiting) {
@@ -120,7 +105,7 @@ class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
                     }
 
                     // Success
-                    final docs = snapshot.data?.docs ?? [];
+                    final docs = snapshot.data ?? [];
 
                     if (docs.isEmpty) {
                       return const Center(child: Text('Nothing to see here.'));
@@ -130,18 +115,20 @@ class _WithdrawHistoryScreenState extends State<WithdrawHistoryScreen> {
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: docs.length,
                       itemBuilder: (context, index) {
-                        final data = docs[index].data() as Map<String, dynamic>;
-                        final amount = data['amount'] ?? '0';
-                        final status = data['status'] ?? '';
-                        final ref = data['ref'] ?? '';
-                        final txDetails = data['txDetails'] ?? '';
-                        final statusColor = status == 'Completed'
+                        final data = docs[index] as Map<String, dynamic>;
+                        final amount = (data['amount_ngn'] as num?)?.toStringAsFixed(2) ?? '0';
+                        final rawStatus = (data['status'] ?? '').toString();
+                        final status = rawStatus.isNotEmpty
+                            ? rawStatus[0].toUpperCase() + rawStatus.substring(1)
+                            : '';
+                        final ref = (data['id'] as String?)?.substring(0, 8) ?? '';
+                        final txDetails = (data['description'] ?? '').toString();
+                        final statusColor = rawStatus == 'completed'
                             ? Colors.green
-                            : status == 'Pending'
+                            : rawStatus == 'pending'
                                 ? Colors.orange
                                 : Colors.red;
-                        Timestamp date = data['date'] ?? '';
-                        DateTime dateTime = date.toDate();
+                        final dateTime = DateTime.tryParse((data['created_at'] ?? '').toString()) ?? DateTime.now();
                         String dateString =
                             DateFormat("MMMM d 'at' h:mm a").format(dateTime);
 

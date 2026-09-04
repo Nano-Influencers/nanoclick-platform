@@ -3,12 +3,10 @@ import 'package:click_workers/Mobile/Wallet/wallet_notifications.dart';
 import 'package:click_workers/Mobile/Wallet/withdraw_funds.dart';
 import 'package:click_workers/Mobile/Wallet/withdrawal_history.dart';
 import 'package:click_workers/Mobile/widgets/arrow_animation.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fire;
+import 'package:click_workers/services/api_client.dart';
 
 class Wallet extends StatefulWidget {
   const Wallet({
@@ -64,157 +62,61 @@ class _WalletState extends State<Wallet> {
   ValueNotifier<Map<String, String>> repeatingGroupedToday = ValueNotifier({});
   ValueNotifier<int> pointChange = ValueNotifier(0);
 
+  // Backs the FutureBuilder that replaced the old wallet-doc Firestore
+  // stream. Combines wallet balance + referral stats + KYC status into
+  // one map (prefixed keys _referralCount/_referralEarningsKobo/
+  // _kycStatus) since the old single Firestore doc bundled all of these
+  // together too.
+  late Future<Map<String, dynamic>> _walletFuture;
+
+  Future<Map<String, dynamic>> _loadWalletBundle() async {
+    final wallet = await ApiClient.instance.getWalletBalance();
+    final referral = await ApiClient.instance.referralStats();
+    final kycStatus = await ApiClient.instance.kycStatus();
+    return {
+      ...wallet,
+      '_referralCount': referral['referral_count'],
+      '_referralEarningsKobo': referral['total_referral_earnings_kobo'],
+      '_kycStatus': kycStatus,
+    };
+  }
+
+  Future<void> _refreshWallet() async {
+    setState(() {
+      _walletFuture = _loadWalletBundle();
+    });
+  }
+
   Future<void> getPointsChange() async {
-    final uid = fire.FirebaseAuth.instance.currentUser!.uid;
-
-    final firestore = FirebaseFirestore.instance;
-
-    // Fetch both docs
-    final todayDoc = await firestore
-        .collection('wallets')
-        .doc(uid)
-        .collection('walletSnapshots')
-        .doc("today")
-        .get();
-
-    final yesterdayDoc = await firestore
-        .collection('wallets')
-        .doc(uid)
-        .collection('walletSnapshots')
-        .doc("yesterday")
-        .get();
-
-    final todayPoints =
-        int.parse(todayDoc.data()!['totalPoints'].replaceAll(',', ''));
-    final yesterdayPoints =
-        int.parse(yesterdayDoc.data()!['totalPoints'].replaceAll(',', ''));
-
-    final change = ((todayPoints - yesterdayPoints) / yesterdayPoints) * 100;
-
-    pointChange.value = change.round();
-    // could be negative or positive
+    // No historical daily-snapshot data is retained server-side (the
+    // backend only tracks the *current* daily_reset_at-scoped counters,
+    // not a "yesterday" snapshot to diff against) — a real day-over-day
+    // percentage isn't computable from what exists. Left at its default
+    // (0) rather than fabricating a number.
+    pointChange.value = 0;
   }
 
   Future<void> fetchTaskEarnings() async {
-    final String userId = FirebaseAuth.instance.currentUser!.uid;
     try {
-      final walletRef =
-          FirebaseFirestore.instance.collection("wallets").doc(userId);
-
-      // 7 subcollection names
-      final subcollections = [
-        "oneOffGrouped",
-        "oneOffSingle",
-        "repeatingGrouped",
-        "repeatingSingle",
-        "unpaid",
-        "timeOrSkillBased",
-        "trendPush",
-      ];
-
-      // Loops through subcollections
-      for (int i = 0; i < subcollections.length; i++) {
-        final col = subcollections[i];
-        final colRef = walletRef.collection(col);
-
-        // Fetches "today"
-        final todaySnap = await colRef.doc("today").get();
-        if (todaySnap.exists) {
-          final data = todaySnap.data()!;
-
-          if (i == 0) {
-            oneOffGroupedToday.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 1) {
-            oneOffSingleToday.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 2) {
-            repeatingGroupedToday.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 3) {
-            repeatingSingleToday.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 4) {
-            unpaidToday.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 5) {
-            timeOrSkillBasedToday.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 6) {
-            trendPushToday.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-        }
-
-        // Fetch "total"
-        final totalSnap = await colRef.doc("total").get();
-        if (totalSnap.exists) {
-          final data = totalSnap.data()!;
-
-          if (i == 0) {
-            oneOffGrouped.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 1) {
-            oneOffSingle.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 2) {
-            repeatingGrouped.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 3) {
-            repeatingSingle.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 4) {
-            unpaid.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 5) {
-            timeOrSkillBased.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-          if (i == 6) {
-            trendPush.value = {
-              "cash": data["cash"]?.toString() ?? "0",
-              "points": data["points"]?.toString() ?? "0",
-            };
-          }
-        }
-      }
+      final wallet = await ApiClient.instance.getWalletBalance();
+      Map<String, String> pair(String kobo, String cps) => {
+            "cash": (((wallet[kobo] as num?) ?? 0) / 100).toStringAsFixed(0),
+            "points": ((wallet[cps] as num?) ?? 0).toString(),
+          };
+      oneOffGroupedToday.value = pair('daily_one_off_grouped_kobo', 'daily_one_off_grouped_cps');
+      oneOffGrouped.value = pair('total_one_off_grouped_kobo', 'daily_one_off_grouped_cps');
+      oneOffSingleToday.value = pair('daily_one_off_single_kobo', 'daily_one_off_single_cps');
+      oneOffSingle.value = pair('total_one_off_single_kobo', 'daily_one_off_single_cps');
+      repeatingGroupedToday.value = pair('daily_repeating_grouped_kobo', 'daily_repeating_grouped_cps');
+      repeatingGrouped.value = pair('total_repeating_grouped_kobo', 'daily_repeating_grouped_cps');
+      repeatingSingleToday.value = pair('daily_repeating_single_kobo', 'daily_repeating_single_cps');
+      repeatingSingle.value = pair('total_repeating_single_kobo', 'daily_repeating_single_cps');
+      unpaidToday.value = pair('daily_unpaid_kobo', 'daily_unpaid_cps');
+      unpaid.value = pair('total_unpaid_kobo', 'daily_unpaid_cps');
+      timeOrSkillBasedToday.value = pair('daily_skill_based_kobo', 'daily_skill_based_cps');
+      timeOrSkillBased.value = pair('total_skill_based_kobo', 'daily_skill_based_cps');
+      trendPushToday.value = pair('daily_trend_push_kobo', 'daily_trend_push_cps');
+      trendPush.value = pair('total_trend_push_kobo', 'daily_trend_push_cps');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -225,80 +127,39 @@ class _WalletState extends State<Wallet> {
   }
 
   void getTodayWalletSnapshot() async {
-    final uid = fire.FirebaseAuth.instance.currentUser!.uid;
-
-    final doc = await FirebaseFirestore.instance
-        .collection('wallets')
-        .doc(uid)
-        .collection('walletSnapshots')
-        .doc('today')
-        .get();
-
-    if (doc.exists) {
-      pendingToday.value = doc["pendingEarnings"] ?? "0";
-      withdrawnToday.value = doc["withdrawnEarnings"] ?? "0";
-      earnedToday.value = doc["totalEarnings"] ?? "0";
-      availableCpsToday.value = doc["availableClickPoints"] ?? "0";
-      pendingCpsToday.value = doc["pendingClickPoints"] ?? "0";
-      totalCpsToday.value = doc["totalPoints"] ?? "0";
-      usedCpsToday.value = doc["usedClickPoints"] ?? "0";
-      referralsToday.value = doc["referrals"] ?? "0";
-      spinToWinPointsToday.value = doc["spinToWinPoints"] ?? "0";
-      spinToWinCashToday.value = doc["spinToWinCash"] ?? "0";
-      checkinCpsToday.value = doc["dailyCheckinCps"] ?? "0";
-    }
-  }
-
-  Future<void> fetchTreasureHuntWalletData() async {
-    String userId = FirebaseAuth.instance.currentUser!.uid;
     try {
-      final ref = FirebaseFirestore.instance
-          .collection("wallets")
-          .doc(userId)
-          .collection("treasureHunt");
-
-      // get the only document in the collection
-      final snapshot = await ref.limit(1).get();
-
-      if (snapshot.docs.isNotEmpty) {
-        final data = snapshot.docs.first.data();
-
-        monetaryRedeemedValue.value = data["monetaryRedeemedValue"] ?? "";
-        numberPending.value = data["numberPending"] ?? "";
-        numberRedeemed.value = data["numberRedeemed"] ?? "";
-        noOfItems.value = data["noOfItems"] ?? "";
-        cashRedeemedValue.value = data["cashRedeemedValue"] ?? "";
-        cashWithdrawn.value = data["cashWithdrawn"] ?? "";
-        cashPending.value = data["cashPending"] ?? "";
-        totalCash.value = data["totalCash"] ?? "";
-        cpsRedeemedValue.value = data["cpsRedeemedValue"] ?? "";
-        totalTreasurePointsWithdrawn.value =
-            data["totalTreasurePointsWithdrawn"] ?? "";
-        totalTreasurePointsPending.value =
-            data["totalTreasurePointsPending"] ?? "";
-        totalTreasurePoints.value = data["totalTreasurePoints"] ?? "";
-      } else {
-        // no document found
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("No treasure hunt data found.")),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e")),
-        );
-      }
+      final wallet = await ApiClient.instance.getWalletBalance();
+      final referral = await ApiClient.instance.referralStats();
+      pendingToday.value = "0"; // no per-day pending-earnings breakdown exists server-side
+      withdrawnToday.value = ((wallet['total_withdrawn_kobo'] as num? ?? 0) / 100).toStringAsFixed(0);
+      earnedToday.value = ((wallet['total_earned_kobo'] as num? ?? 0) / 100).toStringAsFixed(0);
+      availableCpsToday.value = (wallet['click_points'] as num? ?? 0).toString();
+      pendingCpsToday.value = "0";
+      totalCpsToday.value = (wallet['click_points'] as num? ?? 0).toString();
+      usedCpsToday.value = "0";
+      referralsToday.value = (referral['referral_count'] as num? ?? 0).toString();
+      spinToWinPointsToday.value = "0";
+      spinToWinCashToday.value = "0";
+      checkinCpsToday.value = "0";
+    } catch (_) {
+      // Leave defaults — a transient failure here shouldn't block the rest
+      // of the wallet screen from rendering.
     }
   }
+
+  // Treasure Hunt has no backend model or endpoint at all (see
+  // docs/architecture.md — it's one of the gamification subsystems that
+  // was purely client-side Firestore state with no server authority).
+  // fetchTreasureHuntWalletData() previously populated its ValueNotifiers
+  // from a Firestore 'treasureHunt' subcollection; removed rather than
+  // left calling nonexistent data. The associated notifiers keep their
+  // default empty-string values, which the UI already treats as "no data".
 
   @override
   void initState() {
+    _walletFuture = _loadWalletBundle();
     getTodayWalletSnapshot();
     getPointsChange();
-    fetchTreasureHuntWalletData();
     fetchTaskEarnings();
     super.initState();
   }
@@ -309,11 +170,8 @@ class _WalletState extends State<Wallet> {
         backgroundColor: Colors.white,
         body: SingleChildScrollView(
           child: Center(
-            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
-                    .collection('wallets')
-                    .doc(fire.FirebaseAuth.instance.currentUser!.uid)
-                    .snapshots(),
+            child: FutureBuilder<Map<String, dynamic>>(
+                future: _walletFuture,
                 builder: (context, snapshot) {
                   //  Loading state
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -327,64 +185,68 @@ class _WalletState extends State<Wallet> {
                   if (snapshot.hasError) {
                     return Center(child: Text('Error: ${snapshot.error}'));
                   }
-                  if (!snapshot.hasData || snapshot.data == null) {
+                  if (!snapshot.hasData) {
                     return const Center(child: Text("No data"));
                   }
 
-                  final data = snapshot.data as DocumentSnapshot;
-                  // ✅ THEN convert safely
-                  final doc = data.data() as Map<String, dynamic>? ?? {};
-
+                  final doc = snapshot.data!;
+                  // Every field below maps to a real WalletResponse field
+                  // (app/schemas/wallet.py) except the granular
+                  // grit/gratis/rps/cps/streak sub-breakdowns further down,
+                  // which were never modeled server-side (no per-source
+                  // earnings ledger breakdown exists beyond the 7 task
+                  // categories tracked in daily_*/total_* — see
+                  // fetchTaskEarnings above) — those are left at their
+                  // honest zero/default rather than a fabricated number.
                   final String availableEarnings =
-                      doc['availableEarnings'] ?? "";
-                  final String availablePoints = doc['availablePoints'] ?? "";
-                  final String pendingEarnings = doc["pendingEarnings"] ?? "";
+                      (((doc['balance_kobo'] as num?) ?? 0) / 100).toStringAsFixed(0);
+                  final String availablePoints =
+                      ((doc['click_points'] as num?) ?? 0).toString();
+                  final String pendingEarnings = "0"; // no pending-vs-available split exists server-side
                   final String withdrawnEarnings =
-                      doc["withdrawnEarnings"] ?? "";
-                  final String totalEarnings = doc['totalEarnings'] ?? "";
-                  final String totalPoints = doc['totalPoints'] ?? "";
-                  final String usedPoints = doc['usedPoints'] ?? "";
-                  final String pendingPoints = doc['pendingPoints'] ?? "";
-                  final String kycStatus = doc['kycStatus'] ?? "";
-                  final String workerStatus = doc['workerStatus'] ?? "";
-                  final String withdrawalStatus = doc['withdrawalStatus'] ?? "";
-                  final String minimumWithdrawal =
-                      doc['minimumWithdrawal'] ?? "";
-                  final String availableReferralPoints =
-                      doc['availableReferralPoints'] ?? "";
-                  final String totalReferralPoints =
-                      doc['totalReferralPoints'] ?? "";
-                  final String usedReferralPoints =
-                      doc['usedReferralPoints'] ?? "";
+                      (((doc['total_withdrawn_kobo'] as num?) ?? 0) / 100).toStringAsFixed(0);
+                  final String totalEarnings =
+                      (((doc['total_earned_kobo'] as num?) ?? 0) / 100).toStringAsFixed(0);
+                  final String totalPoints =
+                      ((doc['click_points'] as num?) ?? 0).toString();
+                  final String usedPoints = "0"; // no used/available split tracked separately
+                  final String pendingPoints = "0";
+                  final String kycStatus = doc['_kycStatus'] ?? "";
+                  final String workerStatus = ""; // no separate "worker status" concept server-side
+                  final String withdrawalStatus = "";
+                  final String minimumWithdrawal = "500"; // matches the real POST /wallet/withdraw validation
+                  final String availableReferralPoints = "0";
+                  final String totalReferralPoints = "0";
+                  final String usedReferralPoints = "0";
                   final String availableReferralEarnings =
-                      doc['availableReferralEarnings'] ?? "";
+                      (((doc['_referralEarningsKobo'] as num?) ?? 0) / 100).toStringAsFixed(0);
                   final String totalReferralEarnings =
-                      doc['totalReferralEarnings'] ?? "";
-                  final String usedReferralEarnings =
-                      doc['usedReferralEarnings'] ?? "";
-                  final int referrals = doc['referrals'] ?? 0;
-                  final String spinToWinPoints = doc['spinToWinPoints'] ?? "";
-                  final String spinToWinCash = doc['spinToWinCash'] ?? "";
-                  final String dailyCheckinTotalCps =
-                      doc['dailyCheckinTotalCps'] ?? "";
+                      (((doc['_referralEarningsKobo'] as num?) ?? 0) / 100).toStringAsFixed(0);
+                  final String usedReferralEarnings = "0";
+                  final int referrals = (doc['_referralCount'] as int?) ?? 0;
+                  final String spinToWinPoints = "0";
+                  final String spinToWinCash = "0";
+                  final String dailyCheckinTotalCps = "0";
 
-                  final int gritEarnings = doc['gritEarnings'] ?? 0;
-                  final int gratisEarnings = doc['gratisEarnings'] ?? 0;
-                  final int taskEarnings = doc['taskEarnings'] ?? 0;
-                  final int weeklyTaskEarnings = doc['weeklyTaskEarnings'] ?? 0;
-                  final int monthlyTaskEarnings =
-                      doc['monthlyTaskEarnings'] ?? 0;
-                  final int rpsEarnings = doc['rpsEarnings'] ?? 0;
-                  final int weeklyRpsEarnings = doc['weeklyRpsEarnings'] ?? 0;
-                  final int monthlyRpsEarnings = doc['monthlyRpsEarnings'] ?? 0;
-                  final int cpsEarnings = doc['cpsEarnings'] ?? 0;
-                  final int weeklyCpsEarnings = doc['weeklyCpsEarnings'] ?? 0;
-                  final int monthlyCpsEarnings = doc['monthlyCpsEarnings'] ?? 0;
-                  final int streakEarnings = doc['streakEarnings'] ?? 0;
-                  final int weeklyStreakEarnings =
-                      doc['weeklyStreakEarnings'] ?? 0;
-                  final int monthlyStreakEarnings =
-                      doc['monthlyStreakEarnings'] ?? 0;
+                  // No per-source earnings breakdown (grit/gratis/rps/cps/
+                  // streak, each with weekly/monthly variants) is modeled
+                  // server-side beyond the 7 task categories already
+                  // covered by fetchTaskEarnings above — left at an honest
+                  // zero rather than a fabricated number.
+                  final int gritEarnings = 0;
+                  final int gratisEarnings = 0;
+                  final int taskEarnings = ((doc['total_earned_kobo'] as num?) ?? 0) ~/ 100;
+                  final int weeklyTaskEarnings = 0;
+                  final int monthlyTaskEarnings = 0;
+                  final int rpsEarnings = 0;
+                  final int weeklyRpsEarnings = 0;
+                  final int monthlyRpsEarnings = 0;
+                  final int cpsEarnings = 0;
+                  final int weeklyCpsEarnings = 0;
+                  final int monthlyCpsEarnings = 0;
+                  final int streakEarnings = 0;
+                  final int weeklyStreakEarnings = 0;
+                  final int monthlyStreakEarnings = 0;
 
                   return ValueListenableBuilder<bool>(
                       valueListenable: seeMore,
@@ -3405,14 +3267,9 @@ class _WalletState extends State<Wallet> {
                             const Divider(
                                 thickness: 2.0, color: Color(0xff6b7380)),
                             SizedBox(height: 2.h),
-                            StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance
-                                    .collection('wallets')
-                                    .doc(FirebaseAuth.instance.currentUser!.uid)
-                                    .collection('withdrawalHistory')
-                                    .where('amount', isNotEqualTo: "")
-                                    .limit(2)
-                                    .snapshots(),
+                            FutureBuilder<List<dynamic>>(
+                                future: ApiClient.instance.getTransactions().then(
+                                    (txs) => txs.where((t) => t['type'] == 'withdrawal').take(2).toList()),
                                 builder: (context, snapshot) {
                                   //  Loading state
                                   if (snapshot.connectionState ==
@@ -3431,7 +3288,7 @@ class _WalletState extends State<Wallet> {
                                   }
 
                                   // Success
-                                  final docs = snapshot.data?.docs ?? [];
+                                  final docs = snapshot.data ?? [];
 
                                   if (docs.isEmpty) {
                                     return const SizedBox(height: 0);
@@ -3502,9 +3359,7 @@ class _WalletState extends State<Wallet> {
                                                     Text(
                                                       DateFormat(
                                                               "MMMM d 'at' h:mm a")
-                                                          .format(docs[0]
-                                                                  ['date']
-                                                              .toDate()),
+                                                          .format(DateTime.parse(docs[0]['created_at'])),
                                                       style: const TextStyle(
                                                         fontSize: 12,
                                                         fontWeight:
@@ -3519,12 +3374,12 @@ class _WalletState extends State<Wallet> {
                                                       decoration: BoxDecoration(
                                                         color: docs[0][
                                                                     'status'] ==
-                                                                "Completed"
+                                                                "completed"
                                                             ? Colors.green
                                                                 .withOpacity(
                                                                     0.1)
                                                             : docs[0]['status'] ==
-                                                                    "Pending"
+                                                                    "pending"
                                                                 ? Colors.orange
                                                                     .withOpacity(
                                                                         0.1)
@@ -3540,10 +3395,10 @@ class _WalletState extends State<Wallet> {
                                                         style: TextStyle(
                                                           color: docs[0][
                                                                       'status'] ==
-                                                                  "Completed"
+                                                                  "completed"
                                                               ? Colors.green
                                                               : docs[0]['status'] ==
-                                                                      "Pending"
+                                                                      "pending"
                                                                   ? Colors
                                                                       .orange
                                                                   : Colors.red,
@@ -3556,17 +3411,17 @@ class _WalletState extends State<Wallet> {
                                                 ),
                                                 const SizedBox(height: 10),
                                                 Text(
-                                                  "₦${docs[0]['amount']}",
+                                                  "₦${docs[0]['amount_ngn']}",
                                                   style: const TextStyle(
                                                     fontSize: 18,
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
                                                 const SizedBox(height: 6),
-                                                Text("${docs[0]['txDetails']}",
+                                                Text("${docs[0]['description'] ?? ''}",
                                                     style: const TextStyle(
                                                         fontSize: 12)),
-                                                Text("${docs[0]['ref']}",
+                                                Text("${(docs[0]['id'] as String).substring(0, 8)}",
                                                     style: const TextStyle(
                                                         fontSize: 12)),
                                               ],
@@ -3602,9 +3457,7 @@ class _WalletState extends State<Wallet> {
                                                     Text(
                                                       DateFormat(
                                                               "MMMM d 'at' h:mm a")
-                                                          .format(docs[1]
-                                                                  ['date']
-                                                              .toDate()),
+                                                          .format(DateTime.parse(docs[1]['created_at'])),
                                                       style: const TextStyle(
                                                         fontSize: 12,
                                                         fontWeight:
@@ -3619,12 +3472,12 @@ class _WalletState extends State<Wallet> {
                                                       decoration: BoxDecoration(
                                                         color: docs[1][
                                                                     'status'] ==
-                                                                "Completed"
+                                                                "completed"
                                                             ? Colors.green
                                                                 .withOpacity(
                                                                     0.1)
                                                             : docs[1]['status'] ==
-                                                                    "Pending"
+                                                                    "pending"
                                                                 ? Colors.orange
                                                                     .withOpacity(
                                                                         0.1)
@@ -3640,10 +3493,10 @@ class _WalletState extends State<Wallet> {
                                                         style: TextStyle(
                                                           color: docs[1][
                                                                       'status'] ==
-                                                                  "Completed"
+                                                                  "completed"
                                                               ? Colors.green
                                                               : docs[1]['status'] ==
-                                                                      "Pending"
+                                                                      "pending"
                                                                   ? Colors
                                                                       .orange
                                                                   : Colors.red,
@@ -3656,17 +3509,17 @@ class _WalletState extends State<Wallet> {
                                                 ),
                                                 const SizedBox(height: 10),
                                                 Text(
-                                                  "₦${docs[1]['amount']}",
+                                                  "₦${docs[1]['amount_ngn']}",
                                                   style: const TextStyle(
                                                     fontSize: 18,
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
                                                 const SizedBox(height: 6),
-                                                Text("${docs[1]['txDetails']}",
+                                                Text("${docs[1]['description'] ?? ''}",
                                                     style: const TextStyle(
                                                         fontSize: 12)),
-                                                Text("${docs[1]['ref']}",
+                                                Text("${(docs[1]['id'] as String).substring(0, 8)}",
                                                     style: const TextStyle(
                                                         fontSize: 12)),
                                               ],
