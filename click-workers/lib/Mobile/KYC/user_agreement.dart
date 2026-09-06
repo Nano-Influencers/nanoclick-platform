@@ -3,8 +3,6 @@ import 'package:responsive_sizer/responsive_sizer.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'kyc_personal.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class UserAgreement extends StatefulWidget {
   const UserAgreement({super.key});
@@ -29,21 +27,10 @@ class _UserAgreementState extends State<UserAgreement> {
     super.initState();
   }
 
-  Future<void> updateKycProgress(double value) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
-      throw Exception("No user logged in");
-    }
-
-    final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
-
-    await userRef.set(
-      {
-        "kycProgress": value,
-      },
-      SetOptions(merge: true),
-    );
-  }
+  // updateKycProgress() removed: the backend's KYC submission is a single
+  // all-or-nothing POST /kyc/submit at the end of this wizard (see
+  // lib/services/kyc_draft.dart), not a Firestore doc with an incrementing
+  // progress percentage — there's nothing server-side to update mid-wizard.
 
   @override
   Widget build(BuildContext context) {
@@ -991,16 +978,13 @@ class _UserAgreementState extends State<UserAgreement> {
                         ),
                         onPressed: !isChecked
                             ? null
-                            : () async {
-                                await updateKycProgress(0.1);
-                                if (context.mounted) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (context) =>
-                                            const KycPersonal()),
-                                  );
-                                }
+                            : () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (context) =>
+                                          const KycPersonal()),
+                                );
                               },
                         child: const Text("Continue to KYC Verification"))),
                 SizedBox(height: 3.h),

@@ -1,9 +1,8 @@
 import 'package:click_workers/Mobile/KYC/socail_media_info.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
 import 'account_verification.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:click_workers/services/kyc_draft.dart';
 //import 'package:flutter/cupertino.dart';
 
 class KycPersonal extends StatefulWidget {
@@ -252,64 +251,38 @@ class _KycPersonalState extends State<KycPersonal> {
     'Western North',
   ];
 
-  Future<void> updateKycProgress(double value) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
-    if (userId == null) {
-      throw Exception("No user logged in");
-    }
+  // updateKycProgress() removed — see user_agreement.dart's comment; the
+  // backend has no mid-wizard progress concept to update.
 
-    final userRef = FirebaseFirestore.instance.collection('users').doc(userId);
-
-    await userRef.set(
-      {
-        "kycProgress": value,
-      },
-      SetOptions(merge: true),
-    );
-  }
-
-  Future<void> createKycPersonal(
-      List hobbies, List languages, List occupation) async {
-    try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-
-      await FirebaseFirestore.instance.collection('kyc').doc(uid).set({
-        "personal": {
-          "fullName": fullNameEditingController.text, // String
-          "gender": genderVal, // int
-          "ageBracket": selectedValue, // DateTime
-          "maritalStatus": selectedValue2, // String
-          "countryOfOrigin": selectedValue3, // String
-          "stateOfOrigin": selectedValue4, // bool
-          "townOfOrigin": townEditingController.text,
-          "countryOfResidence": selectedValue5,
-          "stateOfResidence": selectedValue6,
-          "secondaryStateOfResidence": secStateEditingController.text,
-          "cityOfPrimaryResidence": cityEditingController.text,
-          "townOfPrimaryResidence": townResEditingController.text,
-          "religion": selectedValue7,
-          "ethicityOrTribe": selectedValue8,
-          "languages": languages,
-          "race": selectedValue9,
-          "hobbies": hobbies,
-          "occupation": occupation,
-          "monthlyIncomeRange": selectedValue10,
-          "emailAdress": emailEditingController.text,
-          "whatsAppContact": whatsAppEditingController.text,
-          "profession": selectedValue11,
-          "accountType": accountVal, // Firestore timestamp
-        }
-      }, SetOptions(merge: true));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error creating KYC document: $e"),
-            duration: const Duration(seconds: 2), // how long it shows
-          ),
-        );
-      }
-    }
+  /// Writes into the shared KycDraft instead of a Firestore 'kyc' doc — see
+  /// lib/services/kyc_draft.dart. fullName/emailAdress/accountType/
+  /// countryOfOrigin/secondaryStateOfResidence/townOfPrimaryResidence have
+  /// no equivalent on the backend's KycSubmitRequest (full name and email
+  /// already come from the account created at registration; the others
+  /// simply aren't modeled) and are intentionally dropped here.
+  void saveKycPersonal(List hobbies, List languages, List occupation) {
+    final draft = KycDraft.instance;
+    draft.gender = genderVal != "0" ? genderVal : null;
+    draft.ageBracket = selectedValue;
+    draft.maritalStatus = selectedValue2;
+    draft.stateOfOrigin = selectedValue4;
+    draft.townOfOrigin = townEditingController.text;
+    draft.primaryCountry = selectedValue5;
+    draft.primaryState = selectedValue6;
+    draft.primaryCity = cityEditingController.text;
+    draft.secondaryLocations = [
+      if (secStateEditingController.text.isNotEmpty) secStateEditingController.text,
+      if (townResEditingController.text.isNotEmpty) townResEditingController.text,
+    ];
+    draft.religion = selectedValue7;
+    draft.ethnicityTribe = selectedValue8;
+    draft.languagesSpoken = languages.cast<String>();
+    draft.race = selectedValue9;
+    draft.interestsHobbies = hobbies.cast<String>();
+    draft.skills = occupation.cast<String>();
+    draft.monthlyIncomeRange = selectedValue10;
+    draft.whatsappNumber = whatsAppEditingController.text;
+    draft.occupationIndustry = selectedValue11;
   }
 
   @override
@@ -2208,9 +2181,8 @@ class _KycPersonalState extends State<KycPersonal> {
                                     isChecked9 ||
                                     isChecked10) {
                                   if (accountVal != "0") {
-                                    await createKycPersonal(
+                                    saveKycPersonal(
                                         hobbies, languages, occupation);
-                                    await updateKycProgress(0.3);
                                     if (context.mounted) {
                                       Navigator.push(
                                         context,
