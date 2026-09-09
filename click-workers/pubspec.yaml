@@ -35,12 +35,9 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.6
-  # firebase_core / firebase_auth / cloud_firestore: still required by
-  # files not yet converted to the backend API (wallet.dart, tasks.dart,
-  # ranking.dart, the Rewards/* subsystem — see docs/architecture.md for
-  # the remaining conversion plan). Do NOT remove these three until a
-  # `grep -rl "package:firebase\|package:cloud_firestore" lib/` comes back
-  # empty, or the build breaks for whatever hasn't been converted yet.
+  # Firebase remains temporarily while the unconverted KYC and rewards screens
+  # still import it. Remove these packages only after a repository-wide import
+  # audit is clean and the Flutter web build has passed.
   firebase_core: ^2.27.0
   firebase_auth: ^4.17.3 # (or any other Firebase service)
   cloud_firestore: ^4.17.5
@@ -114,7 +111,6 @@ flutter:
     - assets/icons/
     - assets/rewards/
     - assets/wallets/
-    - assets/env_temp.txt
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
