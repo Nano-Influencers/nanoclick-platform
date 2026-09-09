@@ -1,43 +1,68 @@
 # NanoClick Platform
 
-Monorepo for the NanoClick platform: one shared backend serving two apps —
-**Click Workers** (the worker-facing task/earnings app) and **Nano Influencers**
-(the advertiser-facing campaign app).
+Monorepo for NanoClick: one shared backend serving **Click Workers** (the worker task and earnings app) and **Nano Influencers** (the advertiser campaign app).
 
-```
+```text
 .
-├── backend/           FastAPI + SQLAlchemy(async) + Postgres + Celery/Redis API
-├── click-workers/     Flutter (web) app — workers complete tasks and get paid
-├── nano-influencers/  React (Vite) app — advertisers run campaigns
-└── docs/
-    └── architecture.md  Architecture summary, inferred business logic,
-                          Firebase-removal plan, and known gaps
+├── backend/           FastAPI + SQLAlchemy (async) + Postgres + Celery/Redis API
+├── click-workers/     Flutter web app for workers
+├── nano-influencers/  React/Vite advertiser app
+└── docs/              Architecture and implementation-status notes
 ```
 
-## Status of this commit
+## Project progress / implementation status
 
-This is the **initial baseline import** of the three existing projects, pushed
-as-is (no functional changes) so we have a clean starting point on `main`
-before any migration work begins. See `docs/architecture.md` for the full
-analysis of what's already built, what's missing, and the plan for removing
-Firebase from `click-workers` and finishing `nano-influencers` against the
-shared backend.
+This is not production-ready as a whole. The source tree, not previous progress
+notes, is the source of truth; this summary is intentionally conservative.
 
-Two things were intentionally **excluded** from this import rather than
-committed and cleaned up later:
+| Area | Status | Evidence / limitation |
+|---|---|---|
+| Shared FastAPI backend | ⚠️ Needs verification | Auth, task, wallet, KYC, notifications, rewards, admin, and storage routes exist. The repository still needs an automated test suite and a clean migration/test run against a real Postgres/Redis environment. |
+| Click Workers auth, task, and wallet flows | ⚠️ Needs verification | The app contains a backend API client and recent conversions for the core task and wallet paths. Flutter compilation and end-to-end tests have not been recorded in this repository. |
+| Click Workers Firebase removal | 🟡 In progress | Several worker screens have been converted, but KYC and potentially other unconverted screens still import Firebase. Firebase packages remain intentionally until the import audit is clean. |
+| Click Workers KYC | 🟡 In progress | The backend supports a single reviewed `POST /kyc/submit` workflow and a draft service exists, but remaining wizard screens must be converted before the client is Firebase-free. |
+| Nano Influencers advertiser app | 🔴 Not implemented | The React app remains primarily a click-through prototype with local state and must be connected to authenticated backend APIs. |
+| Production verification | 🔴 Not implemented | No documented successful full build, migration, test, or end-to-end verification covers all applications. |
 
-- `click-workers/assets/env_temp.txt` — contained a live-looking Paystack
-  secret key and Monnify keys in plaintext. Never commit this file; secrets
-  belong server-side in the backend's `.env` (see `backend/.env.example`),
-  not in a Flutter client asset.
-- Generated/build artifacts (`.dart_tool/`, `.firebase/` hosting cache,
-  `node_modules/`, Python `__pycache__/`, `.env` files) — these are
-  regenerated locally and shouldn't live in git; each subfolder has its own
-  `.gitignore`.
+Legend: ✅ complete and verified · 🟡 in progress · ⚠️ implemented but needs
+verification · 🔴 not implemented.
 
-## Working conventions going forward
+## Current architecture
 
-- All feature work happens on branches off `main`, merged via PR — nothing
-  is committed directly to `main`.
-- Each subfolder is independently runnable; see its own README/setup docs
-  as they're added.
+```text
+Click Workers (Flutter web) ─┐
+                             ├── authenticated HTTPS API ── FastAPI
+Nano Influencers (React) ────┘                                ├── PostgreSQL
+                                                              ├── Redis / Celery
+                                                              └── object storage
+```
+
+Clients must not access PostgreSQL, Redis, Celery, private object-storage
+credentials, or payment-provider secret keys directly. Payments and uploads are
+orchestrated server-side; browser uploads use narrowly scoped presigned URLs.
+
+## Security and configuration
+
+- Do not commit `.env` files, credentials, payment-provider secrets, or
+  generated build artifacts.
+- Do not add payment credentials to the Flutter or React applications.
+- The previously excluded `click-workers/assets/env_temp.txt` is deliberately
+  not listed as a Flutter asset. Do not restore it.
+- Firebase dependencies must not be removed until the remaining imports have
+  been converted to backend API calls and a Flutter web build has passed.
+
+## Remaining work
+
+1. Finish the Click Workers Firebase audit and convert every remaining
+   Firebase-dependent screen, beginning with the KYC wizard.
+2. Build the advertiser app’s real authentication, campaign, wallet, and
+   notification integrations against FastAPI.
+3. Add automated backend, Flutter, React, migration, and critical end-to-end
+   coverage; then run it against local production-like infrastructure.
+4. Re-audit authorization, payment/webhook idempotency, storage access, CORS,
+   secrets, and client/backend API contracts before declaring production
+   readiness.
+
+See [docs/architecture.md](docs/architecture.md) for the historical
+architecture analysis. Its status claims should be revalidated as part of the
+next full audit.
