@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from redis.asyncio import Redis
 from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
@@ -106,12 +107,22 @@ async def liveness():
 
 @app.get("/health/ready", tags=["meta"])
 async def readiness():
-    checks = {"database": False}
+    checks = {"database": False, "redis": False}
     try:
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
         checks["database"] = True
     except Exception:
         pass
+
+    redis = Redis.from_url(settings.REDIS_URL)
+    try:
+        await redis.ping()
+        checks["redis"] = True
+    except Exception:
+        pass
+    finally:
+        await redis.aclose()
+
     status = "ok" if all(checks.values()) else "degraded"
     return {"status": status, "checks": checks}
