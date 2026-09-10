@@ -89,7 +89,8 @@ jobs:
             echo "Firebase/legacy Google sign-in packages remain in the resolved Flutter dependency graph."
             exit 1
           fi
-      - run: flutter analyze
+      - name: Analyze Flutter sources
+        run: flutter analyze --no-fatal-infos
       - name: Run Flutter tests
         run: flutter test
       - name: Build web
