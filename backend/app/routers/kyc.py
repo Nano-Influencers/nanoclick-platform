@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_worker
@@ -52,6 +53,15 @@ async def submit_kyc(
     validate_kyc_document_ownership(current_user.id, body.document_url)
 
     db.add(KycProfile(user_id=current_user.id, **body.model_dump()))
+    try:
+        # The unique KycProfile.user_id constraint is the final authority here.
+        # It closes the race where two concurrent submissions both pass the
+        # read-before-insert check above.
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(409, "KYC already submitted") from exc
+
     return {"message": "KYC submitted for review"}
 
 
