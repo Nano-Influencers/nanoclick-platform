@@ -1,13 +1,13 @@
 """Add platform reward funding wallet.
 
 Revision ID: 2a7b8c9d0e1f
-Revises: 1c6f2d99a696
+Revises: f4d5e6f7a8b9
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "2a7b8c9d0e1f"
-down_revision = "1c6f2d99a696"
+down_revision = "f4d5e6f7a8b9"
 branch_labels = None
 
 def upgrade():
