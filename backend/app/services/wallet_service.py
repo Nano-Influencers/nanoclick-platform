@@ -162,15 +162,27 @@ async def release_escrow_to_worker(
     click_points: int,
     task_category: str,
     reference: str | None = None,
+    client_charge_kobo: int | None = None,
 ) -> tuple[Transaction, Transaction]:
     """
-    Atomically move funds from advertiser escrow to worker balance.
-    Called on task approval (human review or 72h auto-approve).
+    Settle one approved action from advertiser escrow.
 
-    `reference` is the submission/task approval idempotency key. The advertiser
-    wallet is locked before checking it, so concurrent duplicate task delivery
-    cannot perform the same financial transfer twice.
+    `amount_kobo` is the worker payout. `client_charge_kobo` is the client
+    price consumed from escrow. The difference is platform margin and is
+    intentionally not returned to the advertiser. Keeping these values
+    separate prevents the platform margin from remaining refundable escrow.
+
+    The caller must lock the associated campaign before calling this function
+    when it also maintains a campaign-level escrow balance.
     """
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Worker payout must be positive")
+    client_charge = amount_kobo if client_charge_kobo is None else client_charge_kobo
+    if client_charge <= 0:
+        raise HTTPException(status_code=400, detail="Client escrow charge must be positive")
+    if client_charge < amount_kobo:
+        raise HTTPException(status_code=400, detail="Client charge cannot be below worker payout")
+
     adv_wallet = await _lock_wallet(db, advertiser_id)
 
     if reference:
@@ -183,7 +195,7 @@ async def release_escrow_to_worker(
         )
         adv_tx = existing.scalar_one_or_none()
         if adv_tx:
-            if adv_tx.amount_kobo != amount_kobo:
+            if adv_tx.amount_kobo != client_charge:
                 raise HTTPException(status_code=409, detail="Conflicting escrow release reference")
             worker_result = await db.execute(
                 select(Transaction).where(
@@ -198,21 +210,21 @@ async def release_escrow_to_worker(
                 return adv_tx, wrk_tx
             raise HTTPException(status_code=409, detail="Incomplete escrow release for reference")
 
-    if adv_wallet.escrow_kobo < amount_kobo:
+    if adv_wallet.escrow_kobo < client_charge:
         raise HTTPException(status_code=400, detail="Escrow balance insufficient")
-    adv_wallet.escrow_kobo -= amount_kobo
+    adv_wallet.escrow_kobo -= client_charge
     adv_tx = Transaction(
         wallet_id=adv_wallet.id,
         type="escrow_release",
         task_category=task_category,
-        amount_kobo=amount_kobo,
+        amount_kobo=client_charge,
         status="completed",
         reference=reference,
-        description="Escrow released to worker on task approval",
+        description="Client escrow charged; worker payout and platform margin settled",
     )
     db.add(adv_tx)
 
-    # Credit worker
+    # Credit worker only with the contracted worker payout, not the client price.
     wrk_wallet = await _lock_wallet(db, worker_id)
     wrk_wallet.balance_kobo += amount_kobo
     wrk_wallet.total_earned_kobo += amount_kobo
