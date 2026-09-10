@@ -204,7 +204,11 @@ async def distribute_reward_pool(
             .returning(RewardClaim.id)
         )
         if claim.scalar_one_or_none() is None:
-            continue
+            # The pool wallet is locked, so another distribution cannot claim
+            # the same worker concurrently. A prior claim from another run is
+            # a state conflict; abort rather than debiting funds without paying
+            # the corresponding recipient.
+            raise HTTPException(409, "A reward claim already exists for an eligible worker")
 
         await wallet_service.credit(
             db, worker_id, payout_kobo, "reward_tier_bonus",
@@ -220,18 +224,7 @@ async def distribute_reward_pool(
         )
         paid += 1
 
-    if paid == 0:
-        return {
-            "message": "No newly-eligible workers for this pool.",
-            "recipients": 0,
-            "each_kobo": 0,
-            "reference": reference,
-            "idempotent": False,
-        }
-
-    # With the database uniqueness invariant, a normal distribution pays every
-    # newly eligible recipient. The exact-pool split above means there is no
-    # silent remainder and the ledger can safely use -pool_kobo.
+    # The exact split assigns every kobo of the requested pool to a recipient.
     total_paid_kobo = pool_kobo
     platform_wallet.balance_kobo -= total_paid_kobo
     ledger = PlatformWalletTransaction(
