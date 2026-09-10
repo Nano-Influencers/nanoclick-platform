@@ -16,6 +16,37 @@ depends_on = None
 
 def upgrade():
     bind = op.get_bind()
+
+    # This migration predates the password-reset-token migration on one
+    # historical branch. Make the graph safe for fresh databases as well as
+    # databases where the table was already created by a40b975c8a6b.
+    bind.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id UUID NOT NULL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id),
+                token VARCHAR(128) NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN NOT NULL,
+                created_at TIMESTAMP NOT NULL
+            )
+            """
+        )
+    )
+    bind.execute(
+        sa.text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_password_reset_tokens_token "
+            "ON password_reset_tokens (token)"
+        )
+    )
+    bind.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_user_id "
+            "ON password_reset_tokens (user_id)"
+        )
+    )
+
     table = sa.table(
         "password_reset_tokens",
         sa.column("id", sa.UUID()),
