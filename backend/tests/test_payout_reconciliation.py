@@ -11,12 +11,27 @@ from app.services import notification_service
 from app.workers import payout_tasks
 
 
+async def _user(db, user_id):
+    user = User(
+        id=user_id,
+        email=f"payout-{uuid.uuid4().hex}@example.com",
+        password_hash="test",
+        full_name="Payout Test User",
+        role="worker",
+        referral_code=f"ref{uuid.uuid4().hex[:12]}",
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
 @pytest.mark.asyncio
 async def test_reconciliation_keeps_provider_success_processing(db_factory, monkeypatch):
     user_id = uuid.uuid4()
     reference = "wdw_reconcile_success"
 
     async with db_factory() as db:
+        await _user(db, user_id)
         db.add(Wallet(user_id=user_id, balance_kobo=50_000))
         db.add(
             Withdrawal(
@@ -51,6 +66,7 @@ async def test_reconciliation_failure_refunds_once(db_factory, monkeypatch):
     reference = "wdw_reconcile_failed"
 
     async with db_factory() as db:
+        await _user(db, user_id)
         wallet = Wallet(user_id=user_id, balance_kobo=10_000)
         db.add(wallet)
         await db.flush()
@@ -105,6 +121,7 @@ async def test_reconciliation_is_idempotent_after_failure(db_factory, monkeypatc
     reference = "wdw_reconcile_idempotent"
 
     async with db_factory() as db:
+        await _user(db, user_id)
         wallet = Wallet(user_id=user_id, balance_kobo=0)
         db.add(wallet)
         await db.flush()
@@ -153,14 +170,7 @@ async def test_duplicate_worker_delivery_reconciles_before_second_transfer(db_fa
     reference = "wdw_duplicate_delivery_001"
 
     async with db_factory() as db:
-        db.add(User(
-            id=user_id,
-            email=f"payout-{uuid.uuid4().hex}@example.com",
-            password_hash="test",
-            full_name="Payout Test User",
-            role="worker",
-            referral_code=f"ref{uuid.uuid4().hex[:12]}",
-        ))
+        await _user(db, user_id)
         db.add(
             Withdrawal(
                 user_id=user_id,
