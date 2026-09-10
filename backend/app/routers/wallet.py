@@ -217,7 +217,6 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
             if should_refund:
                 tx_result = await db.execute(
                     select(Transaction).where(
-                        Transaction.wallet_id == (await db.execute(select(Wallet).where(Wallet.user_id == withdrawal.user_id))).scalar_one().id,
                         Transaction.reference == reference,
                         Transaction.type == "withdrawal",
                     ).with_for_update()
