@@ -4,7 +4,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
 from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
-from app.routers import admin_audit
+from app.routers import admin_audit, admin_mfa
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
@@ -28,7 +28,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def sensitive_endpoint_rate_limit(request: Request, call_next):
-    """Apply coarse IP limits to high-risk endpoints before request parsing."""
     path = request.url.path
     rules = {
         "/auth/login": ("auth-login", 10, 900),
@@ -50,7 +49,6 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
 
 @app.middleware("http")
 async def sensitive_action_audit(request: Request, call_next):
-    """Persist an audit record for sensitive mutations, including failures."""
     path = request.url.path
     sensitive_prefixes = ("/admin/", "/wallet/withdraw", "/wallet/deposit", "/kyc/")
     is_sensitive = request.method in {"POST", "PATCH", "PUT", "DELETE"} and path.startswith(sensitive_prefixes)
@@ -63,10 +61,7 @@ async def sensitive_action_audit(request: Request, call_next):
     if authorization.lower().startswith("bearer "):
         payload = decode_token(authorization[7:].strip())
         if payload:
-            try:
-                actor_id = payload.get("sub")
-            except AttributeError:
-                actor_id = None
+            actor_id = payload.get("sub")
 
     try:
         import uuid
@@ -83,8 +78,6 @@ async def sensitive_action_audit(request: Request, call_next):
             )
             await db.commit()
     except Exception:
-        # Auditing must never break a successful business response. Monitoring
-        # should surface database/audit failures so they are repaired quickly.
         pass
     return response
 
@@ -94,6 +87,7 @@ app.include_router(wallet.router)
 app.include_router(campaigns.router)
 app.include_router(tasks.router)
 app.include_router(kyc.router)
+app.include_router(admin_mfa.router)
 app.include_router(admin.router)
 app.include_router(admin_audit.router)
 app.include_router(notifications.router)
