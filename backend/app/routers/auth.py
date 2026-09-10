@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta
 
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.auth_session import AuthSession, OAuthState
+from app.models.auth_session import AuthSession, OAuthCode, OAuthState
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
@@ -45,7 +46,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _validate_redirect_uri(redirect_uri: str | None) -> str | None:
-    """Only allow redirects to explicitly configured web origins."""
     if not redirect_uri:
         return None
     allowed = [o.strip().rstrip("/") for o in settings.OAUTH_ALLOWED_WEB_REDIRECTS.split(",") if o.strip()]
@@ -60,13 +60,11 @@ async def _create_refresh_session(db: AsyncSession, user_id: uuid.UUID, refresh_
     if not jti:
         raise HTTPException(500, "Failed to create authentication session")
     payload = decode_token(refresh_token)
-    db.add(
-        AuthSession(
-            user_id=user_id,
-            token_jti_hash=hash_token_identifier(jti),
-            expires_at=datetime.utcfromtimestamp(payload["exp"]),
-        )
-    )
+    db.add(AuthSession(
+        user_id=user_id,
+        token_jti_hash=hash_token_identifier(jti),
+        expires_at=datetime.utcfromtimestamp(payload["exp"]),
+    ))
 
 
 async def _issue_tokens(db: AsyncSession, user: User) -> TokenResponse:
@@ -88,12 +86,10 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
     if not provider_data.get("email"):
         raise HTTPException(400, "No email from OAuth provider")
 
-    result = await db.execute(
-        select(User).where(
-            User.oauth_provider == provider_data["provider"],
-            User.oauth_provider_id == provider_data["provider_id"],
-        )
-    )
+    result = await db.execute(select(User).where(
+        User.oauth_provider == provider_data["provider"],
+        User.oauth_provider_id == provider_data["provider_id"],
+    ))
     user = result.scalar_one_or_none()
     if user:
         if not user.is_active:
@@ -126,15 +122,13 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
 
 async def _begin_oauth(db: AsyncSession, role: str, platform: str, redirect_uri: str | None) -> str:
     state = new_oauth_state()
-    db.add(
-        OAuthState(
-            nonce_hash=hash_token_identifier(state),
-            role=role,
-            platform=platform,
-            redirect_uri=redirect_uri,
-            expires_at=datetime.utcnow() + timedelta(minutes=10),
-        )
-    )
+    db.add(OAuthState(
+        nonce_hash=hash_token_identifier(state),
+        role=role,
+        platform=platform,
+        redirect_uri=redirect_uri,
+        expires_at=datetime.utcnow() + timedelta(minutes=10),
+    ))
     await db.flush()
     return state
 
@@ -154,20 +148,24 @@ async def _consume_oauth_state(db: AsyncSession, state: str) -> OAuthState:
     return record
 
 
-def _oauth_redirect(user: User, platform: str, redirect_uri: str | None, tokens: TokenResponse):
-    """Return a short-lived code-less redirect only for the native deep link.
-
-    Web OAuth intentionally does not put bearer tokens in the URL. The web
-    client must use the normal login endpoint/session flow instead. Native
-    deep-link support is retained for the Flutter application.
-    """
+async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_uri: str | None, tokens: TokenResponse):
     if platform == "web":
-        # A production web OAuth callback must exchange a one-time server-side
-        # code. Do not leak bearer tokens into browser history/referrers.
+        # Browser OAuth receives a short-lived, single-use code rather than
+        # bearer tokens in the URL. The frontend exchanges it over HTTPS.
+        code = secrets.token_urlsafe(32)
+        db.add(OAuthCode(
+            code_hash=hash_token_identifier(code),
+            user_id=user.id,
+            redirect_uri=redirect_uri,
+            expires_at=datetime.utcnow() + timedelta(minutes=2),
+        ))
+        await db.flush()
         base = redirect_uri or settings.OAUTH_WEB_REDIRECT_URL
         sep = "&" if "?" in base else "?"
-        return RedirectResponse(url=f"{base}{sep}oauth_error=web_oauth_requires_code_exchange", status_code=302)
+        return RedirectResponse(url=f"{base}{sep}oauth_code={code}", status_code=302)
 
+    # Native deep-link compatibility. Mobile OSes keep this outside browser
+    # history; the web flow above deliberately avoids this pattern.
     return RedirectResponse(
         url=f"nanoclick://oauth?access_token={tokens.access_token}&refresh_token={tokens.refresh_token}&role={user.role}",
         status_code=302,
@@ -223,9 +221,9 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(401, "Invalid refresh token")
 
     jti_hash = hash_token_identifier(payload["jti"])
-    result = await db.execute(
-        select(AuthSession).where(AuthSession.token_jti_hash == jti_hash).with_for_update()
-    )
+    result = await db.execute(select(AuthSession).where(
+        AuthSession.token_jti_hash == jti_hash
+    ).with_for_update())
     session = result.scalar_one_or_none()
     if not session or session.revoked_at is not None or session.expires_at < datetime.utcnow():
         raise HTTPException(401, "Refresh session expired or revoked")
@@ -255,13 +253,30 @@ async def logout(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(body.refresh_token)
     jti = payload.get("jti") if payload.get("type") == "refresh" else None
     if jti:
-        result = await db.execute(
-            select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(jti)).with_for_update()
-        )
+        result = await db.execute(select(AuthSession).where(
+            AuthSession.token_jti_hash == hash_token_identifier(jti)
+        ).with_for_update())
         session = result.scalar_one_or_none()
         if session and session.revoked_at is None:
             session.revoked_at = datetime.utcnow()
     return {"message": "Logged out"}
+
+
+@router.post("/oauth/exchange", response_model=TokenResponse)
+async def exchange_oauth_code(code: str = Query(..., min_length=20, max_length=200), db: AsyncSession = Depends(get_db)):
+    """Exchange a browser OAuth code exactly once."""
+    result = await db.execute(select(OAuthCode).where(
+        OAuthCode.code_hash == hash_token_identifier(code)
+    ).with_for_update())
+    record = result.scalar_one_or_none()
+    if not record or record.used_at is not None or record.expires_at < datetime.utcnow():
+        raise HTTPException(401, "Invalid or expired OAuth code")
+    user_result = await db.execute(select(User).where(User.id == record.user_id))
+    user = user_result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(401, "User not found")
+    record.used_at = datetime.utcnow()
+    return await _issue_tokens(db, user)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -287,9 +302,9 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if user and user.password_hash is not None:
-        token = __import__("secrets").token_urlsafe(32)
+        token = secrets.token_urlsafe(32)
         db.add(PasswordResetToken(user_id=user.id, token=token, expires_at=datetime.utcnow() + timedelta(hours=1)))
-        # TODO: replace development logging with a real transactional email provider before launch.
+        # TODO: wire this to a transactional email provider before production.
         reset_link = f"{settings.OAUTH_WEB_REDIRECT_URL.rsplit('/', 1)[0]}/reset-password?token={token}"
         print(f"[password reset — email delivery not configured] {user.email}: {reset_link}")
     return {"message": "If that email is registered, a password reset link has been sent."}
@@ -297,7 +312,9 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
 
 @router.post("/reset-password")
 async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == body.token).with_for_update())
+    result = await db.execute(select(PasswordResetToken).where(
+        PasswordResetToken.token == body.token
+    ).with_for_update())
     reset_token = result.scalar_one_or_none()
     if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow():
         raise HTTPException(400, "This reset link is invalid or has expired")
@@ -324,10 +341,8 @@ async def delete_my_account(current_user: User = Depends(get_current_user), db: 
 async def google_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str = Query(None), db: AsyncSession = Depends(get_db)):
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(503, "Google OAuth not configured")
-    if role not in ("advertiser", "worker"):
-        role = "worker"
-    if platform not in ("app", "web"):
-        platform = "app"
+    role = role if role in ("advertiser", "worker") else "worker"
+    platform = platform if platform in ("app", "web") else "app"
     validated_redirect = _validate_redirect_uri(redirect_uri)
     if redirect_uri and not validated_redirect:
         raise HTTPException(400, "redirect_uri is not in the allowed list")
@@ -346,17 +361,15 @@ async def google_callback(code: str = Query(...), state: str = Query(...), error
         raise HTTPException(400, "Failed to verify Google login")
     user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
     tokens = await _issue_tokens(db, user)
-    return _oauth_redirect(user, oauth_state.platform, oauth_state.redirect_uri, tokens)
+    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri, tokens)
 
 
 @router.get("/facebook/login")
 async def facebook_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str = Query(None), db: AsyncSession = Depends(get_db)):
     if not settings.FACEBOOK_CLIENT_ID:
         raise HTTPException(503, "Facebook OAuth not configured")
-    if role not in ("advertiser", "worker"):
-        role = "worker"
-    if platform not in ("app", "web"):
-        platform = "app"
+    role = role if role in ("advertiser", "worker") else "worker"
+    platform = platform if platform in ("app", "web") else "app"
     validated_redirect = _validate_redirect_uri(redirect_uri)
     if redirect_uri and not validated_redirect:
         raise HTTPException(400, "redirect_uri is not in the allowed list")
@@ -375,4 +388,4 @@ async def facebook_callback(code: str = Query(None), state: str = Query(...), er
         raise HTTPException(400, "Failed to verify Facebook login")
     user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
     tokens = await _issue_tokens(db, user)
-    return _oauth_redirect(user, oauth_state.platform, oauth_state.redirect_uri, tokens)
+    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri, tokens)
