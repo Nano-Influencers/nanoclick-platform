@@ -4,13 +4,27 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.user import User
 from app.models.wallet import Transaction, Wallet
 from app.services import rewards_service
 
 
+async def _user(db: AsyncSession) -> User:
+    user = User(
+        email=f"reward-test-{uuid.uuid4()}@example.com",
+        full_name="Reward Test User",
+        role="worker",
+        referral_code=f"rt{uuid.uuid4().hex[:16]}",
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
 @pytest.mark.asyncio
 async def test_spin_cash_reward_uses_wallet_ledger(db: AsyncSession, monkeypatch):
-    user_id = uuid.uuid4()
+    user = await _user(db)
+    user_id = user.id
     db.add(Wallet(user_id=user_id, balance_kobo=0))
     await db.commit()
 
@@ -40,7 +54,8 @@ async def test_spin_cash_reward_uses_wallet_ledger(db: AsyncSession, monkeypatch
 
 @pytest.mark.asyncio
 async def test_spin_points_reward_uses_wallet_ledger(db: AsyncSession, monkeypatch):
-    user_id = uuid.uuid4()
+    user = await _user(db)
+    user_id = user.id
     db.add(Wallet(user_id=user_id, balance_kobo=0, click_points=0))
     await db.commit()
 
@@ -70,7 +85,8 @@ async def test_spin_points_reward_uses_wallet_ledger(db: AsyncSession, monkeypat
 
 @pytest.mark.asyncio
 async def test_checkin_reward_uses_wallet_ledger(db: AsyncSession):
-    user_id = uuid.uuid4()
+    user = await _user(db)
+    user_id = user.id
     db.add(Wallet(user_id=user_id, balance_kobo=0))
     await db.commit()
 
