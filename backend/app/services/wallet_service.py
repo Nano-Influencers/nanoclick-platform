@@ -246,7 +246,10 @@ async def refund_escrow(
     reference: str | None = None,
     description: str = "Escrow refunded",
 ) -> Transaction:
-    """Return escrowed funds to advertiser (campaign cancelled/rejected/reported)."""
+    """Return escrowed funds to advertiser without silently changing the requested amount."""
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Refund amount must be positive")
+
     wallet = await _lock_wallet(db, advertiser_id)
 
     if reference:
@@ -257,10 +260,11 @@ async def refund_escrow(
             return existing
 
     if wallet.escrow_kobo < amount_kobo:
-        amount_kobo = wallet.escrow_kobo   # refund whatever remains
+        raise HTTPException(status_code=409, detail="Escrow balance insufficient for requested refund")
+
     wallet.escrow_kobo -= amount_kobo
     wallet.balance_kobo += amount_kobo
-    wallet.total_spent_kobo -= amount_kobo  # reverse the spend
+    wallet.total_spent_kobo -= amount_kobo
     tx = Transaction(
         wallet_id=wallet.id,
         type="escrow_release",
