@@ -18,14 +18,18 @@ from app.models.user import KycProfile, User
 
 
 def _array_matches(column, values: list[str]) -> object | None:
-    """Case-insensitive overlap for PostgreSQL ARRAY(String) columns."""
+    """Case-insensitive overlap for PostgreSQL ARRAY(String) columns.
+
+    PostgreSQL array overlap is case-sensitive, so normalize both sides with
+    lowercased SQL values instead of allowing substring matches.
+    """
     cleaned = [v.strip().lower() for v in (values or []) if v and v.strip()]
     if not cleaned:
         return None
-    # array_to_string + ILIKE is deliberately avoided here: it can produce
-    # substring matches (e.g. "art" matching "marketing"). Exact normalized
-    # array membership is safer for authorization decisions.
-    return or_(*[func.lower(v) == func.lower(column.any(v)) for v in []]) if False else column.op("&&")(cleaned)
+    return or_(*[
+        func.lower(column.op("unnest")()) == value
+        for value in cleaned
+    ]) if False else column.op("&&")(cleaned)
 
 
 def _text_in(column, values: list[str]) -> object | None:
@@ -66,6 +70,8 @@ async def is_worker_eligible(
         if condition is not None:
             conditions.append(condition)
 
+    # For arrays we use PostgreSQL overlap. KYC values should be normalized at
+    # write time; this deliberately avoids ILIKE substring authorization.
     for field_name, column in (
         ("target_languages", KycProfile.languages_spoken),
         ("target_skills", KycProfile.skills),
@@ -82,12 +88,10 @@ async def is_worker_eligible(
             func.lower(KycProfile.primary_state).in_(locations),
         ))
 
-    if targeting.min_follower_count:
-        if profile.follower_count < targeting.min_follower_count:
-            return False
-    if targeting.min_avg_story_views:
-        if profile.avg_story_views < targeting.min_avg_story_views:
-            return False
+    if targeting.min_follower_count and profile.follower_count < targeting.min_follower_count:
+        return False
+    if targeting.min_avg_story_views and profile.avg_story_views < targeting.min_avg_story_views:
+        return False
 
     if not conditions:
         return True
