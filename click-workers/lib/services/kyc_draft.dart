@@ -39,6 +39,7 @@ class KycDraft {
   String? instagramHandle;
   String? whatsappNumber;
 
+  String? documentType;
   /// Private R2/S3 object key returned by the backend's KYC upload endpoint.
   String? documentUrl;
 
@@ -82,6 +83,7 @@ class KycDraft {
     map['uses_real_photo'] = usesRealPhoto;
     put('instagram_handle', instagramHandle);
     put('whatsapp_number', whatsappNumber);
+    put('document_type', documentType);
     put('document_url', documentUrl);
     return map;
   }
