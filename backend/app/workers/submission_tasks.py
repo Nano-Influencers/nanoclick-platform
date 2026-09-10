@@ -28,7 +28,7 @@ async def _auto_approve():
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Submission).where(and_(
-                Submission.status.in_(["pending","under_review"]),
+                Submission.status.in_(["pending", "under_review"]),
                 Submission.submitted_at <= cutoff,
             ))
         )
@@ -44,6 +44,15 @@ async def _auto_approve():
                 db=db, advertiser_id=campaign.owner_id, worker_id=sub.worker_id,
                 amount_kobo=task.pay_kobo, click_points=cps,
                 task_category=task.cw_task_category, reference=str(sub.id))
+
+            # A duplicate Celery delivery can race the first worker. The
+            # escrow service is financially idempotent; refresh the submission
+            # after it returns so the duplicate does not also send rewards and
+            # notifications once the first transaction has committed.
+            await db.refresh(sub)
+            if sub.status == "approved":
+                continue
+
             sub.status = "approved"
             sub.was_auto_approved = True
             sub.reviewed_at = datetime.utcnow()
