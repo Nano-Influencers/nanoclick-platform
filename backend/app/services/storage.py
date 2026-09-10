@@ -11,7 +11,10 @@ import imagehash
 from PIL import Image
 from app.config import settings
 
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "mp4"}
+# KYC documents need the same private upload path as other application uploads.
+# Keep this allow-list intentionally narrow; the KYC router further scopes the
+# generated key to the authenticated worker.
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "pdf", "mp4"}
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
@@ -31,15 +34,19 @@ def _s3():
 def generate_presigned_upload_url(file_extension: str, folder: str = "proofs") -> dict:
     ext = file_extension.lower().lstrip(".")
     if ext not in ALLOWED_EXTENSIONS:
-        raise ValueError(f"File type .{ext} not allowed. Allowed: {ALLOWED_EXTENSIONS}")
+        raise ValueError(f"File type .{ext} not allowed. Allowed: {sorted(ALLOWED_EXTENSIONS)}")
     key = f"{folder}/{uuid.uuid4()}.{ext}"
     url = _s3().generate_presigned_url(
         "put_object",
         Params={"Bucket": settings.S3_BUCKET_NAME, "Key": key},
         ExpiresIn=300,
     )
-    return {"upload_url": url, "file_key": key,
-            "public_url": get_public_url(key), "expires_in_seconds": 300}
+    return {
+        "upload_url": url,
+        "file_key": key,
+        "public_url": get_public_url(key),
+        "expires_in_seconds": 300,
+    }
 
 
 def get_public_url(file_key: str) -> str:
