@@ -221,7 +221,7 @@ async def _reset():
             daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
             daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_kobo=0, daily_repeating_grouped_cps=0,
+            daily_repeating_single_cps=0, daily_repeating_grouped_cps=0,
             daily_trend_push_cps=0, daily_skill_based_cps=0, daily_unpaid_cps=0,
             daily_reset_at=datetime.utcnow()))
         await db.commit()
