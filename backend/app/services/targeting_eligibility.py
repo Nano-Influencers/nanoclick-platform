@@ -18,18 +18,11 @@ from app.models.user import KycProfile, User
 
 
 def _array_matches(column, values: list[str]) -> object | None:
-    """Case-insensitive overlap for PostgreSQL ARRAY(String) columns.
-
-    PostgreSQL array overlap is case-sensitive, so normalize both sides with
-    lowercased SQL values instead of allowing substring matches.
-    """
+    """Return PostgreSQL ARRAY overlap for normalized values."""
     cleaned = [v.strip().lower() for v in (values or []) if v and v.strip()]
     if not cleaned:
         return None
-    return or_(*[
-        func.lower(column.op("unnest")()) == value
-        for value in cleaned
-    ]) if False else column.op("&&")(cleaned)
+    return column.op("&&")(cleaned)
 
 
 def _text_in(column, values: list[str]) -> object | None:
@@ -70,8 +63,6 @@ async def is_worker_eligible(
         if condition is not None:
             conditions.append(condition)
 
-    # For arrays we use PostgreSQL overlap. KYC values should be normalized at
-    # write time; this deliberately avoids ILIKE substring authorization.
     for field_name, column in (
         ("target_languages", KycProfile.languages_spoken),
         ("target_skills", KycProfile.skills),
@@ -81,12 +72,15 @@ async def is_worker_eligible(
         if condition is not None:
             conditions.append(condition)
 
-    locations = [v.strip().lower() for v in ((targeting.target_cities or []) + (targeting.target_states or [])) if v and v.strip()]
-    if locations:
-        conditions.append(or_(
-            func.lower(KycProfile.primary_city).in_(locations),
-            func.lower(KycProfile.primary_state).in_(locations),
-        ))
+    city_values = [v.strip().lower() for v in (targeting.target_cities or []) if v and v.strip()]
+    state_values = [v.strip().lower() for v in (targeting.target_states or []) if v and v.strip()]
+    if city_values or state_values:
+        location_conditions = []
+        if city_values:
+            location_conditions.append(func.lower(KycProfile.primary_city).in_(city_values))
+        if state_values:
+            location_conditions.append(func.lower(KycProfile.primary_state).in_(state_values))
+        conditions.append(or_(*location_conditions))
 
     if targeting.min_follower_count and profile.follower_count < targeting.min_follower_count:
         return False
