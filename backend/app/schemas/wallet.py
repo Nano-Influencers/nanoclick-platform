@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel
+from decimal import Decimal
+from pydantic import BaseModel, Field
 
 class WalletResponse(BaseModel):
     id: uuid.UUID
@@ -51,14 +52,14 @@ class TransactionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 class InitiateDepositRequest(BaseModel):
-    amount_ngn: float
+    amount_ngn: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
 
 class InitiateDepositResponse(BaseModel):
     authorization_url: str
     reference: str
 
 class WithdrawRequest(BaseModel):
-    amount_ngn: float
+    amount_ngn: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
     bank_code: str
     account_number: str
 
