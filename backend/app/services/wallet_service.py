@@ -164,19 +164,47 @@ async def release_escrow_to_worker(
     reference: str | None = None,
     client_charge_kobo: int | None = None,
 ) -> tuple[Transaction, Transaction]:
-    """
-    Settle one approved action from advertiser escrow.
+    """Settle one approved action from advertiser escrow.
 
-    `amount_kobo` is the worker payout. `client_charge_kobo` is the client
-    price consumed from escrow. The difference is platform margin and is
-    intentionally not returned to the advertiser. Keeping these values
-    separate prevents the platform margin from remaining refundable escrow.
-
-    The caller must lock the associated campaign before calling this function
-    when it also maintains a campaign-level escrow balance.
+    amount_kobo is the worker payout. client_charge_kobo is the client price
+    consumed from escrow. If omitted, the campaign price is resolved from the
+    submission reference. The difference is platform margin and is not returned
+    to the advertiser.
     """
     if amount_kobo <= 0:
         raise HTTPException(status_code=400, detail="Worker payout must be positive")
+
+    # Approval references are submission IDs. Resolve the authoritative client
+    # price before locking the advertiser wallet so campaign and wallet escrow
+    # remain synchronized in the same database transaction.
+    campaign = None
+    if client_charge_kobo is None and reference:
+        try:
+            submission_id = uuid.UUID(reference)
+        except ValueError:
+            submission_id = None
+        if submission_id:
+            from app.models.task import Submission, Task
+            from app.models.campaign import Campaign
+            submission_r = await db.execute(
+                select(Submission).where(Submission.id == submission_id)
+            )
+            submission = submission_r.scalar_one_or_none()
+            if submission:
+                task_r = await db.execute(
+                    select(Task).where(Task.id == submission.task_id)
+                )
+                task = task_r.scalar_one_or_none()
+                if task:
+                    campaign_r = await db.execute(
+                        select(Campaign).where(Campaign.id == task.campaign_id).with_for_update()
+                    )
+                    campaign = campaign_r.scalar_one_or_none()
+                    if campaign:
+                        client_charge_kobo = campaign.client_price_per_action_kobo
+                        if campaign.escrow_kobo < client_charge_kobo:
+                            raise HTTPException(status_code=409, detail="Campaign escrow insufficient")
+
     client_charge = amount_kobo if client_charge_kobo is None else client_charge_kobo
     if client_charge <= 0:
         raise HTTPException(status_code=400, detail="Client escrow charge must be positive")
@@ -213,6 +241,9 @@ async def release_escrow_to_worker(
     if adv_wallet.escrow_kobo < client_charge:
         raise HTTPException(status_code=400, detail="Escrow balance insufficient")
     adv_wallet.escrow_kobo -= client_charge
+    if campaign is not None:
+        campaign.escrow_kobo -= client_charge
+
     adv_tx = Transaction(
         wallet_id=adv_wallet.id,
         type="escrow_release",
@@ -224,7 +255,6 @@ async def release_escrow_to_worker(
     )
     db.add(adv_tx)
 
-    # Credit worker only with the contracted worker payout, not the client price.
     wrk_wallet = await _lock_wallet(db, worker_id)
     wrk_wallet.balance_kobo += amount_kobo
     wrk_wallet.total_earned_kobo += amount_kobo
@@ -233,8 +263,8 @@ async def release_escrow_to_worker(
     fields = _CATEGORY_FIELD_MAP.get(task_category)
     if fields:
         daily_k, total_k, daily_cp = fields
-        setattr(wrk_wallet, daily_k,  getattr(wrk_wallet, daily_k)  + amount_kobo)
-        setattr(wrk_wallet, total_k,  getattr(wrk_wallet, total_k)  + amount_kobo)
+        setattr(wrk_wallet, daily_k, getattr(wrk_wallet, daily_k) + amount_kobo)
+        setattr(wrk_wallet, total_k, getattr(wrk_wallet, total_k) + amount_kobo)
         setattr(wrk_wallet, daily_cp, getattr(wrk_wallet, daily_cp) + click_points)
 
     wrk_tx = Transaction(
