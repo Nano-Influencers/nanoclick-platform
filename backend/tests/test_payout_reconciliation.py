@@ -5,6 +5,8 @@ from sqlalchemy import select
 
 from app.models.wallet import Transaction, Wallet
 from app.models.withdrawal import Withdrawal
+from app.services import paystack
+from app.services import notification_service
 from app.workers import payout_tasks
 
 
@@ -31,7 +33,7 @@ async def test_reconciliation_keeps_provider_success_processing(db_factory, monk
     async def verify_transfer(_reference):
         return {"status": "success", "transfer_code": "TRF_test_001", "reference": reference}
 
-    monkeypatch.setattr(payout_tasks.paystack, "verify_transfer", verify_transfer)
+    monkeypatch.setattr(paystack, "verify_transfer", verify_transfer)
 
     result = await payout_tasks._reconcile_provider_transfer(reference)
     assert result is True
@@ -80,8 +82,8 @@ async def test_reconciliation_failure_refunds_once(db_factory, monkeypatch):
     async def notify(*_args, **_kwargs):
         return None
 
-    monkeypatch.setattr(payout_tasks.paystack, "verify_transfer", verify_transfer)
-    monkeypatch.setattr(payout_tasks, "notify", notify, raising=False)
+    monkeypatch.setattr(paystack, "verify_transfer", verify_transfer)
+    monkeypatch.setattr(notification_service, "notify", notify)
 
     result = await payout_tasks._reconcile_provider_transfer(reference)
     assert result is True
@@ -134,7 +136,7 @@ async def test_reconciliation_is_idempotent_after_failure(db_factory, monkeypatc
         calls += 1
         return {"status": "failed", "transfer_code": "TRF_failed_002", "reference": reference}
 
-    monkeypatch.setattr(payout_tasks.paystack, "verify_transfer", verify_transfer)
+    monkeypatch.setattr(paystack, "verify_transfer", verify_transfer)
 
     assert await payout_tasks._reconcile_provider_transfer(reference) is True
     assert calls == 1
