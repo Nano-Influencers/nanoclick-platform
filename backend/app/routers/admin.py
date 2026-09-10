@@ -1,7 +1,7 @@
 import uuid
 from decimal import Decimal
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,8 +11,11 @@ from app.models.user import User, KycProfile
 from app.models.task import Submission, Task, TaskReport, LeaderboardScore
 from app.models.campaign import Campaign
 from app.models.wallet import Wallet
+from app.models.platform_wallet import PlatformWallet
+from app.models.platform_wallet_transaction import PlatformWalletTransaction
 from app.services import wallet_service
 from app.services.clickpoints import calculate_click_points
+from app.services import audit_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -32,16 +35,12 @@ async def approve_submission(submission_id: uuid.UUID, client_rating: float = 5.
         raise HTTPException(404, "Submission not found")
     if sub.status not in ("pending", "under_review", "queried"):
         raise HTTPException(400, f"Cannot approve status '{sub.status}'")
-
-    # Serialize approvals for the same task. This prevents two admins from
-    # both observing the last available slot and both paying it out.
     task_r = await db.execute(select(Task).where(Task.id == sub.task_id).with_for_update())
     task = task_r.scalar_one_or_none()
     if not task:
         raise HTTPException(404, "Task not found")
     if task.slots_filled >= task.slots_total:
         raise HTTPException(409, "Task has no remaining slots")
-
     campaign_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id))
     campaign = campaign_r.scalar_one_or_none()
     if not campaign:
@@ -173,7 +172,6 @@ async def uphold_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     return {"message": "Report upheld. Task removed, advertiser refunded, reporter rewarded.", "cp_reward": CP_REWARD}
 
 async def _reward_reporter(db: AsyncSession, reporter_id: uuid.UUID, report_id: uuid.UUID, points: int) -> bool:
-    """Award report points through the wallet service so the mutation and ledger entry stay atomic."""
     if points <= 0:
         return False
     await wallet_service.credit(
@@ -226,16 +224,60 @@ async def reject_kyc(user_id: uuid.UUID, reason: str, db: AsyncSession = Depends
     await notify(db, user_id, "kyc_rejected", "KYC rejected", reason)
     return {"message": "KYC rejected", "reason": reason}
 
+@router.get("/rewards/pool")
+async def reward_pool_balance(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    wallet_r = await db.execute(select(PlatformWallet).where(PlatformWallet.wallet_key == "reward_pool"))
+    wallet = wallet_r.scalar_one_or_none()
+    if not wallet:
+        raise HTTPException(500, "Reward pool funding wallet is not configured")
+    return {"wallet_key": wallet.wallet_key, "balance_kobo": wallet.balance_kobo, "balance_ngn": wallet.balance_kobo / 100}
+
+@router.post("/rewards/pool/fund")
+async def fund_reward_pool(
+    reference: str,
+    amount_ngn: Decimal,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Record externally settled platform funding; never debits an admin wallet."""
+    if amount_ngn <= 0:
+        raise HTTPException(400, "Funding amount must be positive")
+    amount_kobo = int(amount_ngn * 100)
+    if amount_kobo <= 0:
+        raise HTTPException(400, "Funding amount must be at least ₦0.01")
+    from app.services import rewards_service
+    result = await rewards_service.fund_reward_pool(db, amount_kobo, reference)
+    await audit_service.record(
+        db, request, "reward_pool_funded", actor_user_id=admin.id,
+        resource_type="platform_wallet", resource_id="reward_pool",
+        metadata={"reference": reference, "amount_kobo": amount_kobo, "idempotent": result["idempotent"]},
+    )
+    return result
+
 @router.post("/rewards/distribute-pool")
-async def distribute_reward_pool(track: str, pool_ngn: Decimal, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    """Split a pooled prize equally among eligible Level-10 workers."""
+async def distribute_reward_pool(
+    track: str,
+    pool_ngn: Decimal,
+    reference: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Split a funded pooled prize equally among eligible Level-10 workers."""
     if pool_ngn <= 0:
         raise HTTPException(400, "Reward pool must be positive")
     amount_kobo = int(pool_ngn * 100)
     if amount_kobo <= 0:
         raise HTTPException(400, "Reward pool must be at least ₦0.01")
     from app.services import rewards_service
-    return await rewards_service.distribute_reward_pool(db, track, amount_kobo)
+    result = await rewards_service.distribute_reward_pool(db, track, amount_kobo, reference=reference)
+    await audit_service.record(
+        db, request, "reward_pool_distributed", actor_user_id=admin.id,
+        resource_type="platform_wallet", resource_id="reward_pool",
+        metadata={"track": track, "reference": reference, "amount_kobo": amount_kobo, "result": result},
+    )
+    return result
 
 @router.get("/stats")
 async def platform_stats(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
