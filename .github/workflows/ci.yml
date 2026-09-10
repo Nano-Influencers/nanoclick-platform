@@ -80,6 +80,8 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
       - name: Build web
         run: flutter build web --release
       - name: Build Android
