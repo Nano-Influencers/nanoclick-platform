@@ -118,9 +118,34 @@ async def release_escrow_to_worker(
     """
     Atomically move funds from advertiser escrow to worker balance.
     Called on task approval (human review or 72h auto-approve).
+
+    `reference` is the submission/task approval idempotency key. The advertiser
+    wallet is locked before checking it, so concurrent duplicate task delivery
+    cannot perform the same financial transfer twice.
     """
-    # Deduct from advertiser escrow
     adv_wallet = await _lock_wallet(db, advertiser_id)
+
+    if reference:
+        existing = await db.execute(
+            select(Transaction).where(
+                Transaction.reference == reference,
+                Transaction.type == "escrow_release",
+                Transaction.wallet_id == adv_wallet.id,
+            )
+        )
+        adv_tx = existing.scalar_one_or_none()
+        if adv_tx:
+            worker_result = await db.execute(
+                select(Transaction).where(
+                    Transaction.reference == reference,
+                    Transaction.type == "task_earning",
+                )
+            )
+            wrk_tx = worker_result.scalar_one_or_none()
+            if wrk_tx:
+                return adv_tx, wrk_tx
+            raise HTTPException(status_code=409, detail="Incomplete escrow release for reference")
+
     if adv_wallet.escrow_kobo < amount_kobo:
         raise HTTPException(status_code=400, detail="Escrow balance insufficient")
     adv_wallet.escrow_kobo -= amount_kobo
