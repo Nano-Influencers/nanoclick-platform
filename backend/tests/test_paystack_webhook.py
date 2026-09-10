@@ -185,3 +185,40 @@ async def test_transfer_reversed_refunds_once(db_factory):
         assert withdrawal.status == "reversed"
         assert wallet.balance_kobo == 8_000
         assert len(reversals) == 1
+
+
+@pytest.mark.asyncio
+async def test_transfer_reversed_after_success_refunds_once(db_factory):
+    user_id = uuid.uuid4()
+    reference = "wdw_webhook_success_reversal_001"
+
+    async with db_factory() as db:
+        await _add_user_and_wallet(db, user_id, "success-reversal")
+        wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
+        db.add(Transaction(wallet_id=wallet.id, type="withdrawal", amount_kobo=9_000, status="completed", reference=reference))
+        db.add(Withdrawal(
+            user_id=user_id, reference=reference, amount_kobo=9_000,
+            account_number="0123456789", bank_code="058", account_name="Test Worker",
+            status="successful", provider_reference="TRF_success_then_reversed",
+        ))
+        await db.commit()
+
+    payload = {
+        "event": "transfer.reversed",
+        "data": {"reference": reference, "transfer_code": "TRF_success_then_reversed", "amount": 9_000},
+    }
+
+    first = await _post_webhook(payload, "evt_success_then_reversed_001")
+    second = await _post_webhook(payload, "evt_success_then_reversed_002")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+
+    async with db_factory() as db:
+        wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
+        withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
+        reversals = (await db.execute(select(Transaction).where(Transaction.reference == f"{reference}:reversal"))).scalars().all()
+
+        assert withdrawal.status == "reversed"
+        assert wallet.balance_kobo == 9_000
+        assert len(reversals) == 1
