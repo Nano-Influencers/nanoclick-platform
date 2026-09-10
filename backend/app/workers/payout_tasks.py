@@ -51,12 +51,7 @@ async def _mark_provider_failure(db, withdrawal, reason: str):
 
 
 async def _reconcile_provider_transfer(reference: str):
-    """Reconcile an ambiguous Paystack transfer request by stable reference.
-
-    Returns True when the provider has a definitive record and the withdrawal
-    was updated. Returns False when Paystack has no visible transfer yet, so the
-    caller can safely retry the original request with the same reference.
-    """
+    """Reconcile an ambiguous Paystack transfer request by stable reference."""
     from app.database import AsyncSessionLocal
     from app.models.withdrawal import Withdrawal
     from app.services import paystack
@@ -100,13 +95,7 @@ async def _reconcile_provider_transfer(reference: str):
 
 
 async def _acquire_reference_lock(db, reference: str):
-    """Serialize payout attempts for the same stable provider reference.
-
-    Celery can redeliver the same task concurrently. A withdrawal row lock is
-    not sufficient because it must be released before the external Paystack
-    request. A PostgreSQL session advisory lock closes that race without
-    relying on a process-local mutex.
-    """
+    """Serialize payout attempts for the same stable provider reference."""
     from sqlalchemy import text
 
     await db.execute(
@@ -142,13 +131,18 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
         withdrawal.status = "processing"
         await db.commit()
 
-        # The DB row lock above protects state changes, but cannot be held
-        # across an external network call. Serialize same-reference payout
-        # attempts with a PostgreSQL advisory lock instead.
         await _acquire_reference_lock(db, reference)
         try:
-            # A previous Celery delivery may already have reached Paystack
-            # while this delivery was waiting for the advisory lock. Reconcile
+            # Re-read after acquiring the cross-process lock. Another delivery
+            # may have completed or failed the withdrawal while we were waiting.
+            current_result = await db.execute(
+                select(Withdrawal).where(Withdrawal.reference == reference).with_for_update()
+            )
+            withdrawal = current_result.scalar_one_or_none()
+            if not withdrawal or withdrawal.status in ("successful", "failed", "reversed"):
+                return
+
+            # A previous delivery may already have reached Paystack. Reconcile
             # before creating another transfer.
             try:
                 provider = await paystack.verify_transfer(reference)
@@ -157,37 +151,25 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
 
             if provider:
                 status = (provider.get("status") or "").lower()
-                async with AsyncSessionLocal() as reconcile_db:
-                    current = await reconcile_db.execute(
-                        select(Withdrawal).where(Withdrawal.reference == reference).with_for_update()
+                withdrawal.provider_reference = provider.get("transfer_code") or provider.get("reference") or reference
+                if status == "success":
+                    withdrawal.status = "processing"
+                elif status in ("failed", "reversed"):
+                    await _mark_provider_failure(
+                        db,
+                        withdrawal,
+                        provider.get("failures") or f"Paystack transfer {status}",
                     )
-                    current_withdrawal = current.scalar_one_or_none()
-                    if current_withdrawal and current_withdrawal.status not in ("successful", "failed", "reversed"):
-                        current_withdrawal.provider_reference = (
-                            provider.get("transfer_code") or provider.get("reference") or reference
-                        )
-                        if status == "success":
-                            current_withdrawal.status = "processing"
-                        elif status in ("failed", "reversed"):
-                            await _mark_provider_failure(
-                                reconcile_db,
-                                current_withdrawal,
-                                provider.get("failures") or f"Paystack transfer {status}",
-                            )
-                        else:
-                            current_withdrawal.status = "processing"
-                        await reconcile_db.commit()
+                else:
+                    withdrawal.status = "processing"
+                await db.commit()
                 return
 
             recipient_code = withdrawal.recipient_code
             if not recipient_code:
                 recipient_code = await paystack.create_transfer_recipient(account_number, bank_code, account_name)
-                async with AsyncSessionLocal() as save_db:
-                    saved = await save_db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
-                    saved_withdrawal = saved.scalar_one_or_none()
-                    if saved_withdrawal and saved_withdrawal.status not in ("successful", "failed", "reversed"):
-                        saved_withdrawal.recipient_code = recipient_code
-                        await save_db.commit()
+                withdrawal.recipient_code = recipient_code
+                await db.commit()
 
             try:
                 result = await paystack.initiate_transfer(amount_kobo, recipient_code, reference)
@@ -196,12 +178,11 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
                 if found:
                     return
                 if 400 <= exc.response.status_code < 500:
-                    async with AsyncSessionLocal() as fail_db:
-                        failed = await fail_db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
-                        failed_withdrawal = failed.scalar_one_or_none()
-                        if failed_withdrawal and failed_withdrawal.status not in ("successful", "failed", "reversed"):
-                            await _mark_provider_failure(fail_db, failed_withdrawal, f"Paystack rejected transfer ({exc.response.status_code})")
-                            await fail_db.commit()
+                    failed = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
+                    failed_withdrawal = failed.scalar_one_or_none()
+                    if failed_withdrawal and failed_withdrawal.status not in ("successful", "failed", "reversed"):
+                        await _mark_provider_failure(db, failed_withdrawal, f"Paystack rejected transfer ({exc.response.status_code})")
+                        await db.commit()
                     return
                 raise
             except Exception:
@@ -210,13 +191,12 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
                 raise
 
             provider_reference = result.get("transfer_code") or result.get("reference") or reference
-            async with AsyncSessionLocal() as save_db:
-                saved = await save_db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
-                saved_withdrawal = saved.scalar_one_or_none()
-                if saved_withdrawal:
-                    saved_withdrawal.provider_reference = provider_reference
-                    saved_withdrawal.status = "processing"
-                    await save_db.commit()
+            saved = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
+            saved_withdrawal = saved.scalar_one_or_none()
+            if saved_withdrawal:
+                saved_withdrawal.provider_reference = provider_reference
+                saved_withdrawal.status = "processing"
+                await db.commit()
         finally:
             await _release_reference_lock(db, reference)
 
@@ -241,7 +221,7 @@ async def _reset():
             daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
             daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_cps=0, daily_repeating_grouped_cps=0,
+            daily_repeating_single_kobo=0, daily_repeating_grouped_cps=0,
             daily_trend_push_cps=0, daily_skill_based_cps=0, daily_unpaid_cps=0,
             daily_reset_at=datetime.utcnow()))
         await db.commit()
