@@ -49,7 +49,7 @@ class _AccountSettingsState extends State<AccountSettings> {
           _item(Icons.lock, 'Change password', () => _push(const ChangePassword())),
           _item(Icons.language, 'Preferred language', () => _push(const PreferredLanguage())),
           _item(Icons.payments, 'Preferred currency', () => _push(const PreferredCurrency())),
-          _item(Icons.delete_forever, 'Delete account', () => _push(const DeleteAccount())),
+          _item(Icons.delete_forever, 'Delete account', () => showDeleteDialog(context)),
           Card(child: ListTile(leading: const Icon(Icons.logout), title: const Text('Sign out'), trailing: const Icon(Icons.chevron_right), onTap: () => showSignOutDialog(context))),
         ]),
       ),
