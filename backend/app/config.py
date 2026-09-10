@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,8 +44,8 @@ class Settings(BaseSettings):
     # Comma-separated allowlist of origins/URLs a caller may pass as its own
     # ?redirect_uri= for web OAuth — required since nano-influencers and
     # click-workers are two different web origins that both need their own
-    # callback page, and an unvalidated redirect_uri would let anyone mint
-    # a link that hands a freshly-issued token to an attacker-controlled page.
+    # callback page, and an unvalidated redirect_uri would let anyone mint a
+    # link that hands a freshly-issued token to an attacker-controlled page.
     OAUTH_ALLOWED_WEB_REDIRECTS: str = "http://localhost:5173/oauth-callback,http://localhost:8080/"
 
     # Gamification amounts (kobo). Not discoverable from the existing
@@ -57,9 +58,51 @@ class Settings(BaseSettings):
     CHECKIN_STREAK_CAP_DAYS: int = 7           # streak reward plateaus after a 7-day cycle, then repeats
     SPIN_COOLDOWN_HOURS: int = 24
 
+    @model_validator(mode="after")
+    def validate_production_security(self):
+        """Fail closed on deployment settings that are unsafe in production."""
+        env = self.APP_ENV.strip().lower()
+        if env not in {"production", "prod"}:
+            return self
+
+        if len(self.SECRET_KEY) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters in production")
+
+        origins = self.allowed_origins
+        if not origins or any(origin == "*" or not origin for origin in origins):
+            raise ValueError("FRONTEND_ORIGINS must be explicit non-wildcard origins in production")
+        if any("localhost" in origin.lower() or "127.0.0.1" in origin for origin in origins):
+            raise ValueError("FRONTEND_ORIGINS must not contain localhost/127.0.0.1 in production")
+        if any(not origin.startswith("https://") for origin in origins):
+            raise ValueError("FRONTEND_ORIGINS must use HTTPS in production")
+
+        if not self.PAYSTACK_SECRET_KEY or not self.PAYSTACK_PUBLIC_KEY:
+            raise ValueError("Paystack keys must be configured in production")
+        if not self.S3_ENDPOINT_URL or not self.S3_ACCESS_KEY_ID or not self.S3_SECRET_ACCESS_KEY:
+            raise ValueError("Private object-storage credentials must be configured in production")
+
+        for name, value in (
+            ("OAUTH_REDIRECT_BASE", self.OAUTH_REDIRECT_BASE),
+            ("OAUTH_WEB_REDIRECT_URL", self.OAUTH_WEB_REDIRECT_URL),
+        ):
+            if not value.startswith("https://"):
+                raise ValueError(f"{name} must use HTTPS in production")
+            if "localhost" in value.lower() or "127.0.0.1" in value:
+                raise ValueError(f"{name} must not point to localhost/127.0.0.1 in production")
+
+        redirects = [url.strip() for url in self.OAUTH_ALLOWED_WEB_REDIRECTS.split(",") if url.strip()]
+        if not redirects:
+            raise ValueError("OAUTH_ALLOWED_WEB_REDIRECTS must contain at least one redirect in production")
+        if any(not url.startswith("https://") for url in redirects):
+            raise ValueError("OAUTH_ALLOWED_WEB_REDIRECTS must use HTTPS in production")
+        if any("localhost" in url.lower() or "127.0.0.1" in url for url in redirects):
+            raise ValueError("OAUTH_ALLOWED_WEB_REDIRECTS must not contain localhost/127.0.0.1 in production")
+
+        return self
+
     @property
     def allowed_origins(self) -> list[str]:
-        return [o.strip() for o in self.FRONTEND_ORIGINS.split(",")]
+        return [o.strip() for o in self.FRONTEND_ORIGINS.split(",") if o.strip()]
 
 
 settings = Settings()
