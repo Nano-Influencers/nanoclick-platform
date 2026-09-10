@@ -65,7 +65,11 @@ class MyApp extends StatelessWidget {
               side: const BorderSide(color: Color(0xffff6533)),
             ),
           ),
-          textButtonTheme: TextButtonThemeData(foregroundColor: const Color(0xffff6533)),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xffff6533),
+            ),
+          ),
           textTheme: const TextTheme(bodyMedium: TextStyle(fontSize: 14)),
           inputDecorationTheme: const InputDecorationTheme(
             focusedBorder: OutlineInputBorder(
