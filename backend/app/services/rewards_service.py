@@ -61,14 +61,7 @@ async def get_progress(db: AsyncSession, worker_id: uuid.UUID) -> dict:
 
 
 async def distribute_reward_pool(db: AsyncSession, track: str, pool_kobo: int) -> dict:
-    """Admin-triggered pool split with database-enforced one-time claims.
-
-    The RewardClaim unique key is the concurrency boundary: two admin workers
-    cannot both pay the same worker even if they enumerate eligibility at the
-    same time. The claim is inserted before the wallet credit; any later error
-    rolls the whole transaction back, so a successful claim always has a
-    corresponding payout in the same transaction.
-    """
+    """Admin-triggered pool split with database-enforced one-time claims."""
     if track not in ("grit", "gratis"):
         raise HTTPException(400, "track must be 'grit' or 'gratis'")
     if pool_kobo <= 0:
@@ -114,6 +107,7 @@ async def distribute_reward_pool(db: AsyncSession, track: str, pool_kobo: int) -
 
 
 async def spin(db: AsyncSession, user_id: uuid.UUID) -> dict:
+    """Award a spin result through the centralized wallet ledger."""
     result = await db.execute(select(Wallet).where(Wallet.user_id == user_id).with_for_update())
     wallet = result.scalar_one_or_none()
     if not wallet:
@@ -133,21 +127,27 @@ async def spin(db: AsyncSession, user_id: uuid.UUID) -> dict:
     ]
     chosen = random.choices(outcomes, weights=[o["weight"] for o in outcomes], k=1)[0]
     wallet.last_spin_at = now
+    reference = f"spin:{user_id}:{now.isoformat()}"
     if chosen["kind"] == "click_points":
-        wallet.click_points += chosen["value"]
-        db.add(Transaction(wallet_id=wallet.id, type="spin_win", amount_kobo=0,
-                           click_points_awarded=chosen["value"], status="completed",
-                           description="Spin to Win — click points"))
+        await wallet_service.credit(
+            db, user_id, 0, "spin_win",
+            description="Spin to Win — click points",
+            reference=reference,
+            click_points=chosen["value"],
+        )
     else:
-        wallet.balance_kobo += chosen["value"]
-        db.add(Transaction(wallet_id=wallet.id, type="spin_win", amount_kobo=chosen["value"],
-                           status="completed", description="Spin to Win — cash prize"))
+        await wallet_service.credit(
+            db, user_id, chosen["value"], "spin_win",
+            description="Spin to Win — cash prize",
+            reference=reference,
+        )
 
     return {"kind": chosen["kind"], "value": chosen["value"],
             "next_spin_at": (now + timedelta(hours=settings.SPIN_COOLDOWN_HOURS)).isoformat() + "Z"}
 
 
 async def checkin(db: AsyncSession, user_id: uuid.UUID) -> dict:
+    """Award the daily check-in reward through the centralized wallet ledger."""
     result = await db.execute(select(Wallet).where(Wallet.user_id == user_id).with_for_update())
     wallet = result.scalar_one_or_none()
     if not wallet:
@@ -162,9 +162,12 @@ async def checkin(db: AsyncSession, user_id: uuid.UUID) -> dict:
         wallet.checkin_streak = 1
     reward_kobo = settings.CHECKIN_BASE_REWARD_KOBO + settings.CHECKIN_STREAK_STEP_KOBO * (wallet.checkin_streak - 1)
     wallet.last_checkin_at = now
-    wallet.balance_kobo += reward_kobo
-    db.add(Transaction(wallet_id=wallet.id, type="checkin_reward", amount_kobo=reward_kobo,
-                        status="completed", description=f"Daily check-in — day {wallet.checkin_streak} streak"))
+    reference = f"checkin:{user_id}:{now.date().isoformat()}"
+    await wallet_service.credit(
+        db, user_id, reward_kobo, "checkin_reward",
+        description=f"Daily check-in — day {wallet.checkin_streak} streak",
+        reference=reference,
+    )
     return {"streak_day": wallet.checkin_streak, "reward_kobo": reward_kobo, "reward_ngn": reward_kobo / 100}
 
 
