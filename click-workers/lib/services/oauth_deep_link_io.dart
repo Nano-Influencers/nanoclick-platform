@@ -1,10 +1,10 @@
-import 'dart:async';
-
 import 'package:app_links/app_links.dart';
 
 import 'api_client.dart';
 
-Future<void> initializeNativeOAuthDeepLinks() async {
+Future<void> initializeNativeOAuthDeepLinks({
+  Future<void> Function()? onAuthenticated,
+}) async {
   final appLinks = AppLinks();
 
   Future<void> handle(Uri uri) async {
@@ -13,6 +13,7 @@ Future<void> initializeNativeOAuthDeepLinks() async {
     if (code == null || code.isEmpty) return;
     try {
       await ApiClient.instance.exchangeOAuthCode(code);
+      await onAuthenticated?.call();
     } catch (_) {
       // Invalid/expired codes leave the app unauthenticated.
     }
