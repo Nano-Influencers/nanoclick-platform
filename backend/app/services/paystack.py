@@ -38,7 +38,7 @@ async def resolve_account_number(account_number: str, bank_code: str) -> dict:
             headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
         )
         resp.raise_for_status()
-        return resp.json()["data"]  # {"account_number": ..., "account_name": ..., "bank_id": ...}
+        return resp.json()["data"]
 
 
 async def create_transfer_recipient(account_number: str, bank_code: str, account_name: str) -> str:
@@ -70,6 +70,21 @@ async def initiate_transfer(
             f"{PAYSTACK_BASE}/transfer",
             json={"source": "balance", "amount": amount_kobo,
                   "recipient": recipient_code, "reference": reference, "reason": reason},
+            headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
+        )
+        resp.raise_for_status()
+        return resp.json()["data"]
+
+
+async def verify_transfer(reference: str) -> dict:
+    """Fetch the provider-side transfer state for a stable transfer reference.
+
+    This is the reconciliation primitive used after an ambiguous transfer
+    request (for example, a network timeout after Paystack accepted the POST).
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{PAYSTACK_BASE}/transfer/verify/{reference}",
             headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
         )
         resp.raise_for_status()
