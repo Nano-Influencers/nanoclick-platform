@@ -13,9 +13,9 @@ Read directly from grit_achievements.dart / gratis_achievements.dart:
     tasks (Task.cw_task_category == "unpaid"). Same Level 10 pool mechanic.
 
 Because "a share of" implies splitting a pool among everyone who qualifies
-in a period (not a fixed individual amount), progress/eligibility is fully
-computed here, but the actual payout is an admin-triggered pool split
-(see distribute_reward_pool) rather than an automatic instant claim — this
+in a period (not a fixed individual payout), progress/eligibility is fully
+computed here, but the actual payout is an admin-triggered pool split (see
+ distribute_reward_pool) rather than an automatic instant claim — this
 mirrors how the rest of the app handles admin-adjudicated payouts (report
 rewards, campaign refunds) rather than inventing an unfounded fixed amount.
 
@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.task import Submission, Task
 from app.models.user import User
-from app.models.wallet import Wallet
+from app.models.wallet import Wallet, Transaction
 from app.models.rewards import RewardClaim
 from app.services import wallet_service
 from app.services.notification_service import notify
@@ -91,7 +91,6 @@ async def distribute_reward_pool(db: AsyncSession, track: str, pool_kobo: int) -
         raise HTTPException(400, "track must be 'grit' or 'gratis'")
     reward_key = f"{track}_level10_pool"
 
-    # Every worker who has ever submitted, filtered down to Level-10 reachers.
     workers_result = await db.execute(select(User.id).where(User.role == "worker"))
     eligible: list[uuid.UUID] = []
     for (worker_id,) in workers_result.all():
@@ -129,14 +128,13 @@ async def spin(db: AsyncSession, user_id: uuid.UUID) -> dict:
         next_at = wallet.last_spin_at + timedelta(hours=settings.SPIN_COOLDOWN_HOURS)
         raise HTTPException(429, f"You've already spun today. Next spin available at {next_at.isoformat()}Z")
 
-    # Weighted outcomes: mostly click points, occasionally a small cash prize.
     outcomes = [
         {"kind": "click_points", "value": 10, "weight": 40},
         {"kind": "click_points", "value": 25, "weight": 25},
         {"kind": "click_points", "value": 50, "weight": 15},
-        {"kind": "cash_kobo", "value": 5000, "weight": 12},   # ₦50
-        {"kind": "cash_kobo", "value": 10000, "weight": 6},   # ₦100
-        {"kind": "cash_kobo", "value": 50000, "weight": 2},   # ₦500 jackpot
+        {"kind": "cash_kobo", "value": 5000, "weight": 12},
+        {"kind": "cash_kobo", "value": 10000, "weight": 6},
+        {"kind": "cash_kobo", "value": 50000, "weight": 2},
     ]
     chosen = random.choices(outcomes, weights=[o["weight"] for o in outcomes], k=1)[0]
 
@@ -170,8 +168,6 @@ async def checkin(db: AsyncSession, user_id: uuid.UUID) -> dict:
         next_at = wallet.last_checkin_at + timedelta(hours=24)
         raise HTTPException(429, f"You've already checked in today. Next check-in available at {next_at.isoformat()}Z")
 
-    # Streak continues if the previous check-in was within the last 48h
-    # (i.e. yesterday), otherwise it resets to day 1.
     if wallet.last_checkin_at and now - wallet.last_checkin_at < timedelta(hours=48):
         wallet.checkin_streak = min(wallet.checkin_streak + 1, settings.CHECKIN_STREAK_CAP_DAYS)
     else:
@@ -196,18 +192,42 @@ async def award_referral_bonus_if_first_approval(db: AsyncSession, worker_id: uu
     Gating on "first *approved* submission" (rather than registration or KYC
     approval alone) is a deliberate anti-fraud choice: it requires the
     referred user to actually complete real, paid work before the referrer
-    is rewarded."""
+    is rewarded.
+
+    The referrer wallet is locked before the idempotency check. This means
+    concurrent approval workers for the same referred worker serialize on the
+    same wallet row, preventing duplicate money and duplicate notifications.
+    """
     approved_count = await _approved_count(db, worker_id)
     if approved_count != 1:
-        return  # not their first approval
+        return
     worker_r = await db.execute(select(User).where(User.id == worker_id))
     worker = worker_r.scalar_one_or_none()
     if not worker or not worker.referred_by:
         return
+
+    reference = f"referral_{worker_id}"
+    referrer_wallet_result = await db.execute(
+        select(Wallet).where(Wallet.user_id == worker.referred_by).with_for_update()
+    )
+    referrer_wallet = referrer_wallet_result.scalar_one_or_none()
+    if not referrer_wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
+    existing_result = await db.execute(
+        select(Transaction).where(
+            Transaction.wallet_id == referrer_wallet.id,
+            Transaction.type == "referral_bonus",
+            Transaction.reference == reference,
+        )
+    )
+    if existing_result.scalar_one_or_none():
+        return
+
     await wallet_service.credit(
         db, worker.referred_by, settings.REFERRAL_BONUS_KOBO, "referral_bonus",
         description=f"Referral bonus — {worker.full_name}'s first approved task",
-        reference=f"referral_{worker_id}",
+        reference=reference,
     )
     await notify(db, worker.referred_by, "referral_bonus", "Referral bonus earned!",
                  f"{worker.full_name} completed their first task — you earned ₦{settings.REFERRAL_BONUS_KOBO/100:,.2f}.")
