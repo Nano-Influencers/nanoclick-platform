@@ -40,6 +40,24 @@ async def credit(
     click_points: int = 0,
 ) -> Transaction:
     wallet = await _lock_wallet(db, user_id)
+
+    # References are idempotency keys for externally retried/background work.
+    # The wallet row lock serializes concurrent credits for the same user, so a
+    # second delivery cannot create another financial transaction.
+    if reference:
+        existing_result = await db.execute(
+            select(Transaction).where(
+                Transaction.wallet_id == wallet.id,
+                Transaction.type == tx_type,
+                Transaction.reference == reference,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            if existing.amount_kobo != amount_kobo or existing.click_points_awarded != click_points:
+                raise HTTPException(status_code=409, detail="Conflicting credit reference")
+            return existing
+
     wallet.balance_kobo += amount_kobo
     wallet.click_points += click_points
     tx = Transaction(
