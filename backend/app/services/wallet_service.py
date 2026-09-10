@@ -30,6 +30,30 @@ async def _lock_wallet(db: AsyncSession, user_id: uuid.UUID) -> Wallet:
     return wallet
 
 
+async def _existing_transaction(
+    db: AsyncSession,
+    wallet_id: uuid.UUID,
+    tx_type: str,
+    reference: str,
+    amount_kobo: int,
+    click_points: int = 0,
+) -> Transaction | None:
+    """Return an idempotent transaction or reject a conflicting reuse."""
+    result = await db.execute(
+        select(Transaction).where(
+            Transaction.wallet_id == wallet_id,
+            Transaction.type == tx_type,
+            Transaction.reference == reference,
+        ).with_for_update()
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        if existing.amount_kobo != amount_kobo or existing.click_points_awarded != click_points:
+            raise HTTPException(status_code=409, detail="Conflicting transaction reference")
+        return existing
+    return None
+
+
 async def credit(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -41,21 +65,11 @@ async def credit(
 ) -> Transaction:
     wallet = await _lock_wallet(db, user_id)
 
-    # References are idempotency keys for externally retried/background work.
-    # The wallet row lock serializes concurrent credits for the same user, so a
-    # second delivery cannot create another financial transaction.
     if reference:
-        existing_result = await db.execute(
-            select(Transaction).where(
-                Transaction.wallet_id == wallet.id,
-                Transaction.type == tx_type,
-                Transaction.reference == reference,
-            )
+        existing = await _existing_transaction(
+            db, wallet.id, tx_type, reference, amount_kobo, click_points
         )
-        existing = existing_result.scalar_one_or_none()
         if existing:
-            if existing.amount_kobo != amount_kobo or existing.click_points_awarded != click_points:
-                raise HTTPException(status_code=409, detail="Conflicting credit reference")
             return existing
 
     wallet.balance_kobo += amount_kobo
@@ -82,6 +96,14 @@ async def debit(
     reference: str | None = None,
 ) -> Transaction:
     wallet = await _lock_wallet(db, user_id)
+
+    if reference:
+        existing = await _existing_transaction(
+            db, wallet.id, tx_type, reference, amount_kobo
+        )
+        if existing:
+            return existing
+
     if wallet.balance_kobo < amount_kobo:
         raise HTTPException(status_code=400, detail="Insufficient balance")
     wallet.balance_kobo -= amount_kobo
@@ -107,6 +129,14 @@ async def lock_escrow(
 ) -> Transaction:
     """Lock campaign budget into escrow at campaign launch."""
     wallet = await _lock_wallet(db, user_id)
+
+    if reference:
+        existing = await _existing_transaction(
+            db, wallet.id, "escrow_lock", reference, amount_kobo
+        )
+        if existing:
+            return existing
+
     if wallet.balance_kobo < amount_kobo:
         raise HTTPException(status_code=400, detail="Insufficient balance to fund campaign")
     wallet.balance_kobo -= amount_kobo
@@ -153,6 +183,8 @@ async def release_escrow_to_worker(
         )
         adv_tx = existing.scalar_one_or_none()
         if adv_tx:
+            if adv_tx.amount_kobo != amount_kobo:
+                raise HTTPException(status_code=409, detail="Conflicting escrow release reference")
             worker_result = await db.execute(
                 select(Transaction).where(
                     Transaction.reference == reference,
@@ -161,6 +193,8 @@ async def release_escrow_to_worker(
             )
             wrk_tx = worker_result.scalar_one_or_none()
             if wrk_tx:
+                if wrk_tx.amount_kobo != amount_kobo or wrk_tx.click_points_awarded != click_points:
+                    raise HTTPException(status_code=409, detail="Conflicting task earning reference")
                 return adv_tx, wrk_tx
             raise HTTPException(status_code=409, detail="Incomplete escrow release for reference")
 
@@ -214,6 +248,14 @@ async def refund_escrow(
 ) -> Transaction:
     """Return escrowed funds to advertiser (campaign cancelled/rejected/reported)."""
     wallet = await _lock_wallet(db, advertiser_id)
+
+    if reference:
+        existing = await _existing_transaction(
+            db, wallet.id, "escrow_release", reference, amount_kobo
+        )
+        if existing:
+            return existing
+
     if wallet.escrow_kobo < amount_kobo:
         amount_kobo = wallet.escrow_kobo   # refund whatever remains
     wallet.escrow_kobo -= amount_kobo
