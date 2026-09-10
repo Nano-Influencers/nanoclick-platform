@@ -145,7 +145,10 @@ class ApiClient {
   Future<void> forgotPassword(String email) async => await _request('POST', '/auth/forgot-password', auth: false, body: {'email': email});
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
-  String oauthUrl(String provider) {
+  String oauthUrl(String provider, {String platform = 'web'}) {
+    if (platform == 'app') {
+      return '$baseUrl/auth/$provider/login?role=worker&platform=app';
+    }
     final origin = storage.currentOrigin();
     final redirectUri = Uri.encodeComponent('$origin/');
     return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
