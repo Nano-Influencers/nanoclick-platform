@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -165,18 +166,21 @@ async def uphold_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db)
                 description="Campaign removed — ToS violation. Full refund.",
             )
             campaign.escrow_kobo = 0
-    w_r = await db.execute(select(Wallet).where(Wallet.user_id==report.reporter_id).with_for_update())
-    w = w_r.scalar_one_or_none()
     CP_REWARD = 250
-    if w:
-        from app.models.wallet import Transaction
-        db.add(Transaction(wallet_id=w.id, type="report_reward", amount_kobo=0,
-                           click_points_awarded=CP_REWARD, status="completed",
-                           reference=f"report_reward:{report.id}",
-                           description="Reward for upheld task report"))
-        w.click_points += CP_REWARD
-    report.status = "upheld"; report.reviewed_at = datetime.utcnow(); report.cp_reward_given = True
+    if await _reward_reporter(db, report.reporter_id, report.id, CP_REWARD):
+        report.cp_reward_given = True
+    report.status = "upheld"; report.reviewed_at = datetime.utcnow()
     return {"message": "Report upheld. Task removed, advertiser refunded, reporter rewarded.", "cp_reward": CP_REWARD}
+
+async def _reward_reporter(db: AsyncSession, reporter_id: uuid.UUID, report_id: uuid.UUID, points: int) -> bool:
+    """Award report points through the wallet service so the mutation and ledger entry stay atomic."""
+    if points <= 0:
+        return False
+    await wallet_service.credit(
+        db, reporter_id, 0, "report_reward", description="Reward for upheld task report",
+        reference=f"report_reward:{report_id}", click_points=points,
+    )
+    return True
 
 @router.post("/reports/{report_id}/dismiss")
 async def dismiss_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
@@ -223,10 +227,15 @@ async def reject_kyc(user_id: uuid.UUID, reason: str, db: AsyncSession = Depends
     return {"message": "KYC rejected", "reason": reason}
 
 @router.post("/rewards/distribute-pool")
-async def distribute_reward_pool(track: str, pool_ngn: float, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+async def distribute_reward_pool(track: str, pool_ngn: Decimal, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
     """Split a pooled prize equally among eligible Level-10 workers."""
+    if pool_ngn <= 0:
+        raise HTTPException(400, "Reward pool must be positive")
+    amount_kobo = int(pool_ngn * 100)
+    if amount_kobo <= 0:
+        raise HTTPException(400, "Reward pool must be at least ₦0.01")
     from app.services import rewards_service
-    return await rewards_service.distribute_reward_pool(db, track, int(pool_ngn * 100))
+    return await rewards_service.distribute_reward_pool(db, track, amount_kobo)
 
 @router.get("/stats")
 async def platform_stats(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
