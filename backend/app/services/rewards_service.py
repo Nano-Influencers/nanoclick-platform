@@ -186,18 +186,20 @@ async def distribute_reward_pool(
             "idempotent": False,
         }
 
-    share_kobo = pool_kobo // len(eligible)
-    if share_kobo <= 0:
-        raise HTTPException(400, "pool is too small to pay an eligible worker")
-    total_kobo = share_kobo * len(eligible)
-    if platform_wallet.balance_kobo < total_kobo:
+    recipient_count = len(eligible)
+    if pool_kobo < recipient_count:
+        raise HTTPException(400, "pool is too small to pay each eligible worker at least one kobo")
+
+    base_share_kobo, remainder_kobo = divmod(pool_kobo, recipient_count)
+    if platform_wallet.balance_kobo < pool_kobo:
         raise HTTPException(409, "Reward pool has insufficient funded balance")
 
     paid = 0
-    for worker_id in eligible:
+    for index, worker_id in enumerate(eligible):
+        payout_kobo = base_share_kobo + (1 if index < remainder_kobo else 0)
         claim = await db.execute(
             pg_insert(RewardClaim)
-            .values(user_id=worker_id, reward_key=reward_key, amount_kobo=share_kobo)
+            .values(user_id=worker_id, reward_key=reward_key, amount_kobo=payout_kobo)
             .on_conflict_do_nothing(index_elements=["user_id", "reward_key"])
             .returning(RewardClaim.id)
         )
@@ -205,7 +207,7 @@ async def distribute_reward_pool(
             continue
 
         await wallet_service.credit(
-            db, worker_id, share_kobo, "reward_tier_bonus",
+            db, worker_id, payout_kobo, "reward_tier_bonus",
             description=f"{track.capitalize()} Level 10 pool reward",
             reference=f"{reward_key}_{worker_id}",
         )
@@ -214,7 +216,7 @@ async def distribute_reward_pool(
             worker_id,
             "reward_tier_unlocked",
             f"{track.capitalize()} Level 10 reward!",
-            f"You reached Level 10 on the {track.capitalize()} track and received ₦{share_kobo/100:,.2f} from the prize pool.",
+            f"You reached Level 10 on the {track.capitalize()} track and received ₦{payout_kobo/100:,.2f} from the prize pool.",
         )
         paid += 1
 
@@ -227,7 +229,10 @@ async def distribute_reward_pool(
             "idempotent": False,
         }
 
-    total_paid_kobo = share_kobo * paid
+    # With the database uniqueness invariant, a normal distribution pays every
+    # newly eligible recipient. The exact-pool split above means there is no
+    # silent remainder and the ledger can safely use -pool_kobo.
+    total_paid_kobo = pool_kobo
     platform_wallet.balance_kobo -= total_paid_kobo
     ledger = PlatformWalletTransaction(
         platform_wallet_id=platform_wallet.id,
@@ -242,7 +247,7 @@ async def distribute_reward_pool(
     return {
         "message": "Pool distributed",
         "recipients": paid,
-        "each_kobo": share_kobo,
+        "each_kobo": base_share_kobo,
         "total_kobo": total_paid_kobo,
         "pool_balance_kobo": platform_wallet.balance_kobo,
         "reference": ledger.reference,
