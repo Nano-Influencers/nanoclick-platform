@@ -19,14 +19,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
       - name: Compile Python sources
-        run: python -m compileall -q app
-      - name: Validate Alembic imports
+        run: python -m compileall -q app tests
+      - name: Validate application imports
         env:
           DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
         run: python -c "import app.models; import app.main"
+      - name: Run unit tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
+        run: pytest -q
 
   nano-influencers:
     name: Nano Influencers Web
