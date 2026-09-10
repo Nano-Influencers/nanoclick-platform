@@ -100,31 +100,29 @@ async def approve_campaign(campaign_id: uuid.UUID, db: AsyncSession = Depends(ge
     from app.services.notification_service import notify
     await notify(db, campaign.owner_id, "campaign_approved", "Campaign is live",
                  f"\"{campaign.title}\" was approved and is now live for workers.")
-
-    # For a *targeted* campaign, proactively notify the specific workers it
-    # matches — an untargeted campaign is already visible to everyone via
-    # the normal task feed (GET /tasks), so a mass notification there would
-    # just be spam with no new information.
     if campaign.targeting:
         from app.services.targeting import get_eligible_worker_ids
         worker_ids = await get_eligible_worker_ids(campaign.targeting, campaign.slots_total, db)
         if worker_ids:
             from app.workers.notification_tasks import notify_new_tasks_available
             notify_new_tasks_available.delay([str(w) for w in worker_ids], campaign.title)
-
     return {"message": "Campaign approved and tasks are now live"}
 
 @router.post("/campaigns/{campaign_id}/reject")
 async def reject_campaign(campaign_id: uuid.UUID, reason: str,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    r = await db.execute(select(Campaign).where(Campaign.id==campaign_id))
+    r = await db.execute(select(Campaign).where(Campaign.id==campaign_id).with_for_update())
     campaign = r.scalar_one_or_none()
     if not campaign: raise HTTPException(404, "Campaign not found")
-    campaign.status = "cancelled"
+    if campaign.status in ("cancelled", "completed"): raise HTTPException(400, f"Campaign is already '{campaign.status}'")
     if campaign.escrow_kobo > 0:
-        await wallet_service.credit(db=db, user_id=campaign.owner_id, amount_kobo=campaign.escrow_kobo,
-            tx_type="escrow_release", description=f"Campaign rejected: {reason}", reference=str(campaign_id))
+        refund_kobo = campaign.escrow_kobo
+        await wallet_service.refund_escrow(
+            db, campaign.owner_id, refund_kobo, reference=f"{campaign_id}:admin_reject",
+            description=f"Campaign rejected: {reason}",
+        )
         campaign.escrow_kobo = 0
+    campaign.status = "cancelled"
     from app.services.notification_service import notify
     await notify(db, campaign.owner_id, "campaign_rejected", "Campaign rejected",
                  f"\"{campaign.title}\" was rejected: {reason}. Your budget has been refunded.")
@@ -138,31 +136,40 @@ async def list_pending_reports(db: AsyncSession = Depends(get_db), _: User = Dep
 
 @router.post("/reports/{report_id}/uphold")
 async def uphold_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    rp_r = await db.execute(select(TaskReport).where(TaskReport.id==report_id))
+    rp_r = await db.execute(select(TaskReport).where(TaskReport.id==report_id).with_for_update())
     report = rp_r.scalar_one_or_none()
     if not report or report.status != "pending": raise HTTPException(404, "Report not found or already reviewed")
     task_r = await db.execute(select(Task).where(Task.id==report.task_id))
     task = task_r.scalar_one_or_none()
     if not task: raise HTTPException(404, "Task not found")
-    campaign_r = await db.execute(select(Campaign).where(Campaign.id==task.campaign_id))
+    campaign_r = await db.execute(select(Campaign).where(Campaign.id==task.campaign_id).with_for_update())
     campaign = campaign_r.scalar_one_or_none()
     task.status = "reported_removed"
     if campaign:
         campaign.status = "reported"
         if campaign.escrow_kobo > 0:
-            await wallet_service.credit(db=db, user_id=campaign.owner_id, amount_kobo=campaign.escrow_kobo,
-                tx_type="escrow_release", description="Campaign removed — ToS violation. Full refund.", reference=str(campaign.id))
+            refund_kobo = campaign.escrow_kobo
+            await wallet_service.refund_escrow(
+                db, campaign.owner_id, refund_kobo, reference=f"{campaign.id}:report_refund",
+                description="Campaign removed — ToS violation. Full refund.",
+            )
             campaign.escrow_kobo = 0
     w_r = await db.execute(select(Wallet).where(Wallet.user_id==report.reporter_id).with_for_update())
     w = w_r.scalar_one_or_none()
     CP_REWARD = 250
-    if w: w.click_points += CP_REWARD
+    if w:
+        from app.models.wallet import Transaction
+        db.add(Transaction(wallet_id=w.id, type="report_reward", amount_kobo=0,
+                           click_points_awarded=CP_REWARD, status="completed",
+                           reference=f"report_reward:{report.id}",
+                           description="Reward for upheld task report"))
+        w.click_points += CP_REWARD
     report.status = "upheld"; report.reviewed_at = datetime.utcnow(); report.cp_reward_given = True
     return {"message": "Report upheld. Task removed, advertiser refunded, reporter rewarded.", "cp_reward": CP_REWARD}
 
 @router.post("/reports/{report_id}/dismiss")
 async def dismiss_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    rp_r = await db.execute(select(TaskReport).where(TaskReport.id==report_id))
+    rp_r = await db.execute(select(TaskReport).where(TaskReport.id==report_id).with_for_update())
     report = rp_r.scalar_one_or_none()
     if not report or report.status != "pending": raise HTTPException(404, "Report not found or already reviewed")
     report.status = "dismissed"; report.reviewed_at = datetime.utcnow()
