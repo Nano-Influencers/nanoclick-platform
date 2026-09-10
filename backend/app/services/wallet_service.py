@@ -1,7 +1,8 @@
 """
 Wallet service — every balance mutation goes through here.
 Uses SELECT FOR UPDATE to prevent race conditions on concurrent writes.
-Every debit/credit also writes a Transaction row (double-entry ledger).
+Every mutation writes a Transaction row and provider references are idempotent
+per wallet + transaction type.
 """
 import uuid
 from sqlalchemy import select
@@ -16,7 +17,7 @@ _CATEGORY_FIELD_MAP = {
     "repeating_grouped": ("daily_repeating_grouped_kobo", "total_repeating_grouped_kobo", "daily_repeating_grouped_cps"),
     "trend_push":        ("daily_trend_push_kobo",        "total_trend_push_kobo",        "daily_trend_push_cps"),
     "skill_based":       ("daily_skill_based_kobo",       "total_skill_based_kobo",       "daily_skill_based_cps"),
-    "unpaid":            ("daily_unpaid_kobo",             "total_unpaid_kobo",            "daily_unpaid_cps"),
+    "unpaid":            ("daily_unpaid_kobo",             "total_unpaid_kobo",             "daily_unpaid_cps"),
 }
 
 
@@ -30,6 +31,19 @@ async def _lock_wallet(db: AsyncSession, user_id: uuid.UUID) -> Wallet:
     return wallet
 
 
+async def _existing_reference(db: AsyncSession, wallet_id: uuid.UUID, tx_type: str, reference: str | None):
+    if not reference:
+        return None
+    result = await db.execute(
+        select(Transaction).where(
+            Transaction.wallet_id == wallet_id,
+            Transaction.type == tx_type,
+            Transaction.reference == reference,
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def credit(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -39,7 +53,18 @@ async def credit(
     reference: str | None = None,
     click_points: int = 0,
 ) -> Transaction:
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Credit amount must be positive")
     wallet = await _lock_wallet(db, user_id)
+    existing = await _existing_reference(db, wallet.id, tx_type, reference)
+    if existing:
+        # A pending provider transaction is completed exactly once here.
+        if existing.status == "pending":
+            wallet.balance_kobo += amount_kobo
+            wallet.click_points += click_points
+            existing.status = "completed"
+        return existing
+
     wallet.balance_kobo += amount_kobo
     wallet.click_points += click_points
     tx = Transaction(
@@ -63,7 +88,12 @@ async def debit(
     description: str = "",
     reference: str | None = None,
 ) -> Transaction:
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Debit amount must be positive")
     wallet = await _lock_wallet(db, user_id)
+    existing = await _existing_reference(db, wallet.id, tx_type, reference)
+    if existing:
+        return existing
     if wallet.balance_kobo < amount_kobo:
         raise HTTPException(status_code=400, detail="Insufficient balance")
     wallet.balance_kobo -= amount_kobo
@@ -89,6 +119,11 @@ async def lock_escrow(
 ) -> Transaction:
     """Lock campaign budget into escrow at campaign launch."""
     wallet = await _lock_wallet(db, user_id)
+    existing = await _existing_reference(db, wallet.id, "escrow_lock", reference)
+    if existing:
+        return existing
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Escrow amount must be positive")
     if wallet.balance_kobo < amount_kobo:
         raise HTTPException(status_code=400, detail="Insufficient balance to fund campaign")
     wallet.balance_kobo -= amount_kobo
@@ -115,12 +150,18 @@ async def release_escrow_to_worker(
     task_category: str,
     reference: str | None = None,
 ) -> tuple[Transaction, Transaction]:
-    """
-    Atomically move funds from advertiser escrow to worker balance.
-    Called on task approval (human review or 72h auto-approve).
-    """
-    # Deduct from advertiser escrow
+    """Atomically move funds from advertiser escrow to worker balance."""
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Release amount must be positive")
     adv_wallet = await _lock_wallet(db, advertiser_id)
+    existing_adv = await _existing_reference(db, adv_wallet.id, "escrow_release", reference)
+    if existing_adv:
+        worker_wallet = await _lock_wallet(db, worker_id)
+        existing_worker = await _existing_reference(db, worker_wallet.id, "task_earning", reference)
+        if not existing_worker:
+            raise HTTPException(status_code=409, detail="Escrow release is partially recorded; manual reconciliation required")
+        return existing_adv, existing_worker
+
     if adv_wallet.escrow_kobo < amount_kobo:
         raise HTTPException(status_code=400, detail="Escrow balance insufficient")
     adv_wallet.escrow_kobo -= amount_kobo
@@ -135,8 +176,9 @@ async def release_escrow_to_worker(
     )
     db.add(adv_tx)
 
-    # Credit worker
     wrk_wallet = await _lock_wallet(db, worker_id)
+    if await _existing_reference(db, wrk_wallet.id, "task_earning", reference):
+        raise HTTPException(status_code=409, detail="Worker payment already exists; manual reconciliation required")
     wrk_wallet.balance_kobo += amount_kobo
     wrk_wallet.total_earned_kobo += amount_kobo
     wrk_wallet.click_points += click_points
@@ -144,8 +186,8 @@ async def release_escrow_to_worker(
     fields = _CATEGORY_FIELD_MAP.get(task_category)
     if fields:
         daily_k, total_k, daily_cp = fields
-        setattr(wrk_wallet, daily_k,  getattr(wrk_wallet, daily_k)  + amount_kobo)
-        setattr(wrk_wallet, total_k,  getattr(wrk_wallet, total_k)  + amount_kobo)
+        setattr(wrk_wallet, daily_k, getattr(wrk_wallet, daily_k) + amount_kobo)
+        setattr(wrk_wallet, total_k, getattr(wrk_wallet, total_k) + amount_kobo)
         setattr(wrk_wallet, daily_cp, getattr(wrk_wallet, daily_cp) + click_points)
 
     wrk_tx = Transaction(
@@ -171,11 +213,16 @@ async def refund_escrow(
 ) -> Transaction:
     """Return escrowed funds to advertiser (campaign cancelled/rejected/reported)."""
     wallet = await _lock_wallet(db, advertiser_id)
+    existing = await _existing_reference(db, wallet.id, "escrow_release", reference)
+    if existing:
+        return existing
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Refund amount must be positive")
     if wallet.escrow_kobo < amount_kobo:
-        amount_kobo = wallet.escrow_kobo   # refund whatever remains
+        amount_kobo = wallet.escrow_kobo
     wallet.escrow_kobo -= amount_kobo
     wallet.balance_kobo += amount_kobo
-    wallet.total_spent_kobo -= amount_kobo  # reverse the spend
+    wallet.total_spent_kobo -= amount_kobo
     tx = Transaction(
         wallet_id=wallet.id,
         type="escrow_release",
