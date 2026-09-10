@@ -1,14 +1,13 @@
-from unittest.mock import AsyncMock
-
 import pytest
 from fastapi import Request
 
-from app.main import app, readiness
+from app.main import app, readiness, request_observability
 
 
 @pytest.mark.asyncio
 async def test_liveness_is_dependency_free():
-    response = await app.router.routes[[r.path for r in app.router.routes].index("/health/live")].endpoint()
+    route = next(route for route in app.router.routes if getattr(route, "path", None) == "/health/live")
+    response = await route.endpoint()
     assert response == {"status": "ok"}
 
 
@@ -75,8 +74,8 @@ async def test_readiness_returns_503_when_redis_is_unavailable(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_request_observability_adds_request_id_header():
-    async def call_next(request: Request):
+async def test_request_observability_preserves_client_request_id():
+    async def call_next(_request: Request):
         from fastapi.responses import Response
         return Response(status_code=204)
 
@@ -93,5 +92,5 @@ async def test_request_observability_adds_request_id_header():
         "http_version": "1.1",
     }
     request = Request(scope)
-    response = await app.user_middleware[0].middleware(request, call_next)
+    response = await request_observability(request, call_next)
     assert response.headers["X-Request-ID"] == "test-request-123"
