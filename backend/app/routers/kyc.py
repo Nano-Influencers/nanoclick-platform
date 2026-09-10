@@ -10,6 +10,12 @@ from app.services.storage import generate_presigned_upload_url
 router = APIRouter(prefix="/kyc", tags=["kyc"])
 
 
+def validate_kyc_document_ownership(user_id, document_key: str | None) -> None:
+    """Reject KYC object keys that were not issued under the authenticated worker."""
+    if document_key and not document_key.startswith(f"kyc/{user_id}/"):
+        raise HTTPException(status_code=403, detail="KYC document does not belong to this account")
+
+
 @router.post("/upload-url")
 async def kyc_upload_url(
     file_extension: str,
@@ -43,10 +49,7 @@ async def submit_kyc(
     if ex.scalar_one_or_none():
         raise HTTPException(400, "KYC already submitted")
 
-    # A worker may only attach a document object that was issued for that
-    # worker. This prevents swapping another user's private KYC object key.
-    if body.document_url and not body.document_url.startswith(f"kyc/{current_user.id}/"):
-        raise HTTPException(403, "KYC document does not belong to this account")
+    validate_kyc_document_ownership(current_user.id, body.document_url)
 
     db.add(KycProfile(user_id=current_user.id, **body.model_dump()))
     return {"message": "KYC submitted for review"}
