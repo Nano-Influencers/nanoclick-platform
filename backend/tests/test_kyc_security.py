@@ -1,12 +1,31 @@
+import uuid
+
 import pytest
 from pydantic import ValidationError
+from fastapi import HTTPException
 
+from app.routers.kyc import validate_kyc_document_ownership
 from app.schemas.kyc import KycSubmitRequest
 
 
 def test_kyc_document_accepts_private_storage_key():
     payload = KycSubmitRequest(document_type="passport", document_url="kyc/123e4567/passport.pdf")
     assert payload.document_url == "kyc/123e4567/passport.pdf"
+
+
+def test_kyc_document_must_belong_to_authenticated_worker():
+    worker_a = uuid.uuid4()
+    worker_b = uuid.uuid4()
+
+    validate_kyc_document_ownership(worker_a, f"kyc/{worker_a}/passport.pdf")
+
+    with pytest.raises(HTTPException) as exc:
+        validate_kyc_document_ownership(worker_a, f"kyc/{worker_b}/passport.pdf")
+    assert exc.value.status_code == 403
+
+
+def test_kyc_document_without_file_is_allowed():
+    validate_kyc_document_ownership(uuid.uuid4(), None)
 
 
 @pytest.mark.parametrize(
