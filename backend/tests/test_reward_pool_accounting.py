@@ -61,7 +61,7 @@ async def test_reward_pool_funding_is_idempotent_and_ledgered(db):
 
 @pytest.mark.asyncio
 async def test_reward_pool_distribution_debits_platform_and_credits_workers_atomically(db, monkeypatch):
-    pool = await _pool_wallet(100000)
+    pool = await _pool_wallet(db, 100000)
     worker_a = await _worker(db, "a")
     worker_b = await _worker(db, "b")
 
@@ -108,7 +108,7 @@ async def test_reward_pool_distribution_debits_platform_and_credits_workers_atom
 
 @pytest.mark.asyncio
 async def test_reward_pool_distribution_rejects_insufficient_funding_without_claims(db, monkeypatch):
-    pool = await _pool_wallet(50000)
+    pool = await _pool_wallet(db, 50000)
     worker_a = await _worker(db, "insufficient")
 
     async def fake_progress(_db, worker_id):
