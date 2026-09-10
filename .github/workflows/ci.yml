@@ -79,6 +79,13 @@ jobs:
           flutter-version: "3.47.3"
           cache: true
       - run: flutter pub get
+      - name: Verify Firebase has been fully removed
+        shell: bash
+        run: |
+          if flutter pub deps --style=compact | grep -E '(^|[[:space:]])(firebase_|cloud_firestore|_flutterfire_internals|google_sign_in)([[:space:]]|$)'; then
+            echo "Firebase/legacy Google sign-in packages remain in the resolved Flutter dependency graph."
+            exit 1
+          fi
       - run: flutter analyze
       - name: Run Flutter tests
         run: flutter test
