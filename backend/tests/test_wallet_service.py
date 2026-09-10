@@ -4,20 +4,33 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.user import User
 from app.models.wallet import Wallet
 from app.services import wallet_service
 
 
+async def _user(db: AsyncSession, role: str = "worker") -> User:
+    user = User(
+        email=f"wallet-test-{uuid.uuid4()}@example.com",
+        full_name="Wallet Test User",
+        role=role,
+        referral_code=f"wt{uuid.uuid4().hex[:16]}",
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
 @pytest.mark.asyncio
 async def test_debit_writes_ledger_and_reduces_balance(db: AsyncSession):
-    user_id = uuid.uuid4()
-    wallet = Wallet(user_id=user_id, balance_kobo=100_000)
+    user = await _user(db)
+    wallet = Wallet(user_id=user.id, balance_kobo=100_000)
     db.add(wallet)
     await db.commit()
 
     tx = await wallet_service.debit(
         db,
-        user_id,
+        user.id,
         25_000,
         "withdrawal",
         reference="wdw_test_001",
@@ -34,17 +47,17 @@ async def test_debit_writes_ledger_and_reduces_balance(db: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_debit_same_reference_is_idempotent(db: AsyncSession):
-    user_id = uuid.uuid4()
-    wallet = Wallet(user_id=user_id, balance_kobo=100_000)
+    user = await _user(db)
+    wallet = Wallet(user_id=user.id, balance_kobo=100_000)
     db.add(wallet)
     await db.commit()
 
     first = await wallet_service.debit(
-        db, user_id, 25_000, "withdrawal", reference="wdw_idempotent"
+        db, user.id, 25_000, "withdrawal", reference="wdw_idempotent"
     )
     await db.flush()
     second = await wallet_service.debit(
-        db, user_id, 25_000, "withdrawal", reference="wdw_idempotent"
+        db, user.id, 25_000, "withdrawal", reference="wdw_idempotent"
     )
 
     assert first.id == second.id
@@ -55,27 +68,28 @@ async def test_debit_same_reference_is_idempotent(db: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_debit_rejects_conflicting_reference(db: AsyncSession):
-    user_id = uuid.uuid4()
-    wallet = Wallet(user_id=user_id, balance_kobo=100_000)
+    user = await _user(db)
+    wallet = Wallet(user_id=user.id, balance_kobo=100_000)
     db.add(wallet)
     await db.commit()
 
     await wallet_service.debit(
-        db, user_id, 25_000, "withdrawal", reference="wdw_conflict"
+        db, user.id, 25_000, "withdrawal", reference="wdw_conflict"
     )
     await db.flush()
 
     with pytest.raises(HTTPException) as exc:
         await wallet_service.debit(
-            db, user_id, 30_000, "withdrawal", reference="wdw_conflict"
+            db, user.id, 30_000, "withdrawal", reference="wdw_conflict"
         )
     assert exc.value.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_concurrent_debits_cannot_overspend(db_factory):
-    user_id = uuid.uuid4()
     async with db_factory() as db:
+        user = await _user(db)
+        user_id = user.id
         db.add(Wallet(user_id=user_id, balance_kobo=50_000))
         await db.commit()
 
