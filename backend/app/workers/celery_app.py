@@ -21,6 +21,25 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="Africa/Lagos",
     enable_utc=True,
+
+    # Tasks that mutate money or durable application state must be safe to
+    # redeliver. Late acknowledgement means a worker crash does not silently
+    # lose an in-flight task; reject_on_worker_lost makes Redis requeue it.
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    worker_prefetch_multiplier=1,
+
+    # Bound runaway jobs. The timeout is deliberately longer than normal
+    # provider/API calls so a timeout remains an exceptional recovery path.
+    task_soft_time_limit=840,
+    task_time_limit=900,
+    task_track_started=True,
+
+    # Redis must retain an unacknowledged task longer than the hard limit so a
+    # slow/crashed worker does not cause the same task to disappear.
+    broker_transport_options={"visibility_timeout": 3600},
+    result_expires=86400,
+
     task_routes={
         "app.workers.submission_tasks.*":  {"queue": "auto_approve"},
         "app.workers.payout_tasks.*":      {"queue": "payouts"},
