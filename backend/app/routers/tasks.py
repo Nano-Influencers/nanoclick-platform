@@ -10,12 +10,19 @@ from app.models.task import Task, TaskAcceptance, Submission, TaskReport, Leader
 from app.models.campaign import CampaignTargeting
 from app.schemas.task import TaskResponse, AcceptTaskResponse, SubmissionCreate, SubmissionResponse, SubmissionWithTaskResponse, TaskReportCreate, PresignedUrlRequest, PresignedUrlResponse, LeaderboardEntryResponse
 from app.services.storage import generate_presigned_upload_url, compute_image_hash
+from app.services.targeting_eligibility import is_worker_eligible
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 async def _enforce_task_visibility(task_id: uuid.UUID, current_user: User, db: AsyncSession) -> None:
-    """Prevent direct-ID access to targeted tasks by non-KYC workers."""
+    """Prevent direct-ID access to targeted tasks by workers outside the target."""
     if current_user.kyc_verified:
+        targeted = await db.execute(
+            select(CampaignTargeting).join(Task, Task.campaign_id == CampaignTargeting.campaign_id).where(Task.id == task_id)
+        )
+        targeting = targeted.scalar_one_or_none()
+        if targeting is not None and not await is_worker_eligible(db, current_user.id, targeting):
+            raise HTTPException(403, "You do not match this task's targeting criteria")
         return
     targeted = await db.execute(
         select(CampaignTargeting.campaign_id)
@@ -42,7 +49,15 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     accepted_ids = list(accepted_result.scalars())
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
     result = await db.execute(select(Task).where(and_(*conds)).order_by(Task.is_urgent.desc(), Task.created_at.desc()).limit(50))
-    return [{**{c.name: getattr(t, c.name) for c in t.__table__.columns}, "id": str(t.id), "pay_ngn": t.pay_kobo/100} for t in result.scalars()]
+    tasks = result.scalars().all()
+    visible = []
+    for task in tasks:
+        targeting_result = await db.execute(select(CampaignTargeting).where(CampaignTargeting.campaign_id == task.campaign_id))
+        targeting = targeting_result.scalar_one_or_none()
+        if targeting is not None and not await is_worker_eligible(db, current_user.id, targeting):
+            continue
+        visible.append({**{c.name: getattr(task, c.name) for c in task.__table__.columns}, "id": str(task.id), "pay_ngn": task.pay_kobo/100})
+    return visible
 
 @router.get("/my-stats")
 async def my_task_stats(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
@@ -75,9 +90,6 @@ async def accept_task(task_id: uuid.UUID, current_user: User = Depends(require_w
         raise HTTPException(404, "Task not available")
     if task.slots_filled >= task.slots_total:
         raise HTTPException(409, "Task fully claimed")
-
-    # slots_filled is the number of approved/completed slots. Active and
-    # submitted acceptances are reservations and must also consume capacity.
     reserved_r = await db.execute(
         select(func.count(TaskAcceptance.id)).where(
             TaskAcceptance.task_id == task_id,
@@ -87,7 +99,6 @@ async def accept_task(task_id: uuid.UUID, current_user: User = Depends(require_w
     reserved = reserved_r.scalar() or 0
     if task.slots_filled + reserved >= task.slots_total:
         raise HTTPException(409, "All task slots are currently reserved")
-
     ex = await db.execute(select(TaskAcceptance).where(
         TaskAcceptance.task_id == task_id,
         TaskAcceptance.worker_id == current_user.id,
