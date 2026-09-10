@@ -6,3 +6,4 @@ from app.models.rewards import Notification, RewardClaim
 from app.models.password_reset import PasswordResetToken
 from app.models.auth_session import AuthSession, OAuthState, OAuthCode
 from app.models.payment import Deposit, PaystackEvent
+from app.models.withdrawal import Withdrawal
