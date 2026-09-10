@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
@@ -9,11 +10,12 @@ from app.main import app
 from app.models.auth_session import AuthSession, OAuthCode, OAuthState
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.routers.auth import _consume_oauth_state
+from app.routers.auth import _consume_oauth_state, _create_refresh_session
 from app.services.auth_service import (
     create_refresh_token,
     hash_token_identifier,
     new_oauth_state,
+    token_jti,
 )
 
 
@@ -32,7 +34,7 @@ async def _add_user(db, role: str = "worker") -> User:
     return user
 
 
-async def _client():
+def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
@@ -41,11 +43,10 @@ async def test_refresh_token_rotates_and_replay_is_rejected(db_factory):
     async with db_factory() as db:
         user = await _add_user(db)
         refresh_token = create_refresh_token(str(user.id))
-        from app.routers.auth import _create_refresh_session
         await _create_refresh_session(db, user.id, refresh_token)
         await db.commit()
 
-    async with await _client() as client:
+    async with _client() as client:
         response = await client.post("/auth/refresh", json={"refresh_token": refresh_token})
         assert response.status_code == 200
         replacement = response.json()["refresh_token"]
@@ -57,8 +58,8 @@ async def test_refresh_token_rotates_and_replay_is_rejected(db_factory):
     async with db_factory() as db:
         sessions = (await db.execute(select(AuthSession).where(AuthSession.user_id == user.id))).scalars().all()
         assert len(sessions) == 2
-        original = next(s for s in sessions if s.token_jti_hash == hash_token_identifier(__import__("app.services.auth_service", fromlist=["token_jti"]).token_jti(refresh_token)))
-        replacement_jti = __import__("app.services.auth_service", fromlist=["token_jti"]).token_jti(replacement)
+        original = next(s for s in sessions if s.token_jti_hash == hash_token_identifier(token_jti(refresh_token)))
+        replacement_jti = token_jti(replacement)
         assert original.revoked_at is not None
         assert original.replaced_by_jti_hash == hash_token_identifier(replacement_jti)
 
@@ -68,11 +69,10 @@ async def test_logout_revokes_refresh_session(db_factory):
     async with db_factory() as db:
         user = await _add_user(db)
         refresh_token = create_refresh_token(str(user.id))
-        from app.routers.auth import _create_refresh_session
         await _create_refresh_session(db, user.id, refresh_token)
         await db.commit()
 
-    async with await _client() as client:
+    async with _client() as client:
         response = await client.post("/auth/logout", json={"refresh_token": refresh_token})
         assert response.status_code == 200
         replay = await client.post("/auth/refresh", json={"refresh_token": refresh_token})
@@ -102,13 +102,10 @@ async def test_oauth_state_is_single_use_and_mismatch_is_rejected(db_factory):
         await db.commit()
 
     async with db_factory() as db:
-        with pytest.raises(Exception) as exc:
+        with pytest.raises(HTTPException, match="Invalid or expired OAuth state"):
             await _consume_oauth_state(db, state)
-        assert "Invalid or expired OAuth state" in str(exc.value)
-
-        with pytest.raises(Exception) as exc:
+        with pytest.raises(HTTPException, match="Invalid or expired OAuth state"):
             await _consume_oauth_state(db, "wrong-state-value")
-        assert "Invalid or expired OAuth state" in str(exc.value)
 
 
 @pytest.mark.asyncio
@@ -125,9 +122,8 @@ async def test_expired_oauth_state_is_rejected(db_factory):
         await db.commit()
 
     async with db_factory() as db:
-        with pytest.raises(Exception) as exc:
+        with pytest.raises(HTTPException, match="Invalid or expired OAuth state"):
             await _consume_oauth_state(db, state)
-        assert "Invalid or expired OAuth state" in str(exc.value)
 
 
 @pytest.mark.asyncio
@@ -143,7 +139,7 @@ async def test_oauth_code_is_single_use(db_factory):
         ))
         await db.commit()
 
-    async with await _client() as client:
+    async with _client() as client:
         first = await client.post("/auth/oauth/exchange", params={"code": code})
         assert first.status_code == 200
         assert first.json()["access_token"]
@@ -169,6 +165,6 @@ async def test_expired_oauth_code_is_rejected(db_factory):
         ))
         await db.commit()
 
-    async with await _client() as client:
+    async with _client() as client:
         response = await client.post("/auth/oauth/exchange", params={"code": code})
         assert response.status_code == 401
