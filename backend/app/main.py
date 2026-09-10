@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
 from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
-from app.routers import admin_audit, admin_mfa
+from app.routers import admin_audit, admin_mfa, admin_kyc_documents
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
@@ -124,6 +124,7 @@ app.include_router(tasks.router)
 app.include_router(kyc.router)
 app.include_router(admin_mfa.router)
 app.include_router(admin.router)
+app.include_router(admin_kyc_documents.router)
 app.include_router(admin_audit.router)
 app.include_router(notifications.router)
 app.include_router(rewards.router)
