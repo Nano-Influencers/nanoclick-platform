@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'app_user.dart';
 import 'token_storage_stub.dart'
     if (dart.library.html) 'token_storage_web.dart'
-    if (dart.library.io) 'token_storage_io.dart';
+    if (dart.library.io) 'token_storage_io.dart' as storage;
 
 class ApiException implements Exception {
   final String message;
@@ -33,7 +33,7 @@ class ApiClient {
 
   Future<void> initialize() async {
     if (_initialized) return;
-    final tokens = await readTokens();
+    final tokens = await storage.readTokens();
     _accessToken = tokens['access'];
     _refreshToken = tokens['refresh'];
     _initialized = true;
@@ -42,13 +42,13 @@ class ApiClient {
   Future<void> setTokens({required String access, required String refresh}) async {
     _accessToken = access;
     _refreshToken = refresh;
-    await writeTokens(access: access, refresh: refresh);
+    await storage.writeTokens(access: access, refresh: refresh);
   }
 
   Future<void> clearTokens() async {
     _accessToken = null;
     _refreshToken = null;
-    await clearTokensStorage();
+    await storage.clearTokens();
   }
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
@@ -146,7 +146,7 @@ class ApiClient {
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
   String oauthUrl(String provider) {
-    final origin = currentOrigin();
+    final origin = storage.currentOrigin();
     final redirectUri = Uri.encodeComponent('$origin/');
     return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
   }
