@@ -1,5 +1,10 @@
+import logging
+import time
+import uuid
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy import text
 from app.config import settings
@@ -9,6 +14,8 @@ from app.routers import admin_audit, admin_mfa
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
+
+logger = logging.getLogger("nanoclick.api")
 
 app = FastAPI(
     title="NanoClick API",
@@ -25,6 +32,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_observability(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "request_failed method=%s path=%s request_id=%s",
+            request.method,
+            request.url.path,
+            request_id,
+        )
+        raise
+    duration_ms = (time.perf_counter() - started) * 1000
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "request_complete method=%s path=%s status=%s duration_ms=%.2f request_id=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+        request_id,
+    )
+    return response
 
 
 @app.middleware("http")
@@ -65,7 +100,6 @@ async def sensitive_action_audit(request: Request, call_next):
             actor_id = payload.get("sub")
 
     try:
-        import uuid
         actor_uuid = uuid.UUID(actor_id) if actor_id else None
         async with AsyncSessionLocal() as db:
             await record_audit(
@@ -79,7 +113,7 @@ async def sensitive_action_audit(request: Request, call_next):
             )
             await db.commit()
     except Exception:
-        pass
+        logger.exception("sensitive_action_audit_failed path=%s", path)
     return response
 
 
@@ -113,16 +147,20 @@ async def readiness():
             await connection.execute(text("SELECT 1"))
         checks["database"] = True
     except Exception:
-        pass
+        logger.exception("readiness_database_failed")
 
-    redis = Redis.from_url(settings.REDIS_URL)
+    redis = Redis.from_url(settings.REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
     try:
         await redis.ping()
         checks["redis"] = True
     except Exception:
-        pass
+        logger.exception("readiness_redis_failed")
     finally:
         await redis.aclose()
 
-    status = "ok" if all(checks.values()) else "degraded"
-    return {"status": status, "checks": checks}
+    ready = all(checks.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ok" if ready else "degraded", "checks": checks},
+        headers={"X-Request-ID": getattr(request, "state", None).request_id if False else ""},
+    )
