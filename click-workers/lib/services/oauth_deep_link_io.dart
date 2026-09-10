@@ -11,14 +11,8 @@ Future<void> initializeNativeOAuthDeepLinks({
     if (uri.scheme != 'nanoclick' || uri.host != 'oauth') return;
     try {
       final code = uri.queryParameters['oauth_code'];
-      if (code != null && code.isNotEmpty) {
-        await ApiClient.instance.exchangeOAuthCode(code);
-      } else {
-        final access = uri.queryParameters['access_token'];
-        final refresh = uri.queryParameters['refresh_token'];
-        if (access == null || refresh == null || access.isEmpty || refresh.isEmpty) return;
-        await ApiClient.instance.setTokens(access: access, refresh: refresh);
-      }
+      if (code == null || code.isEmpty) return;
+      await ApiClient.instance.exchangeOAuthCode(code);
       await onAuthenticated?.call();
     } catch (_) {
       // Invalid/expired callbacks leave the app unauthenticated.
