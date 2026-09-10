@@ -200,23 +200,52 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
     elif event_type in ("transfer.failed", "transfer.reversed"):
         rt = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
         withdrawal = rt.scalar_one_or_none()
-        if withdrawal and withdrawal.status not in ("failed", "reversed", "successful"):
+        if withdrawal:
             event_amount = int(data.get("amount") or 0)
             if event_amount and event_amount != withdrawal.amount_kobo:
                 raise HTTPException(400, "Transfer amount does not match withdrawal")
-            tx_result = await db.execute(select(Transaction).where(Transaction.reference == reference, Transaction.type == "withdrawal").with_for_update())
-            tx = tx_result.scalar_one_or_none()
-            if tx:
+
+            # A failed transfer is terminal once failed; a reversed transfer can
+            # legitimately arrive after a successful transfer. Never refund twice.
+            if event_type == "transfer.failed":
+                should_refund = withdrawal.status in ("requested", "processing")
+                target_status = "failed"
+            else:
+                should_refund = withdrawal.status in ("requested", "processing", "successful")
+                target_status = "reversed"
+
+            if should_refund:
+                tx_result = await db.execute(
+                    select(Transaction).where(
+                        Transaction.wallet_id == (await db.execute(select(Wallet).where(Wallet.user_id == withdrawal.user_id))).scalar_one().id,
+                        Transaction.reference == reference,
+                        Transaction.type == "withdrawal",
+                    ).with_for_update()
+                )
+                tx = tx_result.scalar_one_or_none()
+                if not tx:
+                    raise HTTPException(409, "Withdrawal ledger entry missing; cannot safely reverse funds")
+
                 reversal_reference = f"{reference}:reversal"
-                existing_reversal = await db.execute(select(Transaction).where(Transaction.reference == reversal_reference).with_for_update())
+                existing_reversal = await db.execute(
+                    select(Transaction).where(
+                        Transaction.reference == reversal_reference,
+                        Transaction.type == "withdrawal_reversal",
+                    ).with_for_update()
+                )
                 if existing_reversal.scalar_one_or_none() is None:
-                    await wallet_service.credit(db, withdrawal.user_id, tx.amount_kobo, "withdrawal_reversal", description="Withdrawal failed at bank — funds returned", reference=reversal_reference)
-            withdrawal.status = "reversed" if event_type == "transfer.reversed" else "failed"
-            withdrawal.provider_reference = data.get("transfer_code") or withdrawal.provider_reference
-            withdrawal.failure_reason = data.get("reason") or "Paystack transfer failed"
-            withdrawal.completed_at = datetime.utcnow()
-            from app.services.notification_service import notify
-            await notify(db, withdrawal.user_id, "withdrawal_processed", "Withdrawal failed", f"Your withdrawal of ₦{withdrawal.amount_kobo/100:,.2f} could not be completed and was refunded to your wallet.")
+                    await wallet_service.credit(
+                        db, withdrawal.user_id, tx.amount_kobo, "withdrawal_reversal",
+                        description="Withdrawal failed at bank — funds returned",
+                        reference=reversal_reference,
+                    )
+                withdrawal.status = target_status
+                withdrawal.provider_reference = data.get("transfer_code") or withdrawal.provider_reference
+                withdrawal.failure_reason = data.get("reason") or ("Paystack transfer reversed" if event_type == "transfer.reversed" else "Paystack transfer failed")
+                withdrawal.completed_at = datetime.utcnow()
+                from app.services.notification_service import notify
+                title = "Withdrawal reversed" if event_type == "transfer.reversed" else "Withdrawal failed"
+                await notify(db, withdrawal.user_id, "withdrawal_processed", title, f"Your withdrawal of ₦{withdrawal.amount_kobo/100:,.2f} could not be completed and was refunded to your wallet.")
 
     elif event_type == "transfer.success":
         result = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
