@@ -98,17 +98,17 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
     if new_status == "active" and campaign.status != "paused":
         raise HTTPException(400, "Only a paused campaign can be resumed")
     if new_status == "cancelled" and campaign.escrow_kobo > 0:
-        await wallet_service.credit(db, current_user.id, campaign.escrow_kobo, "escrow_release",
-            description="Campaign cancelled — budget refunded", reference=str(campaign_id))
+        refund_kobo = campaign.escrow_kobo
+        await wallet_service.refund_escrow(
+            db, current_user.id, refund_kobo, reference=f"{campaign_id}:cancel",
+            description="Campaign cancelled — budget refunded",
+        )
         campaign.escrow_kobo = 0
     campaign.status = new_status
     return {"status": new_status, "campaign_id": str(campaign_id)}
 
 @router.get("/{campaign_id}/audience")
 async def preview_audience(campaign_id: uuid.UUID, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
-    # Eager-load targeting — under AsyncSession, touching a lazy relationship
-    # outside an awaited context (like the plain attribute access below)
-    # raises sqlalchemy.exc.MissingGreenlet instead of lazy-loading it.
     r = await db.execute(select(Campaign).options(selectinload(Campaign.targeting)).where(
         Campaign.id==campaign_id, Campaign.owner_id==current_user.id))
     campaign = r.scalar_one_or_none()
