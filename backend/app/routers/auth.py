@@ -148,28 +148,22 @@ async def _consume_oauth_state(db: AsyncSession, state: str) -> OAuthState:
     return record
 
 
-async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_uri: str | None, tokens: TokenResponse):
-    if platform == "web":
-        # Browser OAuth receives a short-lived, single-use code rather than
-        # bearer tokens in the URL. The frontend exchanges it over HTTPS.
-        code = secrets.token_urlsafe(32)
-        db.add(OAuthCode(
-            code_hash=hash_token_identifier(code),
-            user_id=user.id,
-            redirect_uri=redirect_uri,
-            expires_at=datetime.utcnow() + timedelta(minutes=2),
-        ))
-        await db.flush()
-        base = redirect_uri or settings.OAUTH_WEB_REDIRECT_URL
-        sep = "&" if "?" in base else "?"
-        return RedirectResponse(url=f"{base}{sep}oauth_code={code}", status_code=302)
+async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_uri: str | None):
+    code = secrets.token_urlsafe(32)
+    db.add(OAuthCode(
+        code_hash=hash_token_identifier(code),
+        user_id=user.id,
+        redirect_uri=redirect_uri,
+        expires_at=datetime.utcnow() + timedelta(minutes=2),
+    ))
+    await db.flush()
 
-    # Native deep-link compatibility. Mobile OSes keep this outside browser
-    # history; the web flow above deliberately avoids this pattern.
-    return RedirectResponse(
-        url=f"nanoclick://oauth?access_token={tokens.access_token}&refresh_token={tokens.refresh_token}&role={user.role}",
-        status_code=302,
-    )
+    if platform == "web":
+        base = redirect_uri or settings.OAUTH_WEB_REDIRECT_URL
+    else:
+        base = "nanoclick://oauth"
+    sep = "&" if "?" in base else "?"
+    return RedirectResponse(url=f"{base}{sep}oauth_code={code}", status_code=302)
 
 
 @router.post("/register", response_model=UserResponse, status_code=201)
@@ -219,27 +213,21 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(body.refresh_token)
     if not payload or payload.get("type") != "refresh" or not payload.get("jti"):
         raise HTTPException(401, "Invalid refresh token")
-
     jti_hash = hash_token_identifier(payload["jti"])
-    result = await db.execute(select(AuthSession).where(
-        AuthSession.token_jti_hash == jti_hash
-    ).with_for_update())
+    result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == jti_hash).with_for_update())
     session = result.scalar_one_or_none()
     if not session or session.revoked_at is not None or session.expires_at < datetime.utcnow():
         raise HTTPException(401, "Refresh session expired or revoked")
-
     try:
         user_id = uuid.UUID(payload["sub"])
     except (ValueError, TypeError):
         raise HTTPException(401, "Invalid refresh token")
     if session.user_id != user_id:
         raise HTTPException(401, "Invalid refresh session")
-
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(401, "User not found")
-
     session.revoked_at = datetime.utcnow()
     session.last_used_at = datetime.utcnow()
     tokens = await _issue_tokens(db, user)
@@ -253,9 +241,7 @@ async def logout(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(body.refresh_token)
     jti = payload.get("jti") if payload.get("type") == "refresh" else None
     if jti:
-        result = await db.execute(select(AuthSession).where(
-            AuthSession.token_jti_hash == hash_token_identifier(jti)
-        ).with_for_update())
+        result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(jti)).with_for_update())
         session = result.scalar_one_or_none()
         if session and session.revoked_at is None:
             session.revoked_at = datetime.utcnow()
@@ -264,10 +250,8 @@ async def logout(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/oauth/exchange", response_model=TokenResponse)
 async def exchange_oauth_code(code: str = Query(..., min_length=20, max_length=200), db: AsyncSession = Depends(get_db)):
-    """Exchange a browser OAuth code exactly once."""
-    result = await db.execute(select(OAuthCode).where(
-        OAuthCode.code_hash == hash_token_identifier(code)
-    ).with_for_update())
+    """Exchange a short-lived OAuth code exactly once."""
+    result = await db.execute(select(OAuthCode).where(OAuthCode.code_hash == hash_token_identifier(code)).with_for_update())
     record = result.scalar_one_or_none()
     if not record or record.used_at is not None or record.expires_at < datetime.utcnow():
         raise HTTPException(401, "Invalid or expired OAuth code")
@@ -304,7 +288,6 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     if user and user.password_hash is not None:
         token = secrets.token_urlsafe(32)
         db.add(PasswordResetToken(user_id=user.id, token=token, expires_at=datetime.utcnow() + timedelta(hours=1)))
-        # TODO: wire this to a transactional email provider before production.
         reset_link = f"{settings.OAUTH_WEB_REDIRECT_URL.rsplit('/', 1)[0]}/reset-password?token={token}"
         print(f"[password reset — email delivery not configured] {user.email}: {reset_link}")
     return {"message": "If that email is registered, a password reset link has been sent."}
@@ -312,9 +295,7 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
 
 @router.post("/reset-password")
 async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(PasswordResetToken).where(
-        PasswordResetToken.token == body.token
-    ).with_for_update())
+    result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == body.token).with_for_update())
     reset_token = result.scalar_one_or_none()
     if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow():
         raise HTTPException(400, "This reset link is invalid or has expired")
@@ -360,8 +341,7 @@ async def google_callback(code: str = Query(...), state: str = Query(...), error
     except Exception:
         raise HTTPException(400, "Failed to verify Google login")
     user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
-    tokens = await _issue_tokens(db, user)
-    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri, tokens)
+    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
 
 
 @router.get("/facebook/login")
@@ -378,14 +358,13 @@ async def facebook_login(role: str = Query("worker"), platform: str = Query("app
 
 
 @router.get("/facebook/callback", include_in_schema=False)
-async def facebook_callback(code: str = Query(None), state: str = Query(...), error: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if error or not code:
-        raise HTTPException(400, f"Facebook login denied: {error or 'no code'}")
+async def facebook_callback(code: str = Query(...), state: str = Query(...), error: str = Query(None), db: AsyncSession = Depends(get_db)):
+    if error:
+        raise HTTPException(400, f"Facebook login denied: {error}")
     oauth_state = await _consume_oauth_state(db, state)
     try:
         provider_data = await exchange_facebook_code(code)
     except Exception:
         raise HTTPException(400, "Failed to verify Facebook login")
     user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
-    tokens = await _issue_tokens(db, user)
-    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri, tokens)
+    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
