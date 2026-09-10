@@ -15,13 +15,18 @@ async def kyc_upload_url(
     file_extension: str,
     current_user: User = Depends(require_worker),
 ):
-    """Issue a short-lived private upload URL for a KYC document.
-
-    The returned object key is always under ``kyc/`` so the submit schema
-    cannot be abused to point at arbitrary storage locations.
-    """
+    """Issue a short-lived private upload URL for the current worker's KYC document."""
     try:
-        return generate_presigned_upload_url(file_extension, folder="kyc")
+        result = generate_presigned_upload_url(
+            file_extension,
+            folder=f"kyc/{current_user.id}",
+        )
+        # Never expose a public object URL for an identity document.
+        return {
+            "upload_url": result["upload_url"],
+            "file_key": result["file_key"],
+            "expires_in_seconds": result["expires_in_seconds"],
+        }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
