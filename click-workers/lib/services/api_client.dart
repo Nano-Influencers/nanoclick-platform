@@ -112,56 +112,38 @@ class ApiClient {
     }
   }
 
-  // ---------------- auth ----------------
-
   Future<void> register({required String email, required String password, required String fullName, String? referralCode}) async {
     await _request('POST', '/auth/register', auth: false, body: {
       'email': email, 'password': password, 'full_name': fullName,
       'role': 'worker', 'referral_code': referralCode,
     });
   }
-
   Future<void> login(String email, String password) async {
     final data = await _request('POST', '/auth/login', auth: false, body: {'email': email, 'password': password});
     setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
-
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
-
   Future<void> logout() async {
     final refresh = _refreshToken;
     if (refresh != null) {
-      try {
-        await _request('POST', '/auth/logout', auth: false, body: {'refresh_token': refresh});
-      } catch (_) {}
+      try { await _request('POST', '/auth/logout', auth: false, body: {'refresh_token': refresh}); } catch (_) {}
     }
     clearTokens();
   }
-
-  Future<void> changePassword(String currentPassword, String newPassword) async {
-    await _request('POST', '/auth/change-password', body: {'current_password': currentPassword, 'new_password': newPassword});
-  }
-
+  Future<void> changePassword(String currentPassword, String newPassword) async => await _request('POST', '/auth/change-password', body: {'current_password': currentPassword, 'new_password': newPassword});
   Future<void> forgotPassword(String email) async => await _request('POST', '/auth/forgot-password', auth: false, body: {'email': email});
-
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
-
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
-
-  /// Browser OAuth callback returns oauth_code, which is exchanged server-side
-  /// for bearer tokens. Tokens never appear in the redirect URL.
   String oauthUrl(String provider) {
     final origin = html.window.location.origin;
     final redirectUri = Uri.encodeComponent('$origin/');
     return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
   }
-
   Future<void> exchangeOAuthCode(String code) async {
     final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}', auth: false);
     setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
 
-  // ---------------- wallet ----------------
   Future<Map<String, dynamic>> getWalletBalance() async => await _request('GET', '/wallet/balance') as Map<String, dynamic>;
   Future<Map<String, dynamic>> referralStats() async => await _request('GET', '/wallet/referral-stats') as Map<String, dynamic>;
   Future<List<dynamic>> getTransactions() async => await _request('GET', '/wallet/transactions') as List<dynamic>;
@@ -171,7 +153,6 @@ class ApiClient {
   Future<Map<String, dynamic>> spin() async => await _request('POST', '/wallet/spin') as Map<String, dynamic>;
   Future<Map<String, dynamic>> checkin() async => await _request('POST', '/wallet/checkin') as Map<String, dynamic>;
 
-  // ---------------- tasks ----------------
   Future<List<dynamic>> listTasks() async => await _request('GET', '/tasks') as List<dynamic>;
   Future<Map<String, dynamic>> getTask(String taskId) async => await _request('GET', '/tasks/$taskId') as Map<String, dynamic>;
   Future<Map<String, dynamic>> acceptTask(String taskId) async => await _request('POST', '/tasks/$taskId/accept') as Map<String, dynamic>;
@@ -188,13 +169,11 @@ class ApiClient {
   }
 
   // ---------------- KYC ----------------
+  Future<Map<String, dynamic>> requestKycUploadUrl(String fileExtension) async => await _request('POST', '/kyc/upload-url?file_extension=${Uri.encodeQueryComponent(fileExtension)}') as Map<String, dynamic>;
   Future<void> submitKyc(Map<String, dynamic> fields) async => await _request('POST', '/kyc/submit', body: fields);
   Future<String> kycStatus() async => (await _request('GET', '/kyc/status') as Map<String, dynamic>)['status'] as String;
 
-  // ---------------- rewards ----------------
   Future<Map<String, dynamic>> rewardsProgress() async => await _request('GET', '/rewards/progress') as Map<String, dynamic>;
-
-  // ---------------- notifications ----------------
   Future<List<dynamic>> listNotifications() async => await _request('GET', '/notifications') as List<dynamic>;
   Future<int> unreadNotificationCount() async => (await _request('GET', '/notifications/unread-count') as Map<String, dynamic>)['count'] as int;
   Future<void> markNotificationRead(String id) async => await _request('POST', '/notifications/$id/read');
