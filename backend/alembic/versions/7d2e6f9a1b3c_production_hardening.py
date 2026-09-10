@@ -1,14 +1,14 @@
 """production hardening: oauth states and transaction idempotency
 
 Revision ID: 7d2e6f9a1b3c
-Revises: ef457339320b
+Revises: a40b975c8a6b
 """
 from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
 revision: str = "7d2e6f9a1b3c"
-down_revision: Union[str, None] = "ef457339320b"
+down_revision: Union[str, None] = "a40b975c8a6b"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -29,14 +29,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_oauth_states_state_hash", "oauth_states", ["state_hash"], unique=True)
     op.create_index("ix_oauth_states_expires_at", "oauth_states", ["expires_at"], unique=False)
-
-    # NULL references remain non-conflicting in PostgreSQL. Existing duplicate
-    # non-null references must be reconciled before this migration is deployed.
-    op.create_unique_constraint(
-        "uq_transaction_wallet_type_reference",
-        "transactions",
-        ["wallet_id", "type", "reference"],
-    )
+    op.create_unique_constraint("uq_transaction_wallet_type_reference", "transactions", ["wallet_id", "type", "reference"])
 
 
 def downgrade() -> None:
