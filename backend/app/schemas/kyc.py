@@ -1,14 +1,15 @@
-from pydantic import BaseModel, Field
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class KycSubmitRequest(BaseModel):
-    """Mirrors app.models.user.KycProfile's optional fields. Replaces the
-    previous raw `dict` body, which had zero validation and filtered
-    incoming keys with `hasattr(KycProfile, k)` — a fragile check that
-    happily matches inherited SQLAlchemy internals (e.g. 'metadata') as
-    well as real columns, and enforced no types, lengths, or allowed
-    values at all. Every field mirrors an existing column 1:1; none of
-    this changes the data model."""
+    """Mirrors app.models.user.KycProfile with validation.
+
+    Identity documents are represented by an opaque private-storage key,
+    never a public HTTP(S) URL. The storage layer can later resolve that key
+    to a short-lived signed URL without exposing the underlying object.
+    """
 
     # Pillar 1: Demographics
     gender: str | None = None
@@ -89,6 +90,23 @@ class KycSubmitRequest(BaseModel):
     # Identity documents
     document_type: str | None = None
     document_url: str | None = None
+
+    @field_validator("document_url")
+    @classmethod
+    def validate_document_storage_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value or len(value) > 500:
+            raise ValueError("Invalid document storage key")
+        parsed = urlparse(value)
+        if parsed.scheme or parsed.netloc or value.startswith("/"):
+            raise ValueError("Document must use a private storage key, not a URL")
+        if "\\" in value or ".." in value.split("/"):
+            raise ValueError("Invalid document storage key")
+        if not value.startswith("kyc/"):
+            raise ValueError("Document storage key must be under the private KYC prefix")
+        return value
 
 
 class KycStatusResponse(BaseModel):
