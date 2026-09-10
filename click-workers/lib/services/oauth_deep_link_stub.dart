@@ -1,1 +1,3 @@
-Future<void> initializeNativeOAuthDeepLinks() async {}
+Future<void> initializeNativeOAuthDeepLinks({
+  Future<void> Function()? onAuthenticated,
+}) async {}
