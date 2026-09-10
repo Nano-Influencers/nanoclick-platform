@@ -26,9 +26,12 @@ async def _auto_approve():
 
     cutoff = datetime.utcnow() - timedelta(hours=settings.AUTO_APPROVE_HOURS)
     async with AsyncSessionLocal() as db:
+        # Only ordinary pending submissions are eligible for automatic approval.
+        # under_review is an explicit safety state (e.g. duplicate/too-fast proof)
+        # and must remain under human review regardless of age.
         result = await db.execute(
             select(Submission).where(and_(
-                Submission.status.in_(["pending", "under_review"]),
+                Submission.status == "pending",
                 Submission.submitted_at <= cutoff,
             ))
         )
@@ -39,7 +42,7 @@ async def _auto_approve():
                 select(Submission).where(Submission.id == candidate.id).with_for_update()
             )
             sub = sub_r.scalar_one_or_none()
-            if not sub or sub.status not in ("pending", "under_review"):
+            if not sub or sub.status != "pending":
                 continue
 
             # Lock the task before changing slots_filled. All approval paths
@@ -105,7 +108,7 @@ async def _check_dup(submission_id, image_hash):
     from app.services.storage import hashes_are_duplicate
     from sqlalchemy import select
     async with AsyncSessionLocal() as db:
-        sub_r = await db.execute(select(Submission).where(Submission.id==submission_id))
+        sub_r = await db.execute(select(Submission).where(Submission.id==submission_id).with_for_update())
         current = sub_r.scalar_one_or_none()
         if not current: return
         others_r = await db.execute(select(Submission).where(
@@ -113,7 +116,10 @@ async def _check_dup(submission_id, image_hash):
             Submission.proof_image_hash.isnot(None)))
         for other in others_r.scalars():
             if other.proof_image_hash and hashes_are_duplicate(image_hash, other.proof_image_hash):
-                current.status = "under_review"
-                current.rejection_reason = "Duplicate screenshot detected — flagged for admin review"
-                await db.commit()
+                # Never overwrite an already-final decision, but preserve the
+                # safety state for submissions still awaiting review.
+                if current.status in ("pending", "under_review"):
+                    current.status = "under_review"
+                    current.rejection_reason = "Duplicate screenshot detected — flagged for admin review"
+                    await db.commit()
                 return
