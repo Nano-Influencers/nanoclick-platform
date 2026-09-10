@@ -2,6 +2,7 @@
 // automatic access-token refresh on a 401, and consistent error shapes.
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+let refreshInFlight = null;
 
 function getTokens() {
   return {
@@ -65,20 +66,35 @@ async function request(path, { method = "GET", body, auth = true, _retried = fal
 }
 
 async function tryRefresh() {
-  const { refresh } = getTokens();
-  if (!refresh) return false;
+  // Multiple requests can receive a 401 at the same time (for example the
+  // dashboard's parallel wallet/campaign/notification requests). Refresh-token
+  // rotation makes concurrent refresh calls unsafe: only one may consume the
+  // current refresh token. Share one in-flight refresh promise instead.
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const { refresh } = getTokens();
+    if (!refresh) return false;
+    try {
+      const res = await fetch(`${API_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data.access_token || !data.refresh_token) return false;
+      setTokens(data.access_token, data.refresh_token);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
   try {
-    const res = await fetch(`${API_URL}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refresh }),
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    setTokens(data.access_token, data.refresh_token);
-    return true;
-  } catch {
-    return false;
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
   }
 }
 
@@ -134,7 +150,7 @@ export const api = {
   async listNotifications() { return request("/notifications"); },
   async unreadNotificationCount() { return request("/notifications/unread-count"); },
   async markNotificationRead(id) { return request(`/notifications/${id}/read`, { method: "POST" }); },
-  async markAllNotificationsRead() { return request("/notifications/read-all", { method: "POST" }); },
+  async markAllNotificationsRead() { return request(`/notifications/read-all`, { method: "POST" }); },
 };
 
 export { ApiError, getTokens, clearTokens };
