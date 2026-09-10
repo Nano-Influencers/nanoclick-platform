@@ -30,18 +30,13 @@ class ApiError extends Error {
 async function parseError(res) {
   try {
     const body = await res.json();
-    if (Array.isArray(body.detail)) {
-      // FastAPI/pydantic validation error shape
-      return body.detail.map((d) => d.msg).join("; ");
-    }
+    if (Array.isArray(body.detail)) return body.detail.map((d) => d.msg).join("; ");
     return body.detail || res.statusText;
   } catch {
     return res.statusText;
   }
 }
 
-// The core request function. `auth` defaults to true — nearly every call in
-// this app is authenticated; pass auth:false for register/login themselves.
 async function request(path, { method = "GET", body, auth = true, _retried = false } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (auth) {
@@ -52,11 +47,10 @@ async function request(path, { method = "GET", body, auth = true, _retried = fal
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    credentials: "same-origin",
   });
 
   if (res.status === 401 && auth && !_retried) {
-    // Access token likely expired — try a single silent refresh, then retry
-    // the original request once before giving up and forcing a logout.
     const refreshed = await tryRefresh();
     if (refreshed) return request(path, { method, body, auth, _retried: true });
     clearTokens();
@@ -64,9 +58,7 @@ async function request(path, { method = "GET", body, auth = true, _retried = fal
     throw new ApiError("Session expired — please log in again.", 401);
   }
 
-  if (!res.ok) {
-    throw new ApiError(await parseError(res), res.status);
-  }
+  if (!res.ok) throw new ApiError(await parseError(res), res.status);
   if (res.status === 204) return null;
   const text = await res.text();
   return text ? JSON.parse(text) : null;
@@ -91,11 +83,9 @@ async function tryRefresh() {
 }
 
 export const api = {
-  // ---- auth ----
   async register({ email, password, full_name, referral_code }) {
     return request("/auth/register", {
-      method: "POST",
-      auth: false,
+      method: "POST", auth: false,
       body: { email, password, full_name, role: "advertiser", referral_code: referral_code || null },
     });
   },
@@ -104,65 +94,47 @@ export const api = {
     setTokens(data.access_token, data.refresh_token);
     return data;
   },
-  async me() {
-    return request("/auth/me");
+  async exchangeOAuthCode(code) {
+    const data = await request(`/auth/oauth/exchange?code=${encodeURIComponent(code)}`, { method: "POST", auth: false });
+    setTokens(data.access_token, data.refresh_token);
+    return data;
   },
-  logout() {
+  async me() { return request("/auth/me"); },
+  async logout() {
+    const { refresh } = getTokens();
+    if (refresh) {
+      try {
+        await request("/auth/logout", { method: "POST", auth: false, body: { refresh_token: refresh } });
+      } catch {
+        // Local logout must still succeed if the network is unavailable.
+      }
+    }
     clearTokens();
   },
-  isLoggedIn() {
-    return !!getTokens().access;
-  },
-  setSessionTokens(access, refresh) {
-    setTokens(access, refresh);
-  },
+  isLoggedIn() { return !!getTokens().access; },
+  setSessionTokens(access, refresh) { setTokens(access, refresh); },
   oauthUrl(provider) {
-    // platform=web tells the backend to redirect back to a browser page
-    // (see OAUTH_WEB_REDIRECT_URL) instead of a mobile nanoclick:// deep link.
     return `${API_URL}/auth/${provider}/login?role=advertiser&platform=web`;
   },
 
-  // ---- wallet ----
-  async getBalance() {
-    return request("/wallet/balance");
-  },
-  async getTransactions() {
-    return request("/wallet/transactions");
-  },
+  async getBalance() { return request("/wallet/balance"); },
+  async getTransactions() { return request("/wallet/transactions"); },
   async initiateDeposit(amount_ngn) {
     return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn } });
   },
 
-  // ---- campaigns ----
-  async listCampaigns() {
-    return request("/campaigns");
-  },
-  async getCampaign(id) {
-    return request(`/campaigns/${id}`);
-  },
-  async createCampaign(payload) {
-    return request("/campaigns", { method: "POST", body: payload });
-  },
+  async listCampaigns() { return request("/campaigns"); },
+  async getCampaign(id) { return request(`/campaigns/${id}`); },
+  async createCampaign(payload) { return request("/campaigns", { method: "POST", body: payload }); },
   async updateCampaignStatus(id, new_status) {
     return request(`/campaigns/${id}/status?new_status=${encodeURIComponent(new_status)}`, { method: "PATCH" });
   },
-  async previewAudience(id) {
-    return request(`/campaigns/${id}/audience`);
-  },
+  async previewAudience(id) { return request(`/campaigns/${id}/audience`); },
 
-  // ---- notifications ----
-  async listNotifications() {
-    return request("/notifications");
-  },
-  async unreadNotificationCount() {
-    return request("/notifications/unread-count");
-  },
-  async markNotificationRead(id) {
-    return request(`/notifications/${id}/read`, { method: "POST" });
-  },
-  async markAllNotificationsRead() {
-    return request("/notifications/read-all", { method: "POST" });
-  },
+  async listNotifications() { return request("/notifications"); },
+  async unreadNotificationCount() { return request("/notifications/unread-count"); },
+  async markNotificationRead(id) { return request(`/notifications/${id}/read`, { method: "POST" }); },
+  async markAllNotificationsRead() { return request("/notifications/read-all", { method: "POST" }); },
 };
 
 export { ApiError, getTokens, clearTokens };
