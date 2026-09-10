@@ -51,8 +51,19 @@ jobs:
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
           PYTHONPATH: .
         run: |
-          test "$(alembic heads | grep -c '(head)')" = "1"
+          set -euo pipefail
+          echo "Alembic heads:"
+          HEADS="$(alembic heads 2>&1)"
+          printf '%s\n' "$HEADS"
+          HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -Ec '\(head\)$' || true)"
+          if [ "$HEAD_COUNT" -ne 1 ]; then
+            echo "Expected exactly one Alembic head; found $HEAD_COUNT"
+            exit 1
+          fi
+          echo "Applying migrations from the single head..."
           alembic upgrade head
+          echo "Alembic current revision:"
+          alembic current
       - name: Run unit tests
         env:
           DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
