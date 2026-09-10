@@ -1,3 +1,4 @@
+import 'dart:html' as html;
 import 'package:click_workers/Desktop/home/desktop_home.dart';
 import 'package:click_workers/Mobile/authentication/forgotPassword/new_password.dart';
 import 'package:flutter/material.dart';
@@ -12,7 +13,6 @@ import 'package:click_workers/services/api_client.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final uri = Uri.base;
-
   await dotenv.load(fileName: 'assets/env_temp.txt');
 
   final authProvider = AuthProvider();
@@ -20,7 +20,6 @@ Future<void> main() async {
   if (oauthCode != null && oauthCode.isNotEmpty) {
     try {
       await ApiClient.instance.exchangeOAuthCode(oauthCode);
-      // Remove the one-time code from browser history/address bar after use.
       html.window.history.replaceState(null, '', '/');
       await authProvider.refreshSessionSilently();
     } catch (_) {
@@ -28,10 +27,7 @@ Future<void> main() async {
     }
   }
 
-  runApp(MyApp(
-    initialUri: uri,
-    authProvider: authProvider,
-  ));
+  runApp(MyApp(initialUri: uri, authProvider: authProvider));
 }
 
 class MyApp extends StatelessWidget {
@@ -43,7 +39,6 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final oobCode = initialUri.queryParameters['oobCode'];
-
     return ResponsiveSizer(builder: (context, orientation, screenType) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
