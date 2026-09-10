@@ -34,6 +34,19 @@ def _has_targeting(targeting) -> bool:
     )
 
 
+def _allocation_slots(slots_total: int, groups) -> list[int]:
+    """Allocate every campaign slot exactly once across percentage groups."""
+    slots = [math.floor(slots_total * g.percentage / 100) for g in groups]
+    remainder = slots_total - sum(slots)
+    if remainder:
+        # Deterministically assign rounding remainder to the largest group(s),
+        # preserving the requested percentages as closely as possible.
+        order = sorted(range(len(groups)), key=lambda i: (-groups[i].percentage, i))
+        for i in range(remainder):
+            slots[order[i % len(order)]] += 1
+    return slots
+
+
 @router.post("", response_model=CampaignResponse, status_code=201)
 async def create_campaign(body: CampaignCreate, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
     if body.tni_service_type not in TNI_TO_CW_CATEGORY:
@@ -59,6 +72,14 @@ async def create_campaign(body: CampaignCreate, current_user: User = Depends(req
     slots_total = client_budget_kobo // client_price_kobo
     if slots_total < 1:
         raise HTTPException(400, "Budget too low for even one slot")
+
+    allocation_slots = []
+    if body.allocation_groups:
+        total_pct = sum(g.percentage for g in body.allocation_groups)
+        if abs(total_pct - 100.0) > 0.1:
+            raise HTTPException(400, "Allocation percentages must sum to 100")
+        allocation_slots = _allocation_slots(slots_total, body.allocation_groups)
+
     campaign = Campaign(
         owner_id=current_user.id, title=body.title, platform=body.platform,
         action_type=body.action_type, tni_service_type=body.tni_service_type,
@@ -72,6 +93,7 @@ async def create_campaign(body: CampaignCreate, current_user: User = Depends(req
     db.add(campaign)
     await db.flush()
     await wallet_service.lock_escrow(db, current_user.id, client_budget_kobo, reference=str(campaign.id))
+
     if has_targeting and body.targeting:
         t = body.targeting
         db.add(CampaignTargeting(
@@ -85,31 +107,37 @@ async def create_campaign(body: CampaignCreate, current_user: User = Depends(req
             target_interests=t.target_interests, min_follower_count=t.min_follower_count,
             min_avg_story_views=t.min_avg_story_views,
         ))
-    if body.allocation_groups:
-        total_pct = sum(g.percentage for g in body.allocation_groups)
-        if abs(total_pct - 100.0) > 0.1:
-            raise HTTPException(400, "Allocation percentages must sum to 100")
-        for g in body.allocation_groups:
-            db.add(TaskAllocationGroup(
-                campaign_id=campaign.id, action_label=g.action_label,
-                percentage=g.percentage, slots_allocated=math.floor(slots_total * g.percentage / 100),
-            ))
-    db.add(Task(
+
+    common_task = dict(
         campaign_id=campaign.id, title=body.title, description=body.description,
         link=body.target_url, instructions=body.instructions, platform=body.platform,
         action_type=body.action_type, cw_task_category=cw_category,
         difficulty="difficult" if worker_pay_kobo >= 50_000 else "simple",
         is_high_earning=worker_pay_kobo >= 50_000, is_urgent=body.is_urgent,
-        pay_kobo=worker_pay_kobo, slots_total=slots_total,
+        pay_kobo=worker_pay_kobo,
         accept_timeout_minutes=settings.DEFAULT_TASK_ACCEPT_MINUTES,
         expires_at=body.expires_at, status="pending_admin",
-    ))
+    )
+
+    if body.allocation_groups:
+        for g, group_slots in zip(body.allocation_groups, allocation_slots):
+            group = TaskAllocationGroup(
+                campaign_id=campaign.id, action_label=g.action_label,
+                percentage=g.percentage, slots_allocated=group_slots,
+            )
+            db.add(group)
+            await db.flush()
+            db.add(Task(**common_task, allocation_group_id=group.id, slots_total=group_slots))
+    else:
+        db.add(Task(**common_task, slots_total=slots_total))
     return campaign
+
 
 @router.get("", response_model=list[CampaignResponse])
 async def list_campaigns(current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
     r = await db.execute(select(Campaign).where(Campaign.owner_id == current_user.id).order_by(Campaign.created_at.desc()))
     return r.scalars().all()
+
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 async def get_campaign(campaign_id: uuid.UUID, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
@@ -118,6 +146,7 @@ async def get_campaign(campaign_id: uuid.UUID, current_user: User = Depends(requ
     if not c:
         raise HTTPException(404, "Campaign not found")
     return c
+
 
 @router.patch("/{campaign_id}/status")
 async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
@@ -140,6 +169,7 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
         campaign.escrow_kobo = 0
     campaign.status = new_status
     return {"status": new_status, "campaign_id": str(campaign_id)}
+
 
 @router.get("/{campaign_id}/audience")
 async def preview_audience(campaign_id: uuid.UUID, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
