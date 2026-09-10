@@ -120,8 +120,6 @@ async def withdraw(body: WithdrawRequest, current_user: User = Depends(require_w
         raise HTTPException(400, "Could not verify that account number/bank combination")
 
     reference = f"wdw_{uuid.uuid4().hex[:16]}"
-    # Debit and create the withdrawal record in the same DB transaction.
-    # The worker is queued only after the transaction commits successfully.
     await wallet_service.debit(
         db, current_user.id, amount_kobo, "withdrawal",
         description=f"Withdrawal to {resolved['account_name']} ({body.account_number})",
@@ -202,12 +200,19 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
     elif event_type in ("transfer.failed", "transfer.reversed"):
         rt = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
         withdrawal = rt.scalar_one_or_none()
-        if withdrawal and withdrawal.status not in ("failed", "reversed"):
+        if withdrawal and withdrawal.status not in ("failed", "reversed", "successful"):
+            event_amount = int(data.get("amount") or 0)
+            if event_amount and event_amount != withdrawal.amount_kobo:
+                raise HTTPException(400, "Transfer amount does not match withdrawal")
             tx_result = await db.execute(select(Transaction).where(Transaction.reference == reference, Transaction.type == "withdrawal").with_for_update())
             tx = tx_result.scalar_one_or_none()
             if tx:
-                await wallet_service.credit(db, withdrawal.user_id, tx.amount_kobo, "withdrawal_reversal", description="Withdrawal failed at bank — funds returned", reference=f"{reference}:reversal")
+                reversal_reference = f"{reference}:reversal"
+                existing_reversal = await db.execute(select(Transaction).where(Transaction.reference == reversal_reference).with_for_update())
+                if existing_reversal.scalar_one_or_none() is None:
+                    await wallet_service.credit(db, withdrawal.user_id, tx.amount_kobo, "withdrawal_reversal", description="Withdrawal failed at bank — funds returned", reference=reversal_reference)
             withdrawal.status = "reversed" if event_type == "transfer.reversed" else "failed"
+            withdrawal.provider_reference = data.get("transfer_code") or withdrawal.provider_reference
             withdrawal.failure_reason = data.get("reason") or "Paystack transfer failed"
             withdrawal.completed_at = datetime.utcnow()
             from app.services.notification_service import notify
@@ -216,12 +221,16 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
     elif event_type == "transfer.success":
         result = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
         withdrawal = result.scalar_one_or_none()
-        if withdrawal and withdrawal.status != "successful":
-            withdrawal.status = "successful"
-            withdrawal.provider_reference = reference
-            withdrawal.completed_at = datetime.utcnow()
-            from app.services.notification_service import notify
-            await notify(db, withdrawal.user_id, "withdrawal_processed", "Withdrawal successful", f"₦{withdrawal.amount_kobo/100:,.2f} has been sent to your bank account.")
+        if withdrawal:
+            event_amount = int(data.get("amount") or 0)
+            if event_amount and event_amount != withdrawal.amount_kobo:
+                raise HTTPException(400, "Transfer amount does not match withdrawal")
+            if withdrawal.status not in ("successful", "failed", "reversed"):
+                withdrawal.status = "successful"
+                withdrawal.provider_reference = data.get("transfer_code") or withdrawal.provider_reference or reference
+                withdrawal.completed_at = datetime.utcnow()
+                from app.services.notification_service import notify
+                await notify(db, withdrawal.user_id, "withdrawal_processed", "Withdrawal successful", f"₦{withdrawal.amount_kobo/100:,.2f} has been sent to your bank account.")
 
     await db.commit()
     return {"status": "ok"}
