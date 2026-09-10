@@ -13,6 +13,7 @@ from app.dependencies import get_current_user, require_worker
 from app.models.payment import Deposit, PaystackEvent
 from app.models.user import User
 from app.models.wallet import Wallet, Transaction
+from app.models.withdrawal import Withdrawal
 from app.schemas.wallet import (
     WalletResponse, TransactionResponse, InitiateDepositRequest, InitiateDepositResponse,
     WithdrawRequest, ResolveAccountResponse, SpinResultResponse, CheckinResultResponse,
@@ -45,12 +46,25 @@ async def get_transactions(current_user: User = Depends(get_current_user), db: A
     w = rw.scalar_one_or_none()
     if not w:
         raise HTTPException(404, "Wallet not found")
-    rt = await db.execute(
-        select(Transaction).where(Transaction.wallet_id == w.id).order_by(Transaction.created_at.desc()).limit(100)
+    rt = await db.execute(select(Transaction).where(Transaction.wallet_id == w.id).order_by(Transaction.created_at.desc()).limit(100))
+    return [{**{c.name: getattr(tx, c.name) for c in tx.__table__.columns}, "id": str(tx.id), "amount_ngn": tx.amount_kobo / 100} for tx in rt.scalars()]
+
+
+@router.get("/withdrawals")
+async def get_withdrawals(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Withdrawal).where(Withdrawal.user_id == current_user.id).order_by(Withdrawal.created_at.desc()).limit(100)
     )
     return [
-        {**{c.name: getattr(tx, c.name) for c in tx.__table__.columns}, "id": str(tx.id), "amount_ngn": tx.amount_kobo / 100}
-        for tx in rt.scalars()
+        {
+            "id": str(w.id), "reference": w.reference, "amount_kobo": w.amount_kobo,
+            "amount_ngn": w.amount_kobo / 100, "account_name": w.account_name,
+            "account_number": w.account_number, "bank_code": w.bank_code,
+            "status": w.status, "failure_reason": w.failure_reason,
+            "created_at": w.created_at.isoformat(),
+            "completed_at": w.completed_at.isoformat() if w.completed_at else None,
+        }
+        for w in result.scalars()
     ]
 
 
@@ -66,19 +80,11 @@ async def referral_stats(current_user: User = Depends(get_current_user), db: Asy
             Transaction.wallet_id == w.id, Transaction.type == "referral_bonus"
         ))
         total_kobo = sum_r.scalar() or 0
-    return {
-        "referral_count": referral_count,
-        "total_referral_earnings_kobo": total_kobo,
-        "total_referral_earnings_ngn": total_kobo / 100,
-    }
+    return {"referral_count": referral_count, "total_referral_earnings_kobo": total_kobo, "total_referral_earnings_ngn": total_kobo / 100}
 
 
 @router.post("/deposit/initialize", response_model=InitiateDepositResponse)
-async def initiate_deposit(
-    body: InitiateDepositRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+async def initiate_deposit(body: InitiateDepositRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if body.amount_ngn < 100:
         raise HTTPException(400, "Minimum deposit is ₦100")
     amount_kobo = int(body.amount_ngn * 100)
@@ -100,9 +106,7 @@ async def resolve_account(bank_code: str, account_number: str, current_user: Use
         data = await paystack.resolve_account_number(account_number, bank_code)
     except Exception:
         raise HTTPException(400, "Could not verify that account number/bank combination")
-    return ResolveAccountResponse(
-        account_number=data["account_number"], account_name=data["account_name"], bank_code=bank_code
-    )
+    return ResolveAccountResponse(account_number=data["account_number"], account_name=data["account_name"], bank_code=bank_code)
 
 
 @router.post("/withdraw")
@@ -114,18 +118,25 @@ async def withdraw(body: WithdrawRequest, current_user: User = Depends(require_w
         resolved = await paystack.resolve_account_number(body.account_number, body.bank_code)
     except Exception:
         raise HTTPException(400, "Could not verify that account number/bank combination")
+
     reference = f"wdw_{uuid.uuid4().hex[:16]}"
+    # Debit and create the withdrawal record in the same DB transaction.
+    # The worker is queued only after the transaction commits successfully.
     await wallet_service.debit(
         db, current_user.id, amount_kobo, "withdrawal",
         description=f"Withdrawal to {resolved['account_name']} ({body.account_number})",
         reference=reference,
     )
+    db.add(Withdrawal(
+        user_id=current_user.id, reference=reference, amount_kobo=amount_kobo,
+        account_number=body.account_number, bank_code=body.bank_code,
+        account_name=resolved["account_name"], status="requested",
+    ))
+    await db.commit()
+
     from app.workers.payout_tasks import process_withdrawal
-    process_withdrawal.delay(
-        str(current_user.id), amount_kobo, reference,
-        body.account_number, body.bank_code, resolved["account_name"]
-    )
-    return {"message": "Withdrawal initiated", "reference": reference, "account_name": resolved["account_name"]}
+    process_withdrawal.delay(str(current_user.id), amount_kobo, reference, body.account_number, body.bank_code, resolved["account_name"])
+    return {"message": "Withdrawal initiated", "reference": reference, "account_name": resolved["account_name"], "status": "requested"}
 
 
 @router.post("/spin", response_model=SpinResultResponse)
@@ -152,15 +163,11 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
     event_type = event.get("event")
     data = event.get("data") or {}
     reference = data.get("reference") or ""
-    # Paystack does not guarantee a separate event-id header on every webhook.
-    # A canonical body hash still makes identical retries idempotent.
     event_id = request.headers.get("x-paystack-event-id") or hashlib.sha256(raw_body).hexdigest()
 
     inserted = await db.execute(
-        pg_insert(PaystackEvent)
-        .values(event_id=event_id, event_type=event_type or "unknown", reference=reference or None)
-        .on_conflict_do_nothing(index_elements=["event_id"])
-        .returning(PaystackEvent.id)
+        pg_insert(PaystackEvent).values(event_id=event_id, event_type=event_type or "unknown", reference=reference or None)
+        .on_conflict_do_nothing(index_elements=["event_id"]).returning(PaystackEvent.id)
     )
     if inserted.scalar_one_or_none() is None:
         return {"status": "duplicate"}
@@ -170,10 +177,7 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
         currency = data.get("currency")
         if not reference or amount_kobo <= 0 or currency != "NGN":
             raise HTTPException(400, "Invalid payment payload")
-
-        deposit_result = await db.execute(
-            select(Deposit).where(Deposit.reference == reference).with_for_update()
-        )
+        deposit_result = await db.execute(select(Deposit).where(Deposit.reference == reference).with_for_update())
         deposit = deposit_result.scalar_one_or_none()
         if not deposit:
             raise HTTPException(400, "Unknown deposit reference")
@@ -181,9 +185,6 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
             return {"status": "already_completed"}
         if deposit.status != "pending" or deposit.amount_kobo != amount_kobo:
             raise HTTPException(400, "Payment amount or state does not match deposit")
-
-        # The signed webhook is authoritative for the event, while Paystack's
-        # verification endpoint gives us a second check on the reference.
         try:
             verified = await paystack.verify_transaction(reference)
             if verified.get("status") != "success" or int(verified.get("amount") or 0) != amount_kobo or verified.get("currency") != "NGN":
@@ -192,44 +193,35 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
             raise
         except Exception:
             raise HTTPException(502, "Payment verification temporarily unavailable")
-
-        await wallet_service.credit(
-            db, deposit.user_id, amount_kobo, "deposit",
-            description="Wallet top-up via Paystack", reference=reference
-        )
+        await wallet_service.credit(db, deposit.user_id, amount_kobo, "deposit", description="Wallet top-up via Paystack", reference=reference)
         deposit.status = "completed"
         deposit.completed_at = datetime.utcnow()
         from app.services.notification_service import notify
         await notify(db, deposit.user_id, "deposit_success", "Wallet funded", f"₦{amount_kobo/100:,.2f} was added to your wallet.")
 
     elif event_type in ("transfer.failed", "transfer.reversed"):
-        rt = await db.execute(select(Transaction).where(
-            Transaction.reference == reference, Transaction.type == "withdrawal"
-        ).with_for_update())
-        tx = rt.scalar_one_or_none()
-        if tx:
-            w = await db.get(Wallet, tx.wallet_id)
-            if w:
-                # Use the original debit amount rather than trusting a webhook
-                # amount when reversing customer funds.
-                await wallet_service.credit(
-                    db, w.user_id, tx.amount_kobo, "withdrawal_reversal",
-                    description="Withdrawal failed at bank — funds returned", reference=f"{reference}:reversal"
-                )
-                from app.services.notification_service import notify
-                await notify(db, w.user_id, "withdrawal_processed", "Withdrawal failed",
-                             f"Your withdrawal of ₦{tx.amount_kobo/100:,.2f} could not be completed and was refunded to your wallet.")
+        rt = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
+        withdrawal = rt.scalar_one_or_none()
+        if withdrawal and withdrawal.status not in ("failed", "reversed"):
+            tx_result = await db.execute(select(Transaction).where(Transaction.reference == reference, Transaction.type == "withdrawal").with_for_update())
+            tx = tx_result.scalar_one_or_none()
+            if tx:
+                await wallet_service.credit(db, withdrawal.user_id, tx.amount_kobo, "withdrawal_reversal", description="Withdrawal failed at bank — funds returned", reference=f"{reference}:reversal")
+            withdrawal.status = "reversed" if event_type == "transfer.reversed" else "failed"
+            withdrawal.failure_reason = data.get("reason") or "Paystack transfer failed"
+            withdrawal.completed_at = datetime.utcnow()
+            from app.services.notification_service import notify
+            await notify(db, withdrawal.user_id, "withdrawal_processed", "Withdrawal failed", f"Your withdrawal of ₦{withdrawal.amount_kobo/100:,.2f} could not be completed and was refunded to your wallet.")
 
     elif event_type == "transfer.success":
-        rt = await db.execute(select(Transaction).where(
-            Transaction.reference == reference, Transaction.type == "withdrawal"
-        ))
-        tx = rt.scalar_one_or_none()
-        if tx:
-            w = await db.get(Wallet, tx.wallet_id)
-            if w:
-                from app.services.notification_service import notify
-                await notify(db, w.user_id, "withdrawal_processed", "Withdrawal successful",
-                             f"₦{tx.amount_kobo/100:,.2f} has been sent to your bank account.")
+        result = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
+        withdrawal = result.scalar_one_or_none()
+        if withdrawal and withdrawal.status != "successful":
+            withdrawal.status = "successful"
+            withdrawal.provider_reference = reference
+            withdrawal.completed_at = datetime.utcnow()
+            from app.services.notification_service import notify
+            await notify(db, withdrawal.user_id, "withdrawal_processed", "Withdrawal successful", f"₦{withdrawal.amount_kobo/100:,.2f} has been sent to your bank account.")
 
+    await db.commit()
     return {"status": "ok"}
