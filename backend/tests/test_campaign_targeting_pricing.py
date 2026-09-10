@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.campaign import Campaign, CampaignTargeting
+from app.models.campaign import CampaignTargeting
 from app.models.task import Task
 from app.models.user import User
 from app.models.wallet import Wallet
@@ -21,7 +21,7 @@ async def _user(db: AsyncSession) -> User:
     )
     db.add(user)
     await db.flush()
-    db.add(Wallet(user_id=user.id, balance_kobo=100_000))
+    db.add(Wallet(user_id=user.id, balance_kobo=2_000_000))
     await db.flush()
     return user
 
@@ -56,4 +56,4 @@ async def test_interest_only_targeting_is_marked_and_priced_as_targeted(db: Asyn
     assert task.slots_total == 10
 
     wallet = (await db.execute(select(Wallet).where(Wallet.user_id == advertiser.id))).scalar_one()
-    assert wallet.balance_kobo == 100_000 - 1_500_000
+    assert wallet.balance_kobo == 500_000
