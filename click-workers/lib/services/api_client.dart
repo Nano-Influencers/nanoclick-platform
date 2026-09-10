@@ -1,7 +1,9 @@
 import 'dart:convert';
-import 'dart:html' as html;
 import 'package:http/http.dart' as http;
 import 'app_user.dart';
+import 'token_storage_stub.dart'
+    if (dart.library.html) 'token_storage_web.dart'
+    if (dart.library.io) 'token_storage_io.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -23,21 +25,30 @@ class ApiClient {
     defaultValue: 'http://localhost:8000',
   );
 
-  static const _accessKey = 'nano_access_token';
-  static const _refreshKey = 'nano_refresh_token';
+  String? _accessToken;
+  String? _refreshToken;
+  bool _initialized = false;
 
-  String? get _accessToken => html.window.localStorage[_accessKey];
-  String? get _refreshToken => html.window.localStorage[_refreshKey];
   bool get isLoggedIn => _accessToken != null;
 
-  void setTokens({required String access, required String refresh}) {
-    html.window.localStorage[_accessKey] = access;
-    html.window.localStorage[_refreshKey] = refresh;
+  Future<void> initialize() async {
+    if (_initialized) return;
+    final tokens = await readTokens();
+    _accessToken = tokens['access'];
+    _refreshToken = tokens['refresh'];
+    _initialized = true;
   }
 
-  void clearTokens() {
-    html.window.localStorage.remove(_accessKey);
-    html.window.localStorage.remove(_refreshKey);
+  Future<void> setTokens({required String access, required String refresh}) async {
+    _accessToken = access;
+    _refreshToken = refresh;
+    await writeTokens(access: access, refresh: refresh);
+  }
+
+  Future<void> clearTokens() async {
+    _accessToken = null;
+    _refreshToken = null;
+    await clearTokensStorage();
   }
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
@@ -84,7 +95,7 @@ class ApiClient {
     if (res.statusCode == 401 && auth && !retrying) {
       final refreshed = await _tryRefresh();
       if (refreshed) return _request(method, path, body: body, auth: auth, retrying: true);
-      clearTokens();
+      await clearTokens();
       throw ApiException('Session expired — please log in again.', 401);
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -105,7 +116,7 @@ class ApiClient {
       );
       if (res.statusCode != 200) return false;
       final data = jsonDecode(res.body);
-      setTokens(access: data['access_token'], refresh: data['refresh_token']);
+      await setTokens(access: data['access_token'], refresh: data['refresh_token']);
       return true;
     } catch (_) {
       return false;
@@ -120,7 +131,7 @@ class ApiClient {
   }
   Future<void> login(String email, String password) async {
     final data = await _request('POST', '/auth/login', auth: false, body: {'email': email, 'password': password});
-    setTokens(access: data['access_token'], refresh: data['refresh_token']);
+    await setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
   Future<void> logout() async {
@@ -128,20 +139,20 @@ class ApiClient {
     if (refresh != null) {
       try { await _request('POST', '/auth/logout', auth: false, body: {'refresh_token': refresh}); } catch (_) {}
     }
-    clearTokens();
+    await clearTokens();
   }
   Future<void> changePassword(String currentPassword, String newPassword) async => await _request('POST', '/auth/change-password', body: {'current_password': currentPassword, 'new_password': newPassword});
   Future<void> forgotPassword(String email) async => await _request('POST', '/auth/forgot-password', auth: false, body: {'email': email});
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
   String oauthUrl(String provider) {
-    final origin = html.window.location.origin;
+    final origin = currentOrigin();
     final redirectUri = Uri.encodeComponent('$origin/');
     return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
   }
   Future<void> exchangeOAuthCode(String code) async {
     final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}', auth: false);
-    setTokens(access: data['access_token'], refresh: data['refresh_token']);
+    await setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
 
   Future<Map<String, dynamic>> getWalletBalance() async => await _request('GET', '/wallet/balance') as Map<String, dynamic>;
