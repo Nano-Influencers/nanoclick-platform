@@ -32,31 +32,42 @@ async def _auto_approve():
                 Submission.submitted_at <= cutoff,
             ))
         )
-        for sub in result.scalars().all():
-            task_r = await db.execute(select(Task).where(Task.id==sub.task_id))
+        for candidate in result.scalars().all():
+            # Re-acquire the submission lock immediately before payment. This
+            # makes auto-approval and admin approval mutually exclusive.
+            sub_r = await db.execute(
+                select(Submission).where(Submission.id == candidate.id).with_for_update()
+            )
+            sub = sub_r.scalar_one_or_none()
+            if not sub or sub.status not in ("pending", "under_review"):
+                continue
+
+            # Lock the task before changing slots_filled. All approval paths
+            # therefore serialize on the same task row before touching wallets.
+            task_r = await db.execute(
+                select(Task).where(Task.id == sub.task_id).with_for_update()
+            )
             task = task_r.scalar_one_or_none()
-            if not task: continue
-            camp_r = await db.execute(select(Campaign).where(Campaign.id==task.campaign_id))
+            if not task:
+                continue
+            if task.slots_filled >= task.slots_total:
+                continue
+
+            camp_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id))
             campaign = camp_r.scalar_one_or_none()
-            if not campaign: continue
+            if not campaign:
+                continue
+
             cps = calculate_click_points(task.cw_task_category, task.pay_kobo, task.is_urgent, sub.submitted_at)
             await wallet_service.release_escrow_to_worker(
                 db=db, advertiser_id=campaign.owner_id, worker_id=sub.worker_id,
                 amount_kobo=task.pay_kobo, click_points=cps,
                 task_category=task.cw_task_category, reference=str(sub.id))
 
-            # A duplicate Celery delivery can race the first worker. The
-            # escrow service is financially idempotent; refresh the submission
-            # after it returns so the duplicate does not also send rewards and
-            # notifications once the first transaction has committed.
-            await db.refresh(sub)
-            if sub.status == "approved":
-                continue
-
             sub.status = "approved"
             sub.was_auto_approved = True
             sub.reviewed_at = datetime.utcnow()
-            task.slots_filled = min(task.slots_filled + 1, task.slots_total)
+            task.slots_filled += 1
             if task.slots_filled >= task.slots_total:
                 task.status = "completed"
             await rewards_service.award_referral_bonus_if_first_approval(db, sub.worker_id)
