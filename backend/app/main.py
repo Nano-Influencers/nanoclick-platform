@@ -162,5 +162,4 @@ async def readiness():
     return JSONResponse(
         status_code=200 if ready else 503,
         content={"status": "ok" if ready else "degraded", "checks": checks},
-        headers={"X-Request-ID": getattr(request, "state", None).request_id if False else ""},
     )
