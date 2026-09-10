@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, production-readiness]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Python
+        run: python -m compileall -q app
+      - name: Validate Alembic heads
+        env:
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          SECRET_KEY: ci-only-secret
+        run: alembic heads
+
+  nano-influencers:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: nano-influencers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: nano-influencers/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  click-workers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - working-directory: click-workers
+        run: flutter pub get
+      - working-directory: click-workers
+        run: flutter analyze
