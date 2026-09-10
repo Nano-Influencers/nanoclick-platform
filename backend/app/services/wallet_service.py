@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 from app.models.wallet import Wallet, Transaction
+from app.models.platform_wallet import PlatformWallet
+from app.models.platform_wallet_transaction import PlatformWalletTransaction
 
 _CATEGORY_FIELD_MAP = {
     "one_off_single":    ("daily_one_off_single_kobo",    "total_one_off_single_kobo",    "daily_one_off_single_cps"),
@@ -18,6 +20,7 @@ _CATEGORY_FIELD_MAP = {
     "skill_based":       ("daily_skill_based_kobo",       "total_skill_based_kobo",       "daily_skill_based_cps"),
     "unpaid":            ("daily_unpaid_kobo",             "total_unpaid_kobo",            "daily_unpaid_cps"),
 }
+PLATFORM_REVENUE_WALLET_KEY = "platform_revenue"
 
 
 async def _lock_wallet(db: AsyncSession, user_id: uuid.UUID) -> Wallet:
@@ -25,6 +28,18 @@ async def _lock_wallet(db: AsyncSession, user_id: uuid.UUID) -> Wallet:
     wallet = result.scalar_one_or_none()
     if not wallet:
         raise HTTPException(status_code=404, detail="Wallet not found")
+    return wallet
+
+
+async def _lock_platform_revenue_wallet(db: AsyncSession) -> PlatformWallet:
+    result = await db.execute(
+        select(PlatformWallet)
+        .where(PlatformWallet.wallet_key == PLATFORM_REVENUE_WALLET_KEY)
+        .with_for_update()
+    )
+    wallet = result.scalar_one_or_none()
+    if not wallet:
+        raise HTTPException(status_code=500, detail="Platform revenue wallet is not configured")
     return wallet
 
 
@@ -103,10 +118,8 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
                                    client_charge_kobo: int | None = None) -> tuple[Transaction, Transaction]:
     """Settle one approved action from advertiser escrow.
 
-    amount_kobo is the worker payout. client_charge_kobo is the client price
-    consumed from escrow. If omitted, the campaign price is resolved from the
-    submission reference. The difference is platform margin and is not returned
-    to the advertiser.
+    The advertiser is charged the client price, the worker receives the worker
+    payout, and the difference is recorded in the platform revenue wallet.
     """
     if amount_kobo <= 0:
         raise HTTPException(status_code=400, detail="Worker payout must be positive")
@@ -144,7 +157,7 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
             Transaction.reference == reference,
             Transaction.type == "escrow_release",
             Transaction.wallet_id == adv_wallet.id,
-        ))
+        ).with_for_update())
         adv_tx = existing.scalar_one_or_none()
         if adv_tx:
             if adv_tx.amount_kobo != client_charge:
@@ -152,7 +165,7 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
             worker_result = await db.execute(select(Transaction).where(
                 Transaction.reference == reference,
                 Transaction.type == "task_earning",
-            ))
+            ).with_for_update())
             wrk_tx = worker_result.scalar_one_or_none()
             if wrk_tx:
                 if wrk_tx.amount_kobo != amount_kobo or wrk_tx.click_points_awarded != click_points:
@@ -162,6 +175,23 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
 
     if adv_wallet.escrow_kobo < client_charge:
         raise HTTPException(status_code=400, detail="Escrow balance insufficient")
+
+    revenue_kobo = client_charge - amount_kobo
+    revenue_wallet = await _lock_platform_revenue_wallet(db)
+    revenue_reference = f"revenue:{reference or uuid.uuid4()}"
+    if len(revenue_reference) > 120:
+        revenue_reference = revenue_reference[:120]
+    revenue_existing = await db.execute(select(PlatformWalletTransaction).where(
+        PlatformWalletTransaction.platform_wallet_id == revenue_wallet.id,
+        PlatformWalletTransaction.type == "campaign_margin",
+        PlatformWalletTransaction.reference == revenue_reference,
+    ).with_for_update())
+    prior_revenue = revenue_existing.scalar_one_or_none()
+    if prior_revenue:
+        if prior_revenue.amount_kobo != revenue_kobo:
+            raise HTTPException(status_code=409, detail="Conflicting campaign margin reference")
+        raise HTTPException(status_code=409, detail="Incomplete escrow settlement for reference")
+
     adv_wallet.escrow_kobo -= client_charge
     if campaign is not None:
         campaign.escrow_kobo -= client_charge
@@ -170,6 +200,17 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
                          amount_kobo=client_charge, status="completed", reference=reference,
                          description="Client escrow charged; worker payout and platform margin settled")
     db.add(adv_tx)
+
+    if revenue_kobo:
+        revenue_wallet.balance_kobo += revenue_kobo
+        db.add(PlatformWalletTransaction(
+            platform_wallet_id=revenue_wallet.id,
+            type="campaign_margin",
+            amount_kobo=revenue_kobo,
+            balance_after_kobo=revenue_wallet.balance_kobo,
+            reference=revenue_reference,
+            description="Campaign client-price margin",
+        ))
 
     wrk_wallet = await _lock_wallet(db, worker_id)
     wrk_wallet.balance_kobo += amount_kobo
