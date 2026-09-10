@@ -28,6 +28,7 @@ class ApiClient {
   String? _accessToken;
   String? _refreshToken;
   bool _initialized = false;
+  Future<bool>? _refreshInFlight;
 
   bool get isLoggedIn => _accessToken != null;
 
@@ -48,6 +49,7 @@ class ApiClient {
   Future<void> clearTokens() async {
     _accessToken = null;
     _refreshToken = null;
+    _refreshInFlight = null;
     await storage.clearTokens();
   }
 
@@ -57,7 +59,11 @@ class ApiClient {
     try {
       final body = jsonDecode(res.body);
       final detail = body is Map ? body['detail'] : null;
-      if (detail is List) return detail.map((d) => d['msg']).join('; ');
+      if (detail is List) {
+        return detail
+            .map((d) => d is Map ? d['msg']?.toString() : d.toString())
+            .join('; ');
+      }
       if (detail is String) return detail;
     } catch (_) {}
     return 'Something went wrong (${res.statusCode})';
@@ -94,7 +100,9 @@ class ApiClient {
 
     if (res.statusCode == 401 && auth && !retrying) {
       final refreshed = await _tryRefresh();
-      if (refreshed) return _request(method, path, body: body, auth: auth, retrying: true);
+      if (refreshed) {
+        return _request(method, path, body: body, auth: auth, retrying: true);
+      }
       await clearTokens();
       throw ApiException('Session expired — please log in again.', 401);
     }
@@ -105,9 +113,23 @@ class ApiClient {
     return jsonDecode(res.body);
   }
 
-  Future<bool> _tryRefresh() async {
+  Future<bool> _tryRefresh() {
+    final inFlight = _refreshInFlight;
+    if (inFlight != null) return inFlight;
+
     final refresh = _refreshToken;
-    if (refresh == null) return false;
+    if (refresh == null) return Future.value(false);
+
+    final future = _performRefresh(refresh);
+    _refreshInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_refreshInFlight, future)) {
+        _refreshInFlight = null;
+      }
+    });
+  }
+
+  Future<bool> _performRefresh(String refresh) async {
     try {
       final res = await http.post(
         _uri('/auth/refresh'),
@@ -115,8 +137,15 @@ class ApiClient {
         body: jsonEncode({'refresh_token': refresh}),
       );
       if (res.statusCode != 200) return false;
+
       final data = jsonDecode(res.body);
-      await setTokens(access: data['access_token'], refresh: data['refresh_token']);
+      final access = data['access_token'];
+      final nextRefresh = data['refresh_token'];
+      if (access is! String || nextRefresh is! String ||
+          access.isEmpty || nextRefresh.isEmpty) {
+        return false;
+      }
+      await setTokens(access: access, refresh: nextRefresh);
       return true;
     } catch (_) {
       return false;
@@ -129,11 +158,14 @@ class ApiClient {
       'role': 'worker', 'referral_code': referralCode,
     });
   }
+
   Future<void> login(String email, String password) async {
     final data = await _request('POST', '/auth/login', auth: false, body: {'email': email, 'password': password});
     await setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
+
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
+
   Future<void> logout() async {
     final refresh = _refreshToken;
     if (refresh != null) {
@@ -141,10 +173,12 @@ class ApiClient {
     }
     await clearTokens();
   }
+
   Future<void> changePassword(String currentPassword, String newPassword) async => await _request('POST', '/auth/change-password', body: {'current_password': currentPassword, 'new_password': newPassword});
   Future<void> forgotPassword(String email) async => await _request('POST', '/auth/forgot-password', auth: false, body: {'email': email});
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
+
   String oauthUrl(String provider, {String platform = 'web'}) {
     if (platform == 'app') {
       return '$baseUrl/auth/$provider/login?role=worker&platform=app';
@@ -153,6 +187,7 @@ class ApiClient {
     final redirectUri = Uri.encodeComponent('$origin/');
     return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
   }
+
   Future<void> exchangeOAuthCode(String code) async {
     final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}', auth: false);
     await setTokens(access: data['access_token'], refresh: data['refresh_token']);
@@ -177,9 +212,12 @@ class ApiClient {
   Future<List<dynamic>> leaderboard(String period) async => await _request('GET', '/tasks/leaderboard/$period') as List<dynamic>;
   Future<Map<String, dynamic>> myTaskStats() async => await _request('GET', '/tasks/my-stats') as Map<String, dynamic>;
   Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async => await _request('POST', '/tasks/upload-url', body: {'file_extension': fileExtension}) as Map<String, dynamic>;
+
   Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes) async {
     final res = await http.put(Uri.parse(uploadUrl), body: bytes);
-    if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
+    }
   }
 
   // ---------------- KYC ----------------
