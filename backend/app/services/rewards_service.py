@@ -17,6 +17,8 @@ from app.models.task import Submission, Task
 from app.models.user import User
 from app.models.wallet import Wallet, Transaction
 from app.models.rewards import RewardClaim
+from app.models.platform_wallet import PlatformWallet
+from app.models.platform_wallet_transaction import PlatformWalletTransaction
 from app.services import wallet_service
 from app.services.notification_service import notify
 
@@ -24,6 +26,7 @@ GRIT_TASKS_PER_LEVEL = 20
 GRIT_MAX_LEVEL = 10
 GRATIS_TASKS_PER_LEVEL = 100
 GRATIS_MAX_LEVEL = 10
+REWARD_POOL_WALLET_KEY = "reward_pool"
 
 
 async def _approved_count(db: AsyncSession, worker_id: uuid.UUID, **task_filters) -> int:
@@ -60,14 +63,113 @@ async def get_progress(db: AsyncSession, worker_id: uuid.UUID) -> dict:
     }
 
 
-async def distribute_reward_pool(db: AsyncSession, track: str, pool_kobo: int) -> dict:
-    """Admin-triggered pool split with database-enforced one-time claims."""
+async def _lock_reward_pool(db: AsyncSession) -> PlatformWallet:
+    result = await db.execute(
+        select(PlatformWallet)
+        .where(PlatformWallet.wallet_key == REWARD_POOL_WALLET_KEY)
+        .with_for_update()
+    )
+    wallet = result.scalar_one_or_none()
+    if not wallet:
+        raise HTTPException(500, "Reward pool funding wallet is not configured")
+    return wallet
+
+
+async def fund_reward_pool(
+    db: AsyncSession,
+    amount_kobo: int,
+    reference: str,
+    description: str = "Reward pool funding",
+) -> dict:
+    """Fund the platform-owned reward pool with an immutable ledger entry.
+
+    Funding is deliberately separate from an administrator's personal wallet.
+    The caller must provide a stable reference so retries cannot create money.
+    """
+    if amount_kobo <= 0:
+        raise HTTPException(400, "funding amount must be greater than zero")
+    if not reference or len(reference) > 120:
+        raise HTTPException(400, "funding reference is required and must be <= 120 characters")
+
+    wallet = await _lock_reward_pool(db)
+    existing = await db.execute(
+        select(PlatformWalletTransaction).where(
+            PlatformWalletTransaction.platform_wallet_id == wallet.id,
+            PlatformWalletTransaction.type == "reward_pool_funding",
+            PlatformWalletTransaction.reference == reference,
+        ).with_for_update()
+    )
+    prior = existing.scalar_one_or_none()
+    if prior:
+        if prior.amount_kobo != amount_kobo:
+            raise HTTPException(409, "Conflicting reward pool funding reference")
+        return {
+            "reference": reference,
+            "amount_kobo": amount_kobo,
+            "balance_kobo": wallet.balance_kobo,
+            "idempotent": True,
+        }
+
+    wallet.balance_kobo += amount_kobo
+    ledger = PlatformWalletTransaction(
+        platform_wallet_id=wallet.id,
+        type="reward_pool_funding",
+        amount_kobo=amount_kobo,
+        balance_after_kobo=wallet.balance_kobo,
+        reference=reference,
+        description=description,
+    )
+    db.add(ledger)
+    return {
+        "reference": reference,
+        "amount_kobo": amount_kobo,
+        "balance_kobo": wallet.balance_kobo,
+        "idempotent": False,
+    }
+
+
+async def distribute_reward_pool(
+    db: AsyncSession,
+    track: str,
+    pool_kobo: int,
+    reference: str | None = None,
+) -> dict:
+    """Atomically fund workers from the platform reward-pool balance.
+
+    The platform wallet is locked for the complete operation. Claims, the
+    platform debit, and worker credits share the same DB transaction, so a
+    failed worker credit rolls the entire distribution back.
+    """
     if track not in ("grit", "gratis"):
         raise HTTPException(400, "track must be 'grit' or 'gratis'")
     if pool_kobo <= 0:
         raise HTTPException(400, "pool amount must be greater than zero")
+    if reference and len(reference) > 120:
+        raise HTTPException(400, "distribution reference must be <= 120 characters")
 
     reward_key = f"{track}_level10_pool"
+    platform_wallet = await _lock_reward_pool(db)
+
+    if reference:
+        existing = await db.execute(
+            select(PlatformWalletTransaction).where(
+                PlatformWalletTransaction.platform_wallet_id == platform_wallet.id,
+                PlatformWalletTransaction.type == "reward_pool_distribution",
+                PlatformWalletTransaction.reference == reference,
+            ).with_for_update()
+        )
+        prior = existing.scalar_one_or_none()
+        if prior:
+            if prior.amount_kobo != -pool_kobo:
+                raise HTTPException(409, "Conflicting reward pool distribution reference")
+            return {
+                "message": "Pool distribution already completed",
+                "recipients": 0,
+                "each_kobo": 0,
+                "reference": reference,
+                "idempotent": True,
+            }
+
     workers_result = await db.execute(select(User.id).where(User.role == "worker"))
     eligible: list[uuid.UUID] = []
     for (worker_id,) in workers_result.all():
@@ -76,11 +178,20 @@ async def distribute_reward_pool(db: AsyncSession, track: str, pool_kobo: int) -
             eligible.append(worker_id)
 
     if not eligible:
-        return {"message": "No newly-eligible workers for this pool.", "recipients": 0, "each_kobo": 0}
+        return {
+            "message": "No newly-eligible workers for this pool.",
+            "recipients": 0,
+            "each_kobo": 0,
+            "reference": reference,
+            "idempotent": False,
+        }
 
     share_kobo = pool_kobo // len(eligible)
     if share_kobo <= 0:
         raise HTTPException(400, "pool is too small to pay an eligible worker")
+    total_kobo = share_kobo * len(eligible)
+    if platform_wallet.balance_kobo < total_kobo:
+        raise HTTPException(409, "Reward pool has insufficient funded balance")
 
     paid = 0
     for worker_id in eligible:
@@ -98,12 +209,45 @@ async def distribute_reward_pool(db: AsyncSession, track: str, pool_kobo: int) -
             description=f"{track.capitalize()} Level 10 pool reward",
             reference=f"{reward_key}_{worker_id}",
         )
-        await notify(db, worker_id, "reward_tier_unlocked",
-                     f"{track.capitalize()} Level 10 reward!",
-                     f"You reached Level 10 on the {track.capitalize()} track and received ₦{share_kobo/100:,.2f} from the prize pool.")
+        await notify(
+            db,
+            worker_id,
+            "reward_tier_unlocked",
+            f"{track.capitalize()} Level 10 reward!",
+            f"You reached Level 10 on the {track.capitalize()} track and received ₦{share_kobo/100:,.2f} from the prize pool.",
+        )
         paid += 1
 
-    return {"message": "Pool distributed", "recipients": paid, "each_kobo": share_kobo}
+    if paid == 0:
+        return {
+            "message": "No newly-eligible workers for this pool.",
+            "recipients": 0,
+            "each_kobo": 0,
+            "reference": reference,
+            "idempotent": False,
+        }
+
+    total_paid_kobo = share_kobo * paid
+    platform_wallet.balance_kobo -= total_paid_kobo
+    ledger = PlatformWalletTransaction(
+        platform_wallet_id=platform_wallet.id,
+        type="reward_pool_distribution",
+        amount_kobo=-total_paid_kobo,
+        balance_after_kobo=platform_wallet.balance_kobo,
+        reference=reference or f"{reward_key}:{uuid.uuid4()}",
+        description=f"{track.capitalize()} Level 10 reward pool distribution",
+    )
+    db.add(ledger)
+
+    return {
+        "message": "Pool distributed",
+        "recipients": paid,
+        "each_kobo": share_kobo,
+        "total_kobo": total_paid_kobo,
+        "pool_balance_kobo": platform_wallet.balance_kobo,
+        "reference": ledger.reference,
+        "idempotent": False,
+    }
 
 
 async def spin(db: AsyncSession, user_id: uuid.UUID) -> dict:
