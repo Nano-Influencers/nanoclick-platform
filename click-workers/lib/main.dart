@@ -1,7 +1,6 @@
 import 'package:click_workers/Desktop/home/desktop_home.dart';
 import 'package:click_workers/Mobile/authentication/forgotPassword/new_password.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
 import 'package:click_workers/Mobile/mobile_home.dart';
@@ -17,7 +16,6 @@ import 'package:click_workers/services/token_storage_stub.dart'
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final uri = Uri.base;
-  await dotenv.load(fileName: 'assets/env_temp.txt');
   await ApiClient.instance.initialize();
 
   final authProvider = AuthProvider();
