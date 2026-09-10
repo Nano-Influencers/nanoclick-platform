@@ -42,6 +42,12 @@ async def submit_kyc(
     ex = await db.execute(select(KycProfile).where(KycProfile.user_id == current_user.id))
     if ex.scalar_one_or_none():
         raise HTTPException(400, "KYC already submitted")
+
+    # A worker may only attach a document object that was issued for that
+    # worker. This prevents swapping another user's private KYC object key.
+    if body.document_url and not body.document_url.startswith(f"kyc/{current_user.id}/"):
+        raise HTTPException(403, "KYC document does not belong to this account")
+
     db.add(KycProfile(user_id=current_user.id, **body.model_dump()))
     return {"message": "KYC submitted for review"}
 
