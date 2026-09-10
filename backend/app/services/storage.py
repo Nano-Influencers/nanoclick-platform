@@ -1,7 +1,9 @@
 """
 Storage service — Cloudflare R2 (S3-compatible).
-Bug 7 fix: S3 client is lazy-initialised so the module imports cleanly
-even when S3 credentials are not yet configured.
+
+KYC and proof objects are stored privately. Uploads use short-lived presigned
+PUT URLs and consumers receive short-lived presigned GET URLs rather than
+public object URLs.
 """
 import uuid
 import io
@@ -11,9 +13,6 @@ import imagehash
 from PIL import Image
 from app.config import settings
 
-# KYC documents need the same private upload path as other application uploads.
-# Keep this allow-list intentionally narrow; the KYC router further scopes the
-# generated key to the authenticated worker.
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "pdf", "mp4"}
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
 
@@ -44,9 +43,30 @@ def generate_presigned_upload_url(file_extension: str, folder: str = "proofs") -
     return {
         "upload_url": url,
         "file_key": key,
+        # Kept for backward compatibility with non-sensitive proof callers.
+        # KYC callers deliberately do not return this value.
         "public_url": get_public_url(key),
         "expires_in_seconds": 300,
     }
+
+
+def generate_presigned_download_url(file_key: str, expires_in: int = 300) -> dict:
+    """Create a short-lived private GET URL for an existing object.
+
+    The caller must authorize access before invoking this function. Storage
+    itself has no knowledge of application users or roles.
+    """
+    if not file_key or file_key.startswith("/") or ".." in file_key.split("/") or "\\" in file_key:
+        raise ValueError("Invalid storage key")
+    if not 1 <= expires_in <= 900:
+        raise ValueError("Download URL expiry must be between 1 and 900 seconds")
+
+    url = _s3().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.S3_BUCKET_NAME, "Key": file_key},
+        ExpiresIn=expires_in,
+    )
+    return {"download_url": url, "expires_in_seconds": expires_in}
 
 
 def get_public_url(file_key: str) -> str:
