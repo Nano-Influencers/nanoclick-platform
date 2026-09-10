@@ -24,7 +24,7 @@ class _SupportingDocumentsState extends State<SupportingDocuments> {
   Future<void> _pickDocument() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: ['jpg', 'jpeg', 'png'],
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'pdf'],
       withData: true,
     );
     if (result == null || result.files.single.bytes == null) return;
@@ -48,6 +48,7 @@ class _SupportingDocumentsState extends State<SupportingDocuments> {
         upload['upload_url'] as String,
         file.bytes!,
       );
+      KycDraft.instance.documentType = idType;
       KycDraft.instance.documentUrl = upload['file_key'] as String;
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => const Agreement()));
@@ -86,7 +87,7 @@ class _SupportingDocumentsState extends State<SupportingDocuments> {
                 onChanged: (v) => setState(() => idType = v ?? idType),
               ),
               SizedBox(height: 2.h),
-              const Text('Upload a clear image of the identification document.'),
+              const Text('Upload a clear image or PDF of the identification document.'),
               SizedBox(height: 1.h),
               SizedBox(width: double.infinity, height: 52, child: OutlinedButton.icon(
                 onPressed: uploading ? null : _pickDocument,
