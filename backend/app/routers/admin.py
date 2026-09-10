@@ -25,25 +25,37 @@ async def list_pending(db: AsyncSession = Depends(get_db), _: User = Depends(req
 @router.post("/submissions/{submission_id}/approve")
 async def approve_submission(submission_id: uuid.UUID, client_rating: float = 5.0,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    sub_r = await db.execute(select(Submission).where(Submission.id==submission_id).with_for_update())
+    sub_r = await db.execute(select(Submission).where(Submission.id == submission_id).with_for_update())
     sub = sub_r.scalar_one_or_none()
-    if not sub: raise HTTPException(404, "Submission not found")
-    if sub.status not in ("pending","under_review","queried"): raise HTTPException(400, f"Cannot approve status '{sub.status}'")
-    task_r = await db.execute(select(Task).where(Task.id==sub.task_id))
+    if not sub:
+        raise HTTPException(404, "Submission not found")
+    if sub.status not in ("pending", "under_review", "queried"):
+        raise HTTPException(400, f"Cannot approve status '{sub.status}'")
+
+    # Serialize approvals for the same task. This prevents two admins from
+    # both observing the last available slot and both paying it out.
+    task_r = await db.execute(select(Task).where(Task.id == sub.task_id).with_for_update())
     task = task_r.scalar_one_or_none()
-    if not task: raise HTTPException(404, "Task not found")
-    campaign_r = await db.execute(select(Campaign).where(Campaign.id==task.campaign_id))
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.slots_filled >= task.slots_total:
+        raise HTTPException(409, "Task has no remaining slots")
+
+    campaign_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id))
     campaign = campaign_r.scalar_one_or_none()
-    if not campaign: raise HTTPException(404, "Campaign not found")
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
     cps = calculate_click_points(cw_task_category=task.cw_task_category, worker_pay_kobo=task.pay_kobo,
         is_urgent=task.is_urgent, submitted_at=sub.submitted_at)
     await wallet_service.release_escrow_to_worker(db=db, advertiser_id=campaign.owner_id,
         worker_id=sub.worker_id, amount_kobo=task.pay_kobo, click_points=cps,
         task_category=task.cw_task_category, reference=str(sub.id))
-    sub.status = "approved"; sub.reviewed_at = datetime.utcnow()
+    sub.status = "approved"
+    sub.reviewed_at = datetime.utcnow()
     sub.client_rating = max(0.0, min(5.0, client_rating))
-    task.slots_filled = min(task.slots_filled + 1, task.slots_total)
-    if task.slots_filled >= task.slots_total: task.status = "completed"
+    task.slots_filled += 1
+    if task.slots_filled >= task.slots_total:
+        task.status = "completed"
     from app.services import rewards_service
     from app.services.notification_service import notify
     await rewards_service.award_referral_bonus_if_first_approval(db, sub.worker_id)
@@ -113,7 +125,6 @@ async def reject_campaign(campaign_id: uuid.UUID, reason: str,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
     r = await db.execute(select(Campaign).where(Campaign.id==campaign_id).with_for_update())
     campaign = r.scalar_one_or_none()
-    if not campaign: raise HTTPException(404, "Campaign not found")
     if campaign.status in ("cancelled", "completed"): raise HTTPException(400, f"Campaign is already '{campaign.status}'")
     if campaign.escrow_kobo > 0:
         refund_kobo = campaign.escrow_kobo
@@ -139,7 +150,7 @@ async def uphold_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     rp_r = await db.execute(select(TaskReport).where(TaskReport.id==report_id).with_for_update())
     report = rp_r.scalar_one_or_none()
     if not report or report.status != "pending": raise HTTPException(404, "Report not found or already reviewed")
-    task_r = await db.execute(select(Task).where(Task.id==report.task_id))
+    task_r = await db.execute(select(Task).where(Task.id==report.task_id).with_for_update())
     task = task_r.scalar_one_or_none()
     if not task: raise HTTPException(404, "Task not found")
     campaign_r = await db.execute(select(Campaign).where(Campaign.id==task.campaign_id).with_for_update())
@@ -213,18 +224,16 @@ async def reject_kyc(user_id: uuid.UUID, reason: str, db: AsyncSession = Depends
 
 @router.post("/rewards/distribute-pool")
 async def distribute_reward_pool(track: str, pool_ngn: float, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    """Split a pooled prize (e.g. the 'share of ₦1,000,000' promised to
-    Level-10 Grit/Gratis achievers) equally among every worker who has
-    reached Level 10 on that track and hasn't already been paid from it."""
+    """Split a pooled prize equally among eligible Level-10 workers."""
     from app.services import rewards_service
     return await rewards_service.distribute_reward_pool(db, track, int(pool_ngn * 100))
 
 @router.get("/stats")
 async def platform_stats(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
     from sqlalchemy import func
-    users_r  = await db.execute(select(func.count(User.id)))
-    camp_r   = await db.execute(select(func.count(Campaign.id)).where(Campaign.status=="active"))
-    subs_r   = await db.execute(select(func.count(Submission.id)).where(Submission.status=="pending"))
-    kyc_r    = await db.execute(select(func.count(KycProfile.id)).where(KycProfile.status=="pending"))
+    users_r = await db.execute(select(func.count(User.id)))
+    camp_r = await db.execute(select(func.count(Campaign.id)).where(Campaign.status=="active"))
+    subs_r = await db.execute(select(func.count(Submission.id)).where(Submission.status=="pending"))
+    kyc_r = await db.execute(select(func.count(KycProfile.id)).where(KycProfile.status=="pending"))
     return {"total_users": users_r.scalar(), "active_campaigns": camp_r.scalar(),
             "pending_submissions": subs_r.scalar(), "pending_kyc": kyc_r.scalar()}
