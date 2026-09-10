@@ -1,8 +1,7 @@
 import os
 
-import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 os.environ.setdefault(
     "DATABASE_URL",
@@ -35,5 +34,5 @@ async def db(test_engine):
 
 
 @pytest_asyncio.fixture
-def db_factory(test_engine):
-    return async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+async def db_factory(test_engine):
+    yield async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
