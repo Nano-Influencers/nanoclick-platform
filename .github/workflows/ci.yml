@@ -40,12 +40,14 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
+          PYTHONPATH: .
         run: python -c "import app.models; import app.main"
       - name: Run unit tests
         env:
           DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
-        run: pytest -q
+          PYTHONPATH: .
+        run: PYTHONPATH=. pytest -q
 
   nano-influencers:
     name: Nano Influencers Web
@@ -74,7 +76,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: "3.29.0"
+          flutter-version: "3.47.3"
           cache: true
       - run: flutter pub get
       - run: flutter analyze
