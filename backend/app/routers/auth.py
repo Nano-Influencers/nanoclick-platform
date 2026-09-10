@@ -287,15 +287,21 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     user = result.scalar_one_or_none()
     if user and user.password_hash is not None:
         token = secrets.token_urlsafe(32)
-        db.add(PasswordResetToken(user_id=user.id, token=token, expires_at=datetime.utcnow() + timedelta(hours=1)))
-        reset_link = f"{settings.OAUTH_WEB_REDIRECT_URL.rsplit('/', 1)[0]}/reset-password?token={token}"
-        print(f"[password reset — email delivery not configured] {user.email}: {reset_link}")
+        db.add(PasswordResetToken(
+            user_id=user.id,
+            token=hash_token_identifier(token),
+            expires_at=datetime.utcnow() + timedelta(hours=1),
+        ))
+        # The delivery provider is intentionally not implemented yet. Never
+        # log the raw reset token/link: logs are not a secret-delivery channel.
     return {"message": "If that email is registered, a password reset link has been sent."}
 
 
 @router.post("/reset-password")
 async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == body.token).with_for_update())
+    result = await db.execute(select(PasswordResetToken).where(
+        PasswordResetToken.token == hash_token_identifier(body.token)
+    ).with_for_update())
     reset_token = result.scalar_one_or_none()
     if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow():
         raise HTTPException(400, "This reset link is invalid or has expired")
