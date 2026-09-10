@@ -5,3 +5,4 @@ from app.models.task import Task, TaskAcceptance, Submission, TaskReport, Leader
 from app.models.rewards import Notification, RewardClaim
 from app.models.password_reset import PasswordResetToken
 from app.models.oauth_state import OAuthState
+from app.models.oauth_code import OAuthCode
