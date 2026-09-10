@@ -45,6 +45,14 @@ jobs:
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
           PYTHONPATH: .
         run: python -c "import app.models; import app.main"
+      - name: Validate Alembic migration graph
+        env:
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
+          PYTHONPATH: .
+        run: |
+          test "$(alembic heads | grep -c '(head)')" = "1"
+          alembic upgrade head
       - name: Run unit tests
         env:
           DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
