@@ -1,4 +1,3 @@
-import 'dart:html' as html;
 import 'package:click_workers/Desktop/home/desktop_home.dart';
 import 'package:click_workers/Mobile/authentication/forgotPassword/new_password.dart';
 import 'package:flutter/material.dart';
@@ -9,18 +8,22 @@ import 'package:click_workers/Mobile/mobile_home.dart';
 import 'package:click_workers/Mobile/authentication/utils/auth.dart';
 import 'package:click_workers/services/app_user.dart';
 import 'package:click_workers/services/api_client.dart';
+import 'package:click_workers/services/token_storage_stub.dart'
+    if (dart.library.html) 'package:click_workers/services/token_storage_web.dart'
+    if (dart.library.io) 'package:click_workers/services/token_storage_io.dart' as storage;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final uri = Uri.base;
   await dotenv.load(fileName: 'assets/env_temp.txt');
+  await ApiClient.instance.initialize();
 
   final authProvider = AuthProvider();
   final oauthCode = uri.queryParameters['oauth_code'];
   if (oauthCode != null && oauthCode.isNotEmpty) {
     try {
       await ApiClient.instance.exchangeOAuthCode(oauthCode);
-      html.window.history.replaceState(null, '', '/');
+      storage.replaceBrowserUrl('/');
       await authProvider.refreshSessionSilently();
     } catch (_) {
       // Invalid/expired codes fall through to the normal sign-in screen.
@@ -62,9 +65,7 @@ class MyApp extends StatelessWidget {
               side: const BorderSide(color: Color(0xffff6533)),
             ),
           ),
-          textButtonTheme: TextButtonThemeData(
-            style: TextButton.styleFrom(foregroundColor: const Color(0xffff6533)),
-          ),
+          textButtonTheme: TextButtonThemeData(foregroundColor: const Color(0xffff6533)),
           textTheme: const TextTheme(bodyMedium: TextStyle(fontSize: 14)),
           inputDecorationTheme: const InputDecorationTheme(
             focusedBorder: OutlineInputBorder(
