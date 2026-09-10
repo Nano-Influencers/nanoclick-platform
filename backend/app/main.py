@@ -35,6 +35,20 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if settings.APP_ENV == "production":
+        # Only advertise HSTS when the API is deployed behind HTTPS. This
+        # avoids breaking local development while enforcing TLS in production.
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
+@app.middleware("http")
 async def request_observability(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = request_id
@@ -71,7 +85,7 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         "/auth/refresh": ("auth-refresh", 30, 900),
         "/auth/forgot-password": ("auth-forgot-password", 5, 3600),
         "/auth/reset-password": ("auth-reset-password", 5, 3600),
-        "/auth/change-password": ("auth-change-password", 5, 3600),
+        "/auth/change-password": ("auth-change-password", 5, 900),
         "/auth/oauth/exchange": ("auth-oauth-exchange", 20, 900),
         "/wallet/withdraw": ("wallet-withdraw", 10, 3600),
         "/wallet/deposit": ("wallet-deposit", 20, 3600),
