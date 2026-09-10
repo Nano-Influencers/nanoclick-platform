@@ -2,9 +2,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.config import settings
-from app.database import engine
+from app.database import AsyncSessionLocal, engine
 from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
 from app.routers import admin_audit
+from app.services.audit_service import record as record_audit
+from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
 
 app = FastAPI(
@@ -44,6 +46,47 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
     if rule:
         await check_rate_limit(request, *rule)
     return await call_next(request)
+
+
+@app.middleware("http")
+async def sensitive_action_audit(request: Request, call_next):
+    """Persist an audit record for sensitive mutations, including failures."""
+    path = request.url.path
+    sensitive_prefixes = ("/admin/", "/wallet/withdraw", "/wallet/deposit", "/kyc/")
+    is_sensitive = request.method in {"POST", "PATCH", "PUT", "DELETE"} and path.startswith(sensitive_prefixes)
+    response = await call_next(request)
+    if not is_sensitive:
+        return response
+
+    actor_id = None
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        payload = decode_token(authorization[7:].strip())
+        if payload:
+            try:
+                actor_id = payload.get("sub")
+            except AttributeError:
+                actor_id = None
+
+    try:
+        import uuid
+        actor_uuid = uuid.UUID(actor_id) if actor_id else None
+        async with AsyncSessionLocal() as db:
+            await record_audit(
+                db,
+                request,
+                action=f"{request.method} {path}",
+                actor_user_id=actor_uuid,
+                resource_type="http_endpoint",
+                resource_id=path,
+                metadata={"status_code": response.status_code},
+            )
+            await db.commit()
+    except Exception:
+        # Auditing must never break a successful business response. Monitoring
+        # should surface database/audit failures so they are repaired quickly.
+        pass
+    return response
 
 
 app.include_router(auth.router)
