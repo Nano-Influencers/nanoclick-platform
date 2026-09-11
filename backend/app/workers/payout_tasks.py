@@ -36,17 +36,26 @@ async def _mark_provider_failure(db, withdrawal, reason: str):
         .with_for_update()
     )
     tx = tx_result.scalar_one_or_none()
-    if tx:
-        # wallet_service.credit is idempotent on the reversal reference, so a
-        # repeated provider failure cannot credit the wallet twice.
-        await wallet_service.credit(
-            db,
-            withdrawal.user_id,
-            tx.amount_kobo,
-            "withdrawal_reversal",
-            description="Withdrawal failed at provider — funds returned",
-            reference=f"{withdrawal.reference}:reversal",
+    if not tx:
+        # Never mark a withdrawal failed without its debit ledger entry. Doing
+        # so would make the withdrawal look refunded while the user's wallet
+        # remains debited. Raising lets the Celery retry/reconciliation path
+        # recover once the ledger state is available.
+        raise RuntimeError(
+            f"Withdrawal ledger entry missing for {withdrawal.reference}; "
+            "refusing to mark provider failure without a refund"
         )
+
+    # wallet_service.credit is idempotent on the reversal reference, so a
+    # repeated provider failure cannot credit the wallet twice.
+    await wallet_service.credit(
+        db,
+        withdrawal.user_id,
+        tx.amount_kobo,
+        "withdrawal_reversal",
+        description="Withdrawal failed at provider — funds returned",
+        reference=f"{withdrawal.reference}:reversal",
+    )
     withdrawal.status = "failed"
     withdrawal.failure_reason = reason[:255]
     withdrawal.completed_at = datetime.utcnow()
@@ -257,7 +266,12 @@ async def _reset():
             daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
             daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_cps=0, daily_trend_push_cps=0,
-            daily_skill_based_cps=0, daily_unpaid_cps=0,
+            daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
+            daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
+            daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
+            daily_repeating_single_kobo=0, daily_trend_push_kobo=0, daily_skill_based_kobo=0,
+            daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
+            daily_repeating_single_kobo=0, daily_trend_push_kobo=0, daily_skill_based_kobo=0,
+            daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
             daily_reset_at=datetime.utcnow()))
         await db.commit()
