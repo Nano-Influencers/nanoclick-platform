@@ -2,7 +2,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,34 +15,23 @@ from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.schemas.auth import (
-    ChangePasswordRequest,
-    ForgotPasswordRequest,
-    LoginRequest,
-    RefreshRequest,
-    RegisterRequest,
-    ResetPasswordRequest,
-    TokenResponse,
-    UserResponse,
+    ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
+    RefreshRequest, RegisterRequest, ResetPasswordRequest,
+    TokenResponse, UserResponse,
 )
 from app.services.auth_service import (
-    create_access_token,
-    create_refresh_token,
-    decode_token,
-    generate_referral_code,
-    hash_password,
-    hash_token_identifier,
-    new_oauth_state,
-    token_jti,
-    verify_password,
+    create_access_token, create_refresh_token, decode_token,
+    generate_referral_code, hash_password, hash_token_identifier,
+    new_oauth_state, token_jti, verify_password,
 )
 from app.services.oauth_service import (
-    exchange_facebook_code,
-    exchange_google_code,
-    facebook_auth_url,
-    google_auth_url,
+    exchange_facebook_code, exchange_google_code,
+    facebook_auth_url, google_auth_url,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_COOKIE_NAME = "nanoclick_refresh"
+_COOKIE_PATH = "/auth"
 
 
 def _validate_redirect_uri(redirect_uri: str | None) -> str | None:
@@ -53,6 +42,26 @@ def _validate_redirect_uri(redirect_uri: str | None) -> str | None:
         if redirect_uri == origin or redirect_uri.startswith(origin + "/") or redirect_uri.startswith(origin + "?"):
             return redirect_uri
     return None
+
+
+def _is_web_platform(platform: str) -> bool:
+    return platform.strip().lower() == "web"
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        key=_COOKIE_NAME,
+        value=refresh_token,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        httponly=True,
+        secure=settings.AUTH_COOKIE_SECURE,
+        samesite=settings.AUTH_COOKIE_SAMESITE.lower(),
+        path=_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(key=_COOKIE_NAME, path=_COOKIE_PATH)
 
 
 async def _create_refresh_session(db: AsyncSession, user_id: uuid.UUID, refresh_token: str) -> None:
@@ -75,17 +84,14 @@ async def _issue_tokens(db: AsyncSession, user: User) -> TokenResponse:
 
 
 async def _revoke_user_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
-    await db.execute(
-        update(AuthSession)
-        .where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
-        .values(revoked_at=datetime.utcnow())
-    )
+    await db.execute(update(AuthSession).where(
+        AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None)
+    ).values(revoked_at=datetime.utcnow()))
 
 
 async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
     if not provider_data.get("email"):
         raise HTTPException(400, "No email from OAuth provider")
-
     result = await db.execute(select(User).where(
         User.oauth_provider == provider_data["provider"],
         User.oauth_provider_id == provider_data["provider_id"],
@@ -95,7 +101,6 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
         if not user.is_active:
             raise HTTPException(403, "Account disabled")
         return user
-
     result = await db.execute(select(User).where(User.email == provider_data["email"]))
     user = result.scalar_one_or_none()
     if user:
@@ -104,15 +109,11 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
         user.oauth_provider = provider_data["provider"]
         user.oauth_provider_id = provider_data["provider_id"]
         return user
-
     user = User(
-        email=provider_data["email"],
-        password_hash=None,
+        email=provider_data["email"], password_hash=None,
         full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0],
-        role=role,
-        referral_code=generate_referral_code(),
-        oauth_provider=provider_data["provider"],
-        oauth_provider_id=provider_data["provider_id"],
+        role=role, referral_code=generate_referral_code(),
+        oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"],
     )
     db.add(user)
     await db.flush()
@@ -123,11 +124,8 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
 async def _begin_oauth(db: AsyncSession, role: str, platform: str, redirect_uri: str | None) -> str:
     state = new_oauth_state()
     db.add(OAuthState(
-        nonce_hash=hash_token_identifier(state),
-        role=role,
-        platform=platform,
-        redirect_uri=redirect_uri,
-        expires_at=datetime.utcnow() + timedelta(minutes=10),
+        nonce_hash=hash_token_identifier(state), role=role, platform=platform,
+        redirect_uri=redirect_uri, expires_at=datetime.utcnow() + timedelta(minutes=10),
     ))
     await db.flush()
     return state
@@ -136,11 +134,9 @@ async def _begin_oauth(db: AsyncSession, role: str, platform: str, redirect_uri:
 async def _consume_oauth_state(db: AsyncSession, state: str) -> OAuthState:
     if not state:
         raise HTTPException(400, "Missing OAuth state")
-    result = await db.execute(
-        select(OAuthState)
-        .where(OAuthState.nonce_hash == hash_token_identifier(state))
-        .with_for_update()
-    )
+    result = await db.execute(select(OAuthState).where(
+        OAuthState.nonce_hash == hash_token_identifier(state)
+    ).with_for_update())
     record = result.scalar_one_or_none()
     if not record or record.consumed_at is not None or record.expires_at < datetime.utcnow():
         raise HTTPException(400, "Invalid or expired OAuth state")
@@ -151,13 +147,10 @@ async def _consume_oauth_state(db: AsyncSession, state: str) -> OAuthState:
 async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_uri: str | None):
     code = secrets.token_urlsafe(32)
     db.add(OAuthCode(
-        code_hash=hash_token_identifier(code),
-        user_id=user.id,
-        redirect_uri=redirect_uri,
-        expires_at=datetime.utcnow() + timedelta(minutes=2),
+        code_hash=hash_token_identifier(code), user_id=user.id,
+        redirect_uri=redirect_uri, expires_at=datetime.utcnow() + timedelta(minutes=2),
     ))
     await db.flush()
-
     if platform == "web":
         base = redirect_uri or settings.OAUTH_WEB_REDIRECT_URL
     else:
@@ -180,12 +173,8 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         if r:
             referred_by = r.id
     user = User(
-        email=body.email,
-        password_hash=hash_password(body.password),
-        full_name=body.full_name,
-        role=body.role,
-        referral_code=generate_referral_code(),
-        referred_by=referred_by,
+        email=body.email, password_hash=hash_password(body.password), full_name=body.full_name,
+        role=body.role, referral_code=generate_referral_code(), referred_by=referred_by,
     )
     db.add(user)
     await db.flush()
@@ -194,7 +183,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, response: Response, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if not user:
@@ -205,16 +194,27 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(401, "Invalid credentials")
     if not user.is_active:
         raise HTTPException(403, "Account disabled")
-    return await _issue_tokens(db, user)
+    tokens = await _issue_tokens(db, user)
+    if _is_web_platform(platform):
+        _set_refresh_cookie(response, tokens.refresh_token)
+        tokens.refresh_token = None
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
-    payload = decode_token(body.refresh_token)
+async def refresh(request: Request, response: Response, body: RefreshRequest | None = None,
+                  platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
+    supplied_refresh = body.refresh_token if body else None
+    refresh_token = supplied_refresh or request.cookies.get(_COOKIE_NAME)
+    if not refresh_token:
+        raise HTTPException(401, "Refresh token required")
+    payload = decode_token(refresh_token)
     if not payload or payload.get("type") != "refresh" or not payload.get("jti"):
         raise HTTPException(401, "Invalid refresh token")
     jti_hash = hash_token_identifier(payload["jti"])
-    result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == jti_hash).with_for_update())
+    result = await db.execute(select(AuthSession).where(
+        AuthSession.token_jti_hash == jti_hash
+    ).with_for_update())
     session = result.scalar_one_or_none()
     if not session or session.revoked_at is not None or session.expires_at < datetime.utcnow():
         raise HTTPException(401, "Refresh session expired or revoked")
@@ -233,25 +233,39 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     tokens = await _issue_tokens(db, user)
     new_jti = token_jti(tokens.refresh_token)
     session.replaced_by_jti_hash = hash_token_identifier(new_jti) if new_jti else None
+    if _is_web_platform(platform) or not supplied_refresh:
+        _set_refresh_cookie(response, tokens.refresh_token)
+        tokens.refresh_token = None
     return tokens
 
 
 @router.post("/logout")
-async def logout(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
-    payload = decode_token(body.refresh_token)
-    jti = payload.get("jti") if payload.get("type") == "refresh" else None
-    if jti:
-        result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(jti)).with_for_update())
-        session = result.scalar_one_or_none()
-        if session and session.revoked_at is None:
-            session.revoked_at = datetime.utcnow()
+async def logout(request: Request, response: Response, body: RefreshRequest | None = None,
+                 platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
+    refresh_token = (body.refresh_token if body else None) or request.cookies.get(_COOKIE_NAME)
+    if refresh_token:
+        payload = decode_token(refresh_token)
+        jti = payload.get("jti") if payload and payload.get("type") == "refresh" else None
+        if jti:
+            result = await db.execute(select(AuthSession).where(
+                AuthSession.token_jti_hash == hash_token_identifier(jti)
+            ).with_for_update())
+            session = result.scalar_one_or_none()
+            if session and session.revoked_at is None:
+                session.revoked_at = datetime.utcnow()
+    if _is_web_platform(platform) or request.cookies.get(_COOKIE_NAME):
+        _clear_refresh_cookie(response)
     return {"message": "Logged out"}
 
 
 @router.post("/oauth/exchange", response_model=TokenResponse)
-async def exchange_oauth_code(code: str = Query(..., min_length=20, max_length=200), db: AsyncSession = Depends(get_db)):
+async def exchange_oauth_code(code: str = Query(..., min_length=20, max_length=200),
+                              response: Response, platform: str = Query("app"),
+                              db: AsyncSession = Depends(get_db)):
     """Exchange a short-lived OAuth code exactly once."""
-    result = await db.execute(select(OAuthCode).where(OAuthCode.code_hash == hash_token_identifier(code)).with_for_update())
+    result = await db.execute(select(OAuthCode).where(
+        OAuthCode.code_hash == hash_token_identifier(code)
+    ).with_for_update())
     record = result.scalar_one_or_none()
     if not record or record.used_at is not None or record.expires_at < datetime.utcnow():
         raise HTTPException(401, "Invalid or expired OAuth code")
@@ -260,7 +274,11 @@ async def exchange_oauth_code(code: str = Query(..., min_length=20, max_length=2
     if not user or not user.is_active:
         raise HTTPException(401, "User not found")
     record.used_at = datetime.utcnow()
-    return await _issue_tokens(db, user)
+    tokens = await _issue_tokens(db, user)
+    if _is_web_platform(platform):
+        _set_refresh_cookie(response, tokens.refresh_token)
+        tokens.refresh_token = None
+    return tokens
 
 
 @router.get("/me", response_model=UserResponse)
@@ -287,13 +305,7 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     user = result.scalar_one_or_none()
     if user and user.password_hash is not None:
         token = secrets.token_urlsafe(32)
-        db.add(PasswordResetToken(
-            user_id=user.id,
-            token=hash_token_identifier(token),
-            expires_at=datetime.utcnow() + timedelta(hours=1),
-        ))
-        # The delivery provider is intentionally not implemented yet. Never
-        # log the raw reset token/link: logs are not a secret-delivery channel.
+        db.add(PasswordResetToken(user_id=user.id, token=hash_token_identifier(token), expires_at=datetime.utcnow() + timedelta(hours=1)))
     return {"message": "If that email is registered, a password reset link has been sent."}
 
 
