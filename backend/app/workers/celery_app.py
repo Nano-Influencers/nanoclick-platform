@@ -72,5 +72,9 @@ celery_app.conf.update(
             "task": "app.workers.payout_tasks.reset_daily_wallet_counters",
             "schedule": crontab(minute=0, hour=0),
         },
+        "reconcile-stale-withdrawals": {
+            "task": "app.workers.payout_tasks.reconcile_stale_withdrawals",
+            "schedule": crontab(minute="*/10"),
+        },
     },
 )
