@@ -1,13 +1,13 @@
 """Add the platform revenue wallet used to record campaign margin.
 
 Revision ID: f8c9d0e1f2a3
-Revises: f7b8c9d0e1f2
+Revises: f7b8c9d0e1f2, 3b8c9d0e1f2a
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "f8c9d0e1f2a3"
-down_revision = "f7b8c9d0e1f2"
+down_revision = ("f7b8c9d0e1f2", "3b8c9d0e1f2a")
 branch_labels = None
 depends_on = None
 
