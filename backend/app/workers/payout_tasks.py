@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.workers.celery_app import celery_app
 
@@ -37,6 +37,8 @@ async def _mark_provider_failure(db, withdrawal, reason: str):
     )
     tx = tx_result.scalar_one_or_none()
     if tx:
+        # wallet_service.credit is idempotent on the reversal reference, so a
+        # repeated provider failure cannot credit the wallet twice.
         await wallet_service.credit(
             db,
             withdrawal.user_id,
@@ -133,8 +135,6 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
 
         await _acquire_reference_lock(db, reference)
         try:
-            # Re-read after acquiring the cross-process lock. Another delivery
-            # may have completed or failed the withdrawal while we were waiting.
             current_result = await db.execute(
                 select(Withdrawal).where(Withdrawal.reference == reference).with_for_update()
             )
@@ -206,6 +206,42 @@ def reconcile_withdrawal(reference: str):
     return _run(_reconcile_provider_transfer(reference))
 
 
+async def _reconcile_stale_withdrawals():
+    """Find withdrawals stranded by a worker/broker crash and reconcile them.
+
+    The API commits the wallet debit before queueing the payout. If the process
+    dies between those two operations, the withdrawal remains requested. This
+    sweep makes that state recoverable without creating a second transfer: the
+    stable withdrawal reference is always checked with Paystack first.
+    """
+    from app.database import AsyncSessionLocal
+    from app.models.withdrawal import Withdrawal
+    from sqlalchemy import select
+
+    cutoff = datetime.utcnow() - timedelta(minutes=10)
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Withdrawal.reference)
+            .where(
+                Withdrawal.status.in_(["requested", "processing"]),
+                Withdrawal.updated_at < cutoff,
+            )
+            .order_by(Withdrawal.updated_at.asc())
+            .limit(100)
+        )
+        references = [row[0] for row in result.all()]
+
+    for reference in references:
+        reconcile_withdrawal.delay(reference)
+
+    return len(references)
+
+
+@celery_app.task(name="app.workers.payout_tasks.reconcile_stale_withdrawals", queue="payouts")
+def reconcile_stale_withdrawals():
+    return _run(_reconcile_stale_withdrawals())
+
+
 @celery_app.task(name="app.workers.payout_tasks.reset_daily_wallet_counters")
 def reset_daily_wallet_counters():
     _run(_reset())
@@ -221,7 +257,7 @@ async def _reset():
             daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
             daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_cps=0, daily_repeating_grouped_cps=0,
-            daily_trend_push_cps=0, daily_skill_based_cps=0, daily_unpaid_cps=0,
+            daily_repeating_single_cps=0, daily_trend_push_cps=0,
+            daily_skill_based_cps=0, daily_unpaid_cps=0,
             daily_reset_at=datetime.utcnow()))
         await db.commit()
