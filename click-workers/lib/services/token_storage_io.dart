@@ -4,6 +4,8 @@ const _accessKey = 'nano_access_token';
 const _refreshKey = 'nano_refresh_token';
 const _storage = FlutterSecureStorage();
 
+bool get isWeb => false;
+
 Future<Map<String, String?>> readTokens() async => {
       'access': await _storage.read(key: _accessKey),
       'refresh': await _storage.read(key: _refreshKey),
@@ -25,5 +27,4 @@ Future<Map<String, String?>> restoreSession(String baseUrl) async => const {
     };
 
 String currentOrigin() => Uri.base.origin;
-
 void replaceBrowserUrl(String path) {}
