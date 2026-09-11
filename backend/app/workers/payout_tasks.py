@@ -37,17 +37,11 @@ async def _mark_provider_failure(db, withdrawal, reason: str):
     )
     tx = tx_result.scalar_one_or_none()
     if not tx:
-        # Never mark a withdrawal failed without its debit ledger entry. Doing
-        # so would make the withdrawal look refunded while the user's wallet
-        # remains debited. Raising lets the Celery retry/reconciliation path
-        # recover once the ledger state is available.
         raise RuntimeError(
             f"Withdrawal ledger entry missing for {withdrawal.reference}; "
             "refusing to mark provider failure without a refund"
         )
 
-    # wallet_service.credit is idempotent on the reversal reference, so a
-    # repeated provider failure cannot credit the wallet twice.
     await wallet_service.credit(
         db,
         withdrawal.user_id,
@@ -86,11 +80,7 @@ async def _reconcile_provider_transfer(reference: str):
         if status == "success":
             withdrawal.status = "processing"
         elif status in ("failed", "reversed"):
-            await _mark_provider_failure(
-                db,
-                withdrawal,
-                provider.get("failures") or f"Paystack transfer {status}",
-            )
+            await _mark_provider_failure(db, withdrawal, provider.get("failures") or f"Paystack transfer {status}")
             await notify(
                 db,
                 withdrawal.user_id,
@@ -109,19 +99,13 @@ async def _acquire_reference_lock(db, reference: str):
     """Serialize payout attempts for the same stable provider reference."""
     from sqlalchemy import text
 
-    await db.execute(
-        text("SELECT pg_advisory_lock(hashtextextended(:reference, 0))"),
-        {"reference": reference},
-    )
+    await db.execute(text("SELECT pg_advisory_lock(hashtextextended(:reference, 0))"), {"reference": reference})
 
 
 async def _release_reference_lock(db, reference: str):
     from sqlalchemy import text
 
-    await db.execute(
-        text("SELECT pg_advisory_unlock(hashtextextended(:reference, 0))"),
-        {"reference": reference},
-    )
+    await db.execute(text("SELECT pg_advisory_unlock(hashtextextended(:reference, 0))"), {"reference": reference})
 
 
 async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_code, account_name):
@@ -144,15 +128,11 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
 
         await _acquire_reference_lock(db, reference)
         try:
-            current_result = await db.execute(
-                select(Withdrawal).where(Withdrawal.reference == reference).with_for_update()
-            )
+            current_result = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
             withdrawal = current_result.scalar_one_or_none()
             if not withdrawal or withdrawal.status in ("successful", "failed", "reversed"):
                 return
 
-            # A previous delivery may already have reached Paystack. Reconcile
-            # before creating another transfer.
             try:
                 provider = await paystack.verify_transfer(reference)
             except Exception:
@@ -164,11 +144,7 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
                 if status == "success":
                     withdrawal.status = "processing"
                 elif status in ("failed", "reversed"):
-                    await _mark_provider_failure(
-                        db,
-                        withdrawal,
-                        provider.get("failures") or f"Paystack transfer {status}",
-                    )
+                    await _mark_provider_failure(db, withdrawal, provider.get("failures") or f"Paystack transfer {status}")
                 else:
                     withdrawal.status = "processing"
                 await db.commit()
@@ -231,10 +207,7 @@ async def _reconcile_stale_withdrawals():
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Withdrawal.reference)
-            .where(
-                Withdrawal.status.in_(["requested", "processing"]),
-                Withdrawal.updated_at < cutoff,
-            )
+            .where(Withdrawal.status.in_(["requested", "processing"]), Withdrawal.updated_at < cutoff)
             .order_by(Withdrawal.updated_at.asc())
             .limit(100)
         )
@@ -263,15 +236,10 @@ async def _reset():
     async with AsyncSessionLocal() as db:
         await db.execute(update(Wallet).values(
             daily_one_off_single_kobo=0, daily_one_off_grouped_kobo=0,
-            daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
+            daily_repeating_single_kobo=0, daily_repeating_single_cps=0,
             daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
-            daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
-            daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_kobo=0, daily_trend_push_kobo=0, daily_skill_based_kobo=0,
-            daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_kobo=0, daily_trend_push_kobo=0, daily_skill_based_kobo=0,
-            daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
+            daily_repeating_grouped_kobo=0, daily_trend_push_cps=0,
+            daily_skill_based_cps=0, daily_unpaid_cps=0,
             daily_reset_at=datetime.utcnow()))
         await db.commit()
