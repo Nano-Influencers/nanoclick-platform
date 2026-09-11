@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'api_http_client.dart';
 import 'app_user.dart';
 import 'token_storage_stub.dart'
     if (dart.library.html) 'token_storage_web.dart'
@@ -14,8 +15,7 @@ class ApiException implements Exception {
 }
 
 /// Backend API client for Click Workers.
-/// OAuth web callbacks use a short-lived one-time code; bearer tokens are
-/// never placed in browser URLs.
+/// Web refresh sessions use an HttpOnly cookie; native builds use secure storage.
 class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
@@ -25,6 +25,7 @@ class ApiClient {
     defaultValue: 'http://localhost:8000',
   );
 
+  final http.Client _client = createApiHttpClient();
   String? _accessToken;
   String? _refreshToken;
   bool _initialized = false;
@@ -38,9 +39,14 @@ class ApiClient {
     _accessToken = tokens['access'];
     _refreshToken = tokens['refresh'];
     _initialized = true;
+    if (_accessToken == null) {
+      final restored = await storage.restoreSession(baseUrl);
+      _accessToken = restored['access'];
+      _refreshToken = restored['refresh'];
+    }
   }
 
-  Future<void> setTokens({required String access, required String refresh}) async {
+  Future<void> setTokens({required String access, String? refresh}) async {
     _accessToken = access;
     _refreshToken = refresh;
     await storage.writeTokens(access: access, refresh: refresh);
@@ -60,9 +66,7 @@ class ApiClient {
       final body = jsonDecode(res.body);
       final detail = body is Map ? body['detail'] : null;
       if (detail is List) {
-        return detail
-            .map((d) => d is Map ? d['msg']?.toString() : d.toString())
-            .join('; ');
+        return detail.map((d) => d is Map ? d['msg']?.toString() : d.toString()).join('; ');
       }
       if (detail is String) return detail;
     } catch (_) {}
@@ -77,32 +81,28 @@ class ApiClient {
     bool retrying = false,
   }) async {
     final headers = {'Content-Type': 'application/json'};
-    if (auth && _accessToken != null) {
-      headers['Authorization'] = 'Bearer $_accessToken';
-    }
+    if (auth && _accessToken != null) headers['Authorization'] = 'Bearer $_accessToken';
     final uri = _uri(path);
     final encodedBody = body != null ? jsonEncode(body) : null;
 
     http.Response res;
     switch (method) {
       case 'POST':
-        res = await http.post(uri, headers: headers, body: encodedBody);
+        res = await _client.post(uri, headers: headers, body: encodedBody);
         break;
       case 'PATCH':
-        res = await http.patch(uri, headers: headers, body: encodedBody);
+        res = await _client.patch(uri, headers: headers, body: encodedBody);
         break;
       case 'DELETE':
-        res = await http.delete(uri, headers: headers, body: encodedBody);
+        res = await _client.delete(uri, headers: headers, body: encodedBody);
         break;
       default:
-        res = await http.get(uri, headers: headers);
+        res = await _client.get(uri, headers: headers);
     }
 
     if (res.statusCode == 401 && auth && !retrying) {
       final refreshed = await _tryRefresh();
-      if (refreshed) {
-        return _request(method, path, body: body, auth: auth, retrying: true);
-      }
+      if (refreshed) return _request(method, path, body: body, auth: auth, retrying: true);
       await clearTokens();
       throw ApiException('Session expired — please log in again.', 401);
     }
@@ -116,35 +116,32 @@ class ApiClient {
   Future<bool> _tryRefresh() {
     final inFlight = _refreshInFlight;
     if (inFlight != null) return inFlight;
-
-    final refresh = _refreshToken;
-    if (refresh == null) return Future.value(false);
-
-    final future = _performRefresh(refresh);
+    final future = _performRefresh(_refreshToken);
     _refreshInFlight = future;
     return future.whenComplete(() {
-      if (identical(_refreshInFlight, future)) {
-        _refreshInFlight = null;
-      }
+      if (identical(_refreshInFlight, future)) _refreshInFlight = null;
     });
   }
 
-  Future<bool> _performRefresh(String refresh) async {
+  Future<bool> _performRefresh(String? refresh) async {
     try {
-      final res = await http.post(
+      if (refresh == null) {
+        final restored = await storage.restoreSession(baseUrl);
+        final access = restored['access'];
+        if (access is! String || access.isEmpty) return false;
+        await setTokens(access: access);
+        return true;
+      }
+      final res = await _client.post(
         _uri('/auth/refresh'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'refresh_token': refresh}),
       );
       if (res.statusCode != 200) return false;
-
       final data = jsonDecode(res.body);
       final access = data['access_token'];
       final nextRefresh = data['refresh_token'];
-      if (access is! String || nextRefresh is! String ||
-          access.isEmpty || nextRefresh.isEmpty) {
-        return false;
-      }
+      if (access is! String || nextRefresh is! String || access.isEmpty || nextRefresh.isEmpty) return false;
       await setTokens(access: access, refresh: nextRefresh);
       return true;
     } catch (_) {
@@ -160,17 +157,14 @@ class ApiClient {
   }
 
   Future<void> login(String email, String password) async {
-    final data = await _request('POST', '/auth/login', auth: false, body: {'email': email, 'password': password});
+    final data = await _request('POST', '/auth/login?platform=web', auth: false, body: {'email': email, 'password': password});
     await setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
 
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
 
   Future<void> logout() async {
-    final refresh = _refreshToken;
-    if (refresh != null) {
-      try { await _request('POST', '/auth/logout', auth: false, body: {'refresh_token': refresh}); } catch (_) {}
-    }
+    try { await _request('POST', '/auth/logout?platform=web', auth: false); } catch (_) {}
     await clearTokens();
   }
 
@@ -180,16 +174,14 @@ class ApiClient {
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
 
   String oauthUrl(String provider, {String platform = 'web'}) {
-    if (platform == 'app') {
-      return '$baseUrl/auth/$provider/login?role=worker&platform=app';
-    }
+    if (platform == 'app') return '$baseUrl/auth/$provider/login?role=worker&platform=app';
     final origin = storage.currentOrigin();
     final redirectUri = Uri.encodeComponent('$origin/');
     return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
   }
 
   Future<void> exchangeOAuthCode(String code) async {
-    final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}', auth: false);
+    final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}&platform=web', auth: false);
     await setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
 
@@ -214,13 +206,10 @@ class ApiClient {
   Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async => await _request('POST', '/tasks/upload-url', body: {'file_extension': fileExtension}) as Map<String, dynamic>;
 
   Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes) async {
-    final res = await http.put(Uri.parse(uploadUrl), body: bytes);
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
-    }
+    final res = await _client.put(Uri.parse(uploadUrl), body: bytes);
+    if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
   }
 
-  // ---------------- KYC ----------------
   Future<Map<String, dynamic>> requestKycUploadUrl(String fileExtension) async => await _request('POST', '/kyc/upload-url?file_extension=${Uri.encodeQueryComponent(fileExtension)}') as Map<String, dynamic>;
   Future<void> submitKyc(Map<String, dynamic> fields) async => await _request('POST', '/kyc/submit', body: fields);
   Future<String> kycStatus() async => (await _request('GET', '/kyc/status') as Map<String, dynamic>)['status'] as String;
