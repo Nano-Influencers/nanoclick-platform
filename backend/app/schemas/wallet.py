@@ -30,7 +30,6 @@ class WalletResponse(BaseModel):
     total_one_off_single_kobo: int
     total_one_off_grouped_kobo: int
     total_repeating_single_kobo: int
-    total_repeating_grouped_kobo: int
     total_trend_push_kobo: int
     total_skill_based_kobo: int
     total_unpaid_kobo: int
