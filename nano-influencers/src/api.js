@@ -1,24 +1,19 @@
-// Thin fetch wrapper around the NanoClick backend. Handles JWT storage,
-// automatic access-token refresh on a 401, and consistent error shapes.
-
+// Thin fetch wrapper around the NanoClick backend.
+// Browser refresh sessions use an HttpOnly cookie; access tokens stay in memory.
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+let accessToken = null;
 let refreshInFlight = null;
 
 function getTokens() {
-  return {
-    access: localStorage.getItem("nano_access_token"),
-    refresh: localStorage.getItem("nano_refresh_token"),
-  };
+  return { access: accessToken, refresh: null };
 }
 
-function setTokens(access, refresh) {
-  if (access) localStorage.setItem("nano_access_token", access);
-  if (refresh) localStorage.setItem("nano_refresh_token", refresh);
+function setTokens(access) {
+  accessToken = access || null;
 }
 
 function clearTokens() {
-  localStorage.removeItem("nano_access_token");
-  localStorage.removeItem("nano_refresh_token");
+  accessToken = null;
 }
 
 class ApiError extends Error {
@@ -40,15 +35,12 @@ async function parseError(res) {
 
 async function request(path, { method = "GET", body, auth = true, _retried = false } = {}) {
   const headers = { "Content-Type": "application/json" };
-  if (auth) {
-    const { access } = getTokens();
-    if (access) headers["Authorization"] = `Bearer ${access}`;
-  }
+  if (auth && accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
-    credentials: "same-origin",
+    credentials: "include",
   });
 
   if (res.status === 401 && auth && !_retried) {
@@ -66,25 +58,18 @@ async function request(path, { method = "GET", body, auth = true, _retried = fal
 }
 
 async function tryRefresh() {
-  // Multiple requests can receive a 401 at the same time (for example the
-  // dashboard's parallel wallet/campaign/notification requests). Refresh-token
-  // rotation makes concurrent refresh calls unsafe: only one may consume the
-  // current refresh token. Share one in-flight refresh promise instead.
   if (refreshInFlight) return refreshInFlight;
-
   refreshInFlight = (async () => {
-    const { refresh } = getTokens();
-    if (!refresh) return false;
     try {
-      const res = await fetch(`${API_URL}/auth/refresh`, {
+      const res = await fetch(`${API_URL}/auth/refresh?platform=web`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refresh }),
+        credentials: "include",
       });
       if (!res.ok) return false;
       const data = await res.json();
-      if (!data.access_token || !data.refresh_token) return false;
-      setTokens(data.access_token, data.refresh_token);
+      if (!data.access_token) return false;
+      setTokens(data.access_token);
       return true;
     } catch {
       return false;
@@ -106,29 +91,29 @@ export const api = {
     });
   },
   async login(email, password) {
-    const data = await request("/auth/login", { method: "POST", auth: false, body: { email, password } });
-    setTokens(data.access_token, data.refresh_token);
+    const data = await request("/auth/login?platform=web", { method: "POST", auth: false, body: { email, password } });
+    setTokens(data.access_token);
     return data;
   },
   async exchangeOAuthCode(code) {
-    const data = await request(`/auth/oauth/exchange?code=${encodeURIComponent(code)}`, { method: "POST", auth: false });
-    setTokens(data.access_token, data.refresh_token);
+    const data = await request(`/auth/oauth/exchange?code=${encodeURIComponent(code)}&platform=web`, { method: "POST", auth: false });
+    setTokens(data.access_token);
     return data;
+  },
+  async restoreSession() {
+    return tryRefresh();
   },
   async me() { return request("/auth/me"); },
   async logout() {
-    const { refresh } = getTokens();
-    if (refresh) {
-      try {
-        await request("/auth/logout", { method: "POST", auth: false, body: { refresh_token: refresh } });
-      } catch {
-        // Local logout must still succeed if the network is unavailable.
-      }
+    try {
+      await request("/auth/logout?platform=web", { method: "POST", auth: false });
+    } catch {
+      // Local logout must still succeed if the network is unavailable.
     }
     clearTokens();
   },
-  isLoggedIn() { return !!getTokens().access; },
-  setSessionTokens(access, refresh) { setTokens(access, refresh); },
+  isLoggedIn() { return !!accessToken; },
+  setSessionTokens(access) { setTokens(access); },
   oauthUrl(provider) {
     return `${API_URL}/auth/${provider}/login?role=advertiser&platform=web`;
   },
