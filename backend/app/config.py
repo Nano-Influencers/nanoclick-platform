@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    # Browser refresh sessions are kept in an HttpOnly cookie. The cookie is
+    # scoped to /auth so application JavaScript cannot read it and unrelated
+    # routes do not receive it. Native clients continue using bearer refresh
+    # tokens in their platform-secure storage.
+    AUTH_COOKIE_SECURE: bool = False
+    AUTH_COOKIE_SAMESITE: str = "lax"
+
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
 
@@ -22,7 +29,6 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     FRONTEND_ORIGINS: str = "http://localhost"
 
-    # Midnight bonus window (WAT = UTC+1)
     MIDNIGHT_START_HOUR: int = 0
     MIDNIGHT_END_HOUR: int = 5
 
@@ -37,31 +43,24 @@ class Settings(BaseSettings):
     FACEBOOK_CLIENT_SECRET: str = ""
 
     OAUTH_REDIRECT_BASE: str = "http://localhost:8000"
-    # Where to send the browser after a *web* OAuth login (click-workers is a
-    # Flutter Web build, so the mobile deep link nanoclick://oauth?... doesn't
-    # apply to it — see /auth/google/login?platform=web).
     OAUTH_WEB_REDIRECT_URL: str = "http://localhost:5173/oauth-callback"
-    # Comma-separated allowlist of origins/URLs a caller may pass as its own
-    # ?redirect_uri= for web OAuth — required since nano-influencers and
-    # click-workers are two different web origins that both need their own
-    # callback page, and an unvalidated redirect_uri would let anyone mint a
-    # link that hands a freshly-issued token to an attacker-controlled page.
     OAUTH_ALLOWED_WEB_REDIRECTS: str = "http://localhost:5173/oauth-callback,http://localhost:8080/"
 
-    # Gamification amounts (kobo). Not discoverable from the existing
-    # Firestore-based client, since it wrote these values directly without
-    # a server-authoritative source of truth — these are a documented,
-    # conservative starting point, easy to retune without a code change.
-    REFERRAL_BONUS_KOBO: int = 20000          # ₦200, paid to the referrer on the referred worker's first approved submission
-    CHECKIN_BASE_REWARD_KOBO: int = 5000       # ₦50 on day 1 of a check-in streak
-    CHECKIN_STREAK_STEP_KOBO: int = 2500       # +₦25 per consecutive day, capped at CHECKIN_STREAK_CAP_DAYS
-    CHECKIN_STREAK_CAP_DAYS: int = 7           # streak reward plateaus after a 7-day cycle, then repeats
+    REFERRAL_BONUS_KOBO: int = 20000
+    CHECKIN_BASE_REWARD_KOBO: int = 5000
+    CHECKIN_STREAK_STEP_KOBO: int = 2500
+    CHECKIN_STREAK_CAP_DAYS: int = 7
     SPIN_COOLDOWN_HOURS: int = 24
 
     @model_validator(mode="after")
     def validate_production_security(self):
         """Fail closed on deployment settings that are unsafe in production."""
         env = self.APP_ENV.strip().lower()
+        if self.AUTH_COOKIE_SAMESITE.lower() not in {"lax", "strict", "none"}:
+            raise ValueError("AUTH_COOKIE_SAMESITE must be lax, strict, or none")
+        if self.AUTH_COOKIE_SAMESITE.lower() == "none" and not self.AUTH_COOKIE_SECURE:
+            raise ValueError("AUTH_COOKIE_SECURE must be true when AUTH_COOKIE_SAMESITE is none")
+
         if env not in {"production", "prod"}:
             return self
 
@@ -80,6 +79,8 @@ class Settings(BaseSettings):
             raise ValueError("Paystack keys must be configured in production")
         if not self.S3_ENDPOINT_URL or not self.S3_ACCESS_KEY_ID or not self.S3_SECRET_ACCESS_KEY:
             raise ValueError("Private object-storage credentials must be configured in production")
+        if not self.AUTH_COOKIE_SECURE:
+            raise ValueError("AUTH_COOKIE_SECURE must be true in production")
 
         for name, value in (
             ("OAUTH_REDIRECT_BASE", self.OAUTH_REDIRECT_BASE),
