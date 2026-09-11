@@ -65,6 +65,32 @@ async def test_refresh_token_rotates_and_replay_is_rejected(db_factory):
 
 
 @pytest.mark.asyncio
+async def test_web_refresh_uses_httponly_cookie_and_hides_rotated_token(db_factory):
+    async with db_factory() as db:
+        user = await _add_user()
+        refresh_token = create_refresh_token(str(user.id))
+        await _create_refresh_session(db, user.id, refresh_token)
+        await db.commit()
+
+    async with _client() as client:
+        client.cookies.set("nanoclick_refresh", refresh_token, path="/auth")
+        response = await client.post("/auth/refresh", params={"platform": "web"})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["access_token"]
+        assert payload["refresh_token"] is None
+        set_cookie = response.headers["set-cookie"]
+        assert "nanoclick_refresh=" in set_cookie
+        assert "HttpOnly" in set_cookie
+        assert "Path=/auth" in set_cookie
+        assert client.cookies.get("nanoclick_refresh") != refresh_token
+
+        replay = await client.post("/auth/refresh", json={"refresh_token": refresh_token})
+        assert replay.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_logout_revokes_refresh_session(db_factory):
     async with db_factory() as db:
         user = await _add_user(db)
