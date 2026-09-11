@@ -3,6 +3,8 @@ import 'package:http/browser_client.dart';
 
 String? _accessToken;
 
+bool get isWeb => true;
+
 Future<Map<String, String?>> readTokens() async => {
       'access': _accessToken,
       'refresh': null,
@@ -23,9 +25,7 @@ Future<Map<String, String?>> restoreSession(String baseUrl) async {
     if (res.statusCode != 200) return const {'access': null, 'refresh': null};
     final body = jsonDecode(res.body);
     final access = body is Map ? body['access_token'] : null;
-    if (access is! String || access.isEmpty) {
-      return const {'access': null, 'refresh': null};
-    }
+    if (access is! String || access.isEmpty) return const {'access': null, 'refresh': null};
     _accessToken = access;
     return {'access': access, 'refresh': null};
   } finally {
@@ -34,5 +34,4 @@ Future<Map<String, String?>> restoreSession(String baseUrl) async {
 }
 
 String currentOrigin() => Uri.base.origin;
-
 void replaceBrowserUrl(String path) {}
