@@ -85,7 +85,7 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         "/auth/refresh": ("auth-refresh", 30, 900),
         "/auth/forgot-password": ("auth-forgot-password", 5, 3600),
         "/auth/reset-password": ("auth-reset-password", 5, 3600),
-        "/auth/change-password": ("auth-change-password", 5, 900),
+        "/auth/change-password": ("auth-change-password", 5, 3600),
         "/auth/oauth/exchange": ("auth-oauth-exchange", 20, 900),
         "/wallet/withdraw": ("wallet-withdraw", 10, 3600),
         "/wallet/deposit": ("wallet-deposit", 20, 3600),
