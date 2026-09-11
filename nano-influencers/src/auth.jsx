@@ -10,9 +10,12 @@ export function AuthProvider({ children }) {
 
   const refreshUser = async () => {
     if (!api.isLoggedIn()) {
-      setUser(null);
-      setLoading(false);
-      return;
+      const restored = await api.restoreSession();
+      if (!restored) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
     }
     try {
       setUser(await api.me());
