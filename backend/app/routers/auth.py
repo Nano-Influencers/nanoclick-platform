@@ -259,8 +259,9 @@ async def logout(request: Request, response: Response, body: RefreshRequest | No
 
 
 @router.post("/oauth/exchange", response_model=TokenResponse)
-async def exchange_oauth_code(code: str = Query(..., min_length=20, max_length=200),
-                              response: Response, platform: str = Query("app"),
+async def exchange_oauth_code(response: Response,
+                              code: str = Query(..., min_length=20, max_length=200),
+                              platform: str = Query("app"),
                               db: AsyncSession = Depends(get_db)):
     """Exchange a short-lived OAuth code exactly once."""
     result = await db.execute(select(OAuthCode).where(
@@ -356,15 +357,17 @@ async def google_callback(code: str = Query(...), state: str = Query(...), error
     oauth_state = await _consume_oauth_state(db, state)
     try:
         provider_data = await exchange_google_code(code)
+        user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
+        return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(400, "Failed to verify Google login")
-    user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
-    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
+        raise HTTPException(502, "Google OAuth exchange failed")
 
 
 @router.get("/facebook/login")
 async def facebook_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if not settings.FACEBOOK_CLIENT_ID:
+    if not settings.FACEBOOK_APP_ID:
         raise HTTPException(503, "Facebook OAuth not configured")
     role = role if role in ("advertiser", "worker") else "worker"
     platform = platform if platform in ("app", "web") else "app"
@@ -382,7 +385,9 @@ async def facebook_callback(code: str = Query(...), state: str = Query(...), err
     oauth_state = await _consume_oauth_state(db, state)
     try:
         provider_data = await exchange_facebook_code(code)
+        user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
+        return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
+    except HTTPException:
+        raise
     except Exception:
-        raise HTTPException(400, "Failed to verify Facebook login")
-    user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
-    return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
+        raise HTTPException(502, "Facebook OAuth exchange failed")
