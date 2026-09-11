@@ -3,10 +3,11 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_worker
@@ -29,6 +30,17 @@ def _w(wallet):
     d["balance_ngn"] = wallet.balance_kobo / 100
     d["escrow_ngn"] = wallet.escrow_kobo / 100
     return d
+
+
+def _validate_idempotency_key(value: str | None) -> str | None:
+    if value is None:
+        return None
+    key = value.strip()
+    if not key:
+        return None
+    if len(key) > 100:
+        raise HTTPException(400, "Idempotency-Key must be 100 characters or fewer")
+    return key
 
 
 @router.get("/balance", response_model=WalletResponse)
@@ -84,24 +96,55 @@ async def referral_stats(current_user: User = Depends(get_current_user), db: Asy
 
 
 @router.post("/deposit/initialize", response_model=InitiateDepositResponse)
-async def initiate_deposit(body: InitiateDepositRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def initiate_deposit(
+    body: InitiateDepositRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
     if body.amount_ngn < 100:
         raise HTTPException(400, "Minimum deposit is ₦100")
+    key = _validate_idempotency_key(idempotency_key)
     amount_kobo = int(body.amount_ngn * 100)
-    reference = f"dep_{uuid.uuid4().hex[:16]}"
-    deposit = Deposit(user_id=current_user.id, reference=reference, amount_kobo=amount_kobo, status="pending")
-    db.add(deposit)
 
-    # Persist the pending deposit before calling Paystack. If the process dies after
-    # Paystack accepts the transaction but before the HTTP response returns, the
-    # webhook can still find and safely reconcile the deposit.
-    await db.commit()
+    if key:
+        existing_result = await db.execute(select(Deposit).where(
+            Deposit.user_id == current_user.id,
+            Deposit.idempotency_key == key,
+        ).with_for_update())
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            if existing.amount_kobo != amount_kobo:
+                raise HTTPException(409, "Idempotency-Key was already used for a different deposit amount")
+            if existing.authorization_url:
+                return InitiateDepositResponse(authorization_url=existing.authorization_url, reference=existing.reference)
+            raise HTTPException(409, "The previous payment initialization failed; use a new Idempotency-Key")
+
+    reference = f"dep_{uuid.uuid4().hex[:16]}"
+    db.add(Deposit(
+        user_id=current_user.id,
+        reference=reference,
+        amount_kobo=amount_kobo,
+        status="pending",
+        idempotency_key=key,
+    ))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if key:
+            existing_result = await db.execute(select(Deposit).where(
+                Deposit.user_id == current_user.id,
+                Deposit.idempotency_key == key,
+            ))
+            existing = existing_result.scalar_one_or_none()
+            if existing and existing.amount_kobo == amount_kobo and existing.authorization_url:
+                return InitiateDepositResponse(authorization_url=existing.authorization_url, reference=existing.reference)
+        raise HTTPException(409, "A deposit with this Idempotency-Key already exists")
 
     try:
         data = await paystack.initialize_transaction(current_user.email, amount_kobo, reference)
     except Exception:
-        # Do not let a provider initialization failure erase the durable deposit
-        # record. If this update itself fails, leave it pending for reconciliation.
         try:
             result = await db.execute(select(Deposit).where(Deposit.reference == reference).with_for_update())
             persisted = result.scalar_one_or_none()
@@ -112,6 +155,12 @@ async def initiate_deposit(body: InitiateDepositRequest, current_user: User = De
             await db.rollback()
         raise HTTPException(502, "Unable to initialize payment. Please try again.")
 
+    deposit_result = await db.execute(select(Deposit).where(Deposit.reference == reference).with_for_update())
+    deposit = deposit_result.scalar_one_or_none()
+    if not deposit:
+        raise HTTPException(500, "Deposit record disappeared during payment initialization")
+    deposit.authorization_url = data["authorization_url"]
+    await db.commit()
     return InitiateDepositResponse(authorization_url=data["authorization_url"], reference=reference)
 
 
@@ -125,10 +174,28 @@ async def resolve_account(bank_code: str, account_number: str, current_user: Use
 
 
 @router.post("/withdraw")
-async def withdraw(body: WithdrawRequest, current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+async def withdraw(
+    body: WithdrawRequest,
+    current_user: User = Depends(require_worker),
+    db: AsyncSession = Depends(get_db),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
     if body.amount_ngn < 500:
         raise HTTPException(400, "Minimum withdrawal is ₦500")
+    key = _validate_idempotency_key(idempotency_key)
     amount_kobo = int(body.amount_ngn * 100)
+
+    if key:
+        existing_result = await db.execute(select(Withdrawal).where(
+            Withdrawal.user_id == current_user.id,
+            Withdrawal.idempotency_key == key,
+        ).with_for_update())
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            if existing.amount_kobo != amount_kobo or existing.account_number != body.account_number or existing.bank_code != body.bank_code:
+                raise HTTPException(409, "Idempotency-Key was already used for a different withdrawal")
+            return {"message": "Withdrawal already initiated", "reference": existing.reference, "account_name": existing.account_name, "status": existing.status}
+
     try:
         resolved = await paystack.resolve_account_number(body.account_number, body.bank_code)
     except Exception:
@@ -143,12 +210,27 @@ async def withdraw(body: WithdrawRequest, current_user: User = Depends(require_w
     db.add(Withdrawal(
         user_id=current_user.id, reference=reference, amount_kobo=amount_kobo,
         account_number=body.account_number, bank_code=body.bank_code,
-        account_name=resolved["account_name"], status="requested",
+        account_name=resolved["account_name"], status="requested", idempotency_key=key,
     ))
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if key:
+            existing_result = await db.execute(select(Withdrawal).where(
+                Withdrawal.user_id == current_user.id,
+                Withdrawal.idempotency_key == key,
+            ))
+            existing = existing_result.scalar_one_or_none()
+            if existing:
+                return {"message": "Withdrawal already initiated", "reference": existing.reference, "account_name": existing.account_name, "status": existing.status}
+        raise HTTPException(409, "A withdrawal with this Idempotency-Key already exists")
 
     from app.workers.payout_tasks import process_withdrawal
-    process_withdrawal.delay(str(current_user.id), amount_kobo, reference, body.account_number, body.bank_code, resolved["account_name"])
+    try:
+        process_withdrawal.delay(str(current_user.id), amount_kobo, reference, body.account_number, body.bank_code, resolved["account_name"])
+    except Exception:
+        return {"message": "Withdrawal queued for processing", "reference": reference, "account_name": resolved["account_name"], "status": "requested"}
     return {"message": "Withdrawal initiated", "reference": reference, "account_name": resolved["account_name"], "status": "requested"}
 
 
@@ -220,8 +302,6 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
             if event_amount and event_amount != withdrawal.amount_kobo:
                 raise HTTPException(400, "Transfer amount does not match withdrawal")
 
-            # A failed transfer is terminal once failed; a reversed transfer can
-            # legitimately arrive after a successful transfer. Never refund twice.
             if event_type == "transfer.failed":
                 should_refund = withdrawal.status in ("requested", "processing")
                 target_status = "failed"
@@ -230,23 +310,19 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
                 target_status = "reversed"
 
             if should_refund:
-                tx_result = await db.execute(
-                    select(Transaction).where(
-                        Transaction.reference == reference,
-                        Transaction.type == "withdrawal",
-                    ).with_for_update()
-                )
+                tx_result = await db.execute(select(Transaction).where(
+                    Transaction.reference == reference,
+                    Transaction.type == "withdrawal",
+                ).with_for_update())
                 tx = tx_result.scalar_one_or_none()
                 if not tx:
                     raise HTTPException(409, "Withdrawal ledger entry missing; cannot safely reverse funds")
 
                 reversal_reference = f"{reference}:reversal"
-                existing_reversal = await db.execute(
-                    select(Transaction).where(
-                        Transaction.reference == reversal_reference,
-                        Transaction.type == "withdrawal_reversal",
-                    ).with_for_update()
-                )
+                existing_reversal = await db.execute(select(Transaction).where(
+                    Transaction.reference == reversal_reference,
+                    Transaction.type == "withdrawal_reversal",
+                ).with_for_update())
                 if existing_reversal.scalar_one_or_none() is None:
                     await wallet_service.credit(
                         db, withdrawal.user_id, tx.amount_kobo, "withdrawal_reversal",
