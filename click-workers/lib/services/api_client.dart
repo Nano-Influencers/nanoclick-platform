@@ -20,11 +20,7 @@ class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
 
-  static const String baseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://localhost:8000',
-  );
-
+  static const String baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:8000');
   final http.Client _client = createApiHttpClient();
   String? _accessToken;
   String? _refreshToken;
@@ -32,6 +28,8 @@ class ApiClient {
   Future<bool>? _refreshInFlight;
 
   bool get isLoggedIn => _accessToken != null;
+
+  String get _authPlatform => storage.isWeb ? 'web' : 'app';
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -65,50 +63,31 @@ class ApiClient {
     try {
       final body = jsonDecode(res.body);
       final detail = body is Map ? body['detail'] : null;
-      if (detail is List) {
-        return detail.map((d) => d is Map ? d['msg']?.toString() : d.toString()).join('; ');
-      }
+      if (detail is List) return detail.map((d) => d is Map ? d['msg']?.toString() : d.toString()).join('; ');
       if (detail is String) return detail;
     } catch (_) {}
     return 'Something went wrong (${res.statusCode})';
   }
 
-  Future<dynamic> _request(
-    String method,
-    String path, {
-    Map<String, dynamic>? body,
-    bool auth = true,
-    bool retrying = false,
-  }) async {
+  Future<dynamic> _request(String method, String path, {Map<String, dynamic>? body, bool auth = true, bool retrying = false}) async {
     final headers = {'Content-Type': 'application/json'};
     if (auth && _accessToken != null) headers['Authorization'] = 'Bearer $_accessToken';
     final uri = _uri(path);
     final encodedBody = body != null ? jsonEncode(body) : null;
-
     http.Response res;
     switch (method) {
-      case 'POST':
-        res = await _client.post(uri, headers: headers, body: encodedBody);
-        break;
-      case 'PATCH':
-        res = await _client.patch(uri, headers: headers, body: encodedBody);
-        break;
-      case 'DELETE':
-        res = await _client.delete(uri, headers: headers, body: encodedBody);
-        break;
-      default:
-        res = await _client.get(uri, headers: headers);
+      case 'POST': res = await _client.post(uri, headers: headers, body: encodedBody); break;
+      case 'PATCH': res = await _client.patch(uri, headers: headers, body: encodedBody); break;
+      case 'DELETE': res = await _client.delete(uri, headers: headers, body: encodedBody); break;
+      default: res = await _client.get(uri, headers: headers);
     }
-
     if (res.statusCode == 401 && auth && !retrying) {
       final refreshed = await _tryRefresh();
       if (refreshed) return _request(method, path, body: body, auth: auth, retrying: true);
       await clearTokens();
       throw ApiException('Session expired — please log in again.', 401);
     }
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException(_extractError(res), res.statusCode);
-    }
+    if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException(_extractError(res), res.statusCode);
     if (res.body.isEmpty) return null;
     return jsonDecode(res.body);
   }
@@ -144,27 +123,22 @@ class ApiClient {
       if (access is! String || nextRefresh is! String || access.isEmpty || nextRefresh.isEmpty) return false;
       await setTokens(access: access, refresh: nextRefresh);
       return true;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   Future<void> register({required String email, required String password, required String fullName, String? referralCode}) async {
-    await _request('POST', '/auth/register', auth: false, body: {
-      'email': email, 'password': password, 'full_name': fullName,
-      'role': 'worker', 'referral_code': referralCode,
-    });
+    await _request('POST', '/auth/register', auth: false, body: {'email': email, 'password': password, 'full_name': fullName, 'role': 'worker', 'referral_code': referralCode});
   }
 
   Future<void> login(String email, String password) async {
-    final data = await _request('POST', '/auth/login?platform=web', auth: false, body: {'email': email, 'password': password});
+    final data = await _request('POST', '/auth/login?platform=$_authPlatform', auth: false, body: {'email': email, 'password': password});
     await setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
 
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
 
   Future<void> logout() async {
-    try { await _request('POST', '/auth/logout?platform=web', auth: false); } catch (_) {}
+    try { await _request('POST', '/auth/logout?platform=$_authPlatform', auth: false); } catch (_) {}
     await clearTokens();
   }
 
@@ -180,8 +154,9 @@ class ApiClient {
     return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
   }
 
-  Future<void> exchangeOAuthCode(String code) async {
-    final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}&platform=web', auth: false);
+  Future<void> exchangeOAuthCode(String code, {String? platform}) async {
+    final target = platform ?? _authPlatform;
+    final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}&platform=$target', auth: false);
     await setTokens(access: data['access_token'], refresh: data['refresh_token']);
   }
 
@@ -213,7 +188,6 @@ class ApiClient {
   Future<Map<String, dynamic>> requestKycUploadUrl(String fileExtension) async => await _request('POST', '/kyc/upload-url?file_extension=${Uri.encodeQueryComponent(fileExtension)}') as Map<String, dynamic>;
   Future<void> submitKyc(Map<String, dynamic> fields) async => await _request('POST', '/kyc/submit', body: fields);
   Future<String> kycStatus() async => (await _request('GET', '/kyc/status') as Map<String, dynamic>)['status'] as String;
-
   Future<Map<String, dynamic>> rewardsProgress() async => await _request('GET', '/rewards/progress') as Map<String, dynamic>;
   Future<List<dynamic>> listNotifications() async => await _request('GET', '/notifications') as List<dynamic>;
   Future<int> unreadNotificationCount() async => (await _request('GET', '/notifications/unread-count') as Map<String, dynamic>)['count'] as int;
