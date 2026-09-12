@@ -11,6 +11,7 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-characters-long
 
 from app.database import Base
 from app.models import *  # noqa: F401,F403
+from app.models.platform_wallet import PlatformWallet
 
 
 @pytest_asyncio.fixture
@@ -19,7 +20,14 @@ async def test_engine():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session:
+        session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
+        await session.commit()
+
     yield engine
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()

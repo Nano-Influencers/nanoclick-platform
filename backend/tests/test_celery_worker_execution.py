@@ -8,7 +8,6 @@ from app.models.campaign import Campaign
 from app.models.task import Submission, Task, TaskAcceptance
 from app.models.user import User
 from app.models.wallet import Wallet, Transaction
-from app.models.platform_wallet import PlatformWallet
 from app.services import wallet_service
 from app.workers import submission_tasks
 
@@ -45,7 +44,6 @@ async def test_auto_approval_worker_settles_once_and_is_redelivery_safe(db_facto
         db.add_all([
             Wallet(user_id=advertiser.id, balance_kobo=100_000),
             Wallet(user_id=worker.id, balance_kobo=0),
-            PlatformWallet(wallet_key="platform_revenue", balance_kobo=0),
         ])
         await db.flush()
 
