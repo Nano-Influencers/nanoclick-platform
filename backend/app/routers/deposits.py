@@ -23,7 +23,7 @@ async def get_deposit_status(
         select(Deposit).where(
             Deposit.reference == reference,
             Deposit.user_id == current_user.id,
-        ).with_for_update()
+        )
     )
     deposit = result.scalar_one_or_none()
     if not deposit:
@@ -38,23 +38,37 @@ async def get_deposit_status(
             provider_status = verified.get("status")
             amount_kobo = int(verified.get("amount") or 0)
             currency = verified.get("currency")
+
             if provider_status == "success":
                 if amount_kobo != deposit.amount_kobo or currency != "NGN":
                     raise HTTPException(409, "Payment amount or currency does not match the deposit")
-                await wallet_service.credit(
-                    db,
-                    deposit.user_id,
-                    deposit.amount_kobo,
-                    "deposit",
-                    description="Wallet top-up via Paystack",
-                    reference=deposit.reference,
+
+                # Re-acquire the row after the provider call so the database
+                # transaction never holds a row lock across a network request.
+                locked = await db.execute(
+                    select(Deposit).where(Deposit.id == deposit.id).with_for_update()
                 )
-                deposit.status = "completed"
-                deposit.completed_at = datetime.utcnow()
-                await db.commit()
+                deposit = locked.scalar_one()
+                if deposit.status == "pending":
+                    await wallet_service.credit(
+                        db,
+                        deposit.user_id,
+                        deposit.amount_kobo,
+                        "deposit",
+                        description="Wallet top-up via Paystack",
+                        reference=deposit.reference,
+                    )
+                    deposit.status = "completed"
+                    deposit.completed_at = datetime.utcnow()
+                    await db.commit()
             elif provider_status in {"failed", "abandoned"}:
-                deposit.status = "failed"
-                await db.commit()
+                locked = await db.execute(
+                    select(Deposit).where(Deposit.id == deposit.id).with_for_update()
+                )
+                deposit = locked.scalar_one()
+                if deposit.status == "pending":
+                    deposit.status = "failed"
+                    await db.commit()
         except HTTPException:
             raise
         except Exception:
