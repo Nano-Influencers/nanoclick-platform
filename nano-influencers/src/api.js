@@ -73,6 +73,7 @@ export const api = {
   oauthUrl(provider) { return `${API_URL}/auth/${provider}/login?role=advertiser&platform=web`; },
   async getBalance() { return request("/wallet/balance"); },
   async getTransactions() { return request("/wallet/transactions"); },
+  async getDepositStatus(reference) { return request(`/wallet/deposits/${encodeURIComponent(reference)}`); },
   async initiateDeposit(amount_ngn) { return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn }, headers: { "Idempotency-Key": idempotencyKey() } }); },
   async listCampaigns() { return request("/campaigns"); },
   async getCampaign(id) { return request(`/campaigns/${id}`); },
