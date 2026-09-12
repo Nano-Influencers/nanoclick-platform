@@ -115,6 +115,8 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
     from app.services import paystack
     from sqlalchemy import select
 
+    reconcile_after_unlock = False
+
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
         withdrawal = result.scalar_one_or_none()
@@ -159,9 +161,6 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
             try:
                 result = await paystack.initiate_transfer(amount_kobo, recipient_code, reference)
             except httpx.HTTPStatusError as exc:
-                found = await _reconcile_provider_transfer(reference)
-                if found:
-                    return
                 if 400 <= exc.response.status_code < 500:
                     failed = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
                     failed_withdrawal = failed.scalar_one_or_none()
@@ -169,21 +168,31 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
                         await _mark_provider_failure(db, failed_withdrawal, f"Paystack rejected transfer ({exc.response.status_code})")
                         await db.commit()
                     return
-                raise
+                # The provider may have accepted the transfer before returning
+                # an error. Reconcile only after the session-level reference
+                # lock has been released; otherwise the reconciliation session
+                # can deadlock waiting for this transaction's advisory lock.
+                reconcile_after_unlock = True
             except Exception:
-                if await _reconcile_provider_transfer(reference):
-                    return
-                raise
-
-            provider_reference = result.get("transfer_code") or result.get("reference") or reference
-            saved = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
-            saved_withdrawal = saved.scalar_one_or_none()
-            if saved_withdrawal:
-                saved_withdrawal.provider_reference = provider_reference
-                saved_withdrawal.status = "processing"
-                await db.commit()
+                # A network timeout can be ambiguous: Paystack may have
+                # accepted the transfer even though the client saw an error.
+                # Never reconcile while holding the reference lock.
+                reconcile_after_unlock = True
+            else:
+                provider_reference = result.get("transfer_code") or result.get("reference") or reference
+                saved = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
+                saved_withdrawal = saved.scalar_one_or_none()
+                if saved_withdrawal:
+                    saved_withdrawal.provider_reference = provider_reference
+                    saved_withdrawal.status = "processing"
+                    await db.commit()
         finally:
             await _release_reference_lock(db, reference)
+
+    if reconcile_after_unlock:
+        if await _reconcile_provider_transfer(reference):
+            return
+        raise RuntimeError(f"Unable to reconcile ambiguous Paystack transfer {reference}")
 
 
 @celery_app.task(name="app.workers.payout_tasks.reconcile_withdrawal", queue="payouts")
@@ -243,6 +252,6 @@ async def _reset():
             daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
             daily_repeating_single_cps=0, daily_repeating_grouped_cps=0,
-            daily_trend_push_cps=0, daily_skill_based_cps=0, daily_unpaid_cps=0,
+            daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_reset_at=datetime.utcnow()))
         await db.commit()
