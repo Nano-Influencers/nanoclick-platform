@@ -11,6 +11,7 @@ BASE = {
     "FRONTEND_ORIGINS": "https://app.example.com",
     "PAYSTACK_SECRET_KEY": "sk_live_example",
     "PAYSTACK_PUBLIC_KEY": "pk_live_example",
+    "PAYSTACK_CALLBACK_URL": "https://app.example.com/payment-return.html",
     "S3_ENDPOINT_URL": "https://storage.example.com",
     "S3_ACCESS_KEY_ID": "access",
     "S3_SECRET_ACCESS_KEY": "secret",
@@ -38,6 +39,7 @@ def test_production_settings_accept_explicit_secure_configuration():
         {"S3_SECRET_ACCESS_KEY": ""},
         {"OAUTH_REDIRECT_BASE": "http://api.example.com"},
         {"OAUTH_WEB_REDIRECT_URL": "http://app.example.com/oauth-callback"},
+        {"PAYSTACK_CALLBACK_URL": "http://app.example.com/payment-return.html"},
         {"OAUTH_ALLOWED_WEB_REDIRECTS": "https://app.example.com/oauth-callback,http://localhost:5173/oauth-callback"},
     ],
 )
