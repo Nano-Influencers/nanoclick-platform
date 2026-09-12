@@ -1,7 +1,6 @@
 import os
 
 import pytest_asyncio
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 os.environ.setdefault(
@@ -32,12 +31,8 @@ async def test_engine():
 
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
-        result = await session.execute(
-            select(PlatformWallet).where(PlatformWallet.wallet_key == "platform_revenue")
-        )
-        if result.scalar_one_or_none() is None:
-            session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
-            await session.commit()
+        session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
+        await session.commit()
 
     yield engine
 
@@ -48,10 +43,22 @@ async def test_engine():
 
 @pytest_asyncio.fixture
 async def db(test_engine):
-    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    async with maker() as session:
-        yield session
-        await session.rollback()
+    # Keep a real outer transaction around each test. The session uses
+    # SAVEPOINTs for its own commits, so tests can commit and inspect state
+    # without leaking rows into the next test.
+    async with test_engine.connect() as conn:
+        transaction = await conn.begin()
+        maker = async_sessionmaker(
+            bind=conn,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            join_transaction_mode="create_savepoint",
+        )
+        try:
+            async with maker() as session:
+                yield session
+        finally:
+            await transaction.rollback()
 
 
 @pytest_asyncio.fixture
