@@ -3,22 +3,36 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+from app.models.user import User
 from app.models.wallet import Transaction, Wallet
 from app.services import wallet_service
 from app.workers.celery_app import celery_app
 
 
+async def _user(db, role: str, prefix: str):
+    user = User(
+        email=f"{prefix}-{uuid.uuid4()}@example.com",
+        full_name=prefix,
+        role=role,
+        referral_code=f"{prefix[:4]}{uuid.uuid4().hex[:8]}",
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
 @pytest.mark.asyncio
 async def test_escrow_release_is_idempotent_for_duplicate_task_delivery(db_factory):
-    advertiser_id = uuid.uuid4()
-    worker_id = uuid.uuid4()
-    reference = f"submission_{uuid.uuid4()}"
-
     async with db_factory() as db:
-        advertiser = Wallet(user_id=advertiser_id, balance_kobo=0, escrow_kobo=50_000)
-        worker = Wallet(user_id=worker_id, balance_kobo=0)
-        db.add_all([advertiser, worker])
+        advertiser = await _user(db, "advertiser", "idempotency-advertiser")
+        worker = await _user(db, "worker", "idempotency-worker")
+        advertiser_id = advertiser.id
+        worker_id = worker.id
+        db.add(Wallet(user_id=advertiser_id, balance_kobo=0, escrow_kobo=50_000))
+        db.add(Wallet(user_id=worker_id, balance_kobo=0))
         await db.commit()
+
+    reference = f"submission_{uuid.uuid4()}"
 
     async with db_factory() as db:
         first_adv_tx, first_worker_tx = await wallet_service.release_escrow_to_worker(
