@@ -10,7 +10,12 @@ async def initialize_transaction(email: str, amount_kobo: int, reference: str) -
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
             f"{PAYSTACK_BASE}/transaction/initialize",
-            json={"email": email, "amount": amount_kobo, "reference": reference},
+            json={
+                "email": email,
+                "amount": amount_kobo,
+                "reference": reference,
+                "callback_url": settings.PAYSTACK_CALLBACK_URL,
+            },
             headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
         )
         resp.raise_for_status()
