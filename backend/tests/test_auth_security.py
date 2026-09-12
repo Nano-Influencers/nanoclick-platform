@@ -67,7 +67,7 @@ async def test_refresh_token_rotates_and_replay_is_rejected(db_factory):
 @pytest.mark.asyncio
 async def test_web_refresh_uses_httponly_cookie_and_hides_rotated_token(db_factory):
     async with db_factory() as db:
-        user = await _add_user()
+        user = await _add_user(db)
         refresh_token = create_refresh_token(str(user.id))
         await _create_refresh_session(db, user.id, refresh_token)
         await db.commit()
