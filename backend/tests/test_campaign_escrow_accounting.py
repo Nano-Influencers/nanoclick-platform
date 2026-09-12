@@ -31,6 +31,8 @@ async def test_task_payout_consumes_client_price_and_preserves_margin(db: AsyncS
     worker = await _user(db, "worker", "worker")
     db.add(Wallet(user_id=advertiser.id, balance_kobo=100_000))
     db.add(Wallet(user_id=worker.id, balance_kobo=0))
+    # The production migration seeds this singleton. This test owns its fixture
+    # explicitly so it can also run against the metadata-created test database.
     db.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
     await db.flush()
 
