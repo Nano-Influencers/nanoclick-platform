@@ -8,6 +8,7 @@ from app.models.campaign import Campaign
 from app.models.task import Submission, Task, TaskAcceptance
 from app.models.user import User
 from app.models.wallet import Wallet, Transaction
+from app.models.platform_wallet import PlatformWallet
 from app.services import wallet_service
 from app.workers import submission_tasks
 
@@ -44,6 +45,7 @@ async def test_auto_approval_worker_settles_once_and_is_redelivery_safe(db_facto
         db.add_all([
             Wallet(user_id=advertiser.id, balance_kobo=100_000),
             Wallet(user_id=worker.id, balance_kobo=0),
+            PlatformWallet(wallet_key="platform_revenue", balance_kobo=0),
         ])
         await db.flush()
 
@@ -171,15 +173,13 @@ async def test_expire_worker_only_expires_due_active_acceptances(db_factory, mon
             expires_at=datetime.utcnow() + timedelta(minutes=10),
             status="active",
         )
+        submitted_worker = await _worker(db, "submitted-worker")
         submitted = TaskAcceptance(
             task_id=task.id,
-            worker_id=uuid.uuid4(),
+            worker_id=submitted_worker.id,
             expires_at=datetime.utcnow() - timedelta(minutes=10),
             status="submitted",
         )
-        # submitted worker needs an FK-backed user row.
-        submitted_worker = await _worker(db, "submitted-worker")
-        submitted.worker_id = submitted_worker.id
         db.add_all([expired, active, submitted])
         await db.commit()
 
