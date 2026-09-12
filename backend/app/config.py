@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
-    PAYSTACK_CALLBACK_URL: str = "http://localhost:5173/app/payment-return"
+    PAYSTACK_CALLBACK_URL: str = "http://localhost:5173/payment-return.html"
 
     S3_ENDPOINT_URL: str = ""
     S3_ACCESS_KEY_ID: str = ""
