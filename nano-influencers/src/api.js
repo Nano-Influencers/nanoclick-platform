@@ -77,6 +77,7 @@ export const api = {
   async initiateDeposit(amount_ngn) { return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn }, headers: { "Idempotency-Key": idempotencyKey() } }); },
   async listCampaigns() { return request("/campaigns"); },
   async getCampaign(id) { return request(`/campaigns/${id}`); },
+  async getCampaignReport(id) { return request(`/campaigns/${id}/report`); },
   async createCampaign(payload) { return request("/campaigns", { method: "POST", body: payload }); },
   async updateCampaignStatus(id, new_status) { return request(`/campaigns/${id}/status?new_status=${encodeURIComponent(new_status)}`, { method: "PATCH" }); },
   async previewAudience(id) { return request(`/campaigns/${id}/audience`); },
