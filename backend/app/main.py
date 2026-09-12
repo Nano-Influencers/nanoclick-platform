@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
 from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
-from app.routers import admin_audit, admin_mfa, admin_kyc_documents
+from app.routers import admin_audit, admin_mfa, admin_kyc_documents, deposits
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
@@ -42,8 +42,6 @@ async def security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     if settings.APP_ENV == "production":
-        # Only advertise HSTS when the API is deployed behind HTTPS. This
-        # avoids breaking local development while enforcing TLS in production.
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
@@ -133,6 +131,7 @@ async def sensitive_action_audit(request: Request, call_next):
 
 app.include_router(auth.router)
 app.include_router(wallet.router)
+app.include_router(deposits.router)
 app.include_router(campaigns.router)
 app.include_router(tasks.router)
 app.include_router(kyc.router)
