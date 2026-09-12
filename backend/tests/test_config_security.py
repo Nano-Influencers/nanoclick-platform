@@ -17,6 +17,7 @@ BASE = {
     "OAUTH_REDIRECT_BASE": "https://api.example.com",
     "OAUTH_WEB_REDIRECT_URL": "https://app.example.com/oauth-callback",
     "OAUTH_ALLOWED_WEB_REDIRECTS": "https://app.example.com/oauth-callback",
+    "AUTH_COOKIE_SECURE": True,
 }
 
 
