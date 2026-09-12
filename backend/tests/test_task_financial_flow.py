@@ -68,7 +68,7 @@ async def test_accept_submit_and_payout_preserves_task_capacity_and_escrow(db: A
     )
 
     accepted = await accept_task(task.id, worker, db)
-    assert accepted.task_id == task.id
+    assert accepted.task_id == str(task.id)
 
     await db.refresh(task)
     assert task.slots_filled == 0
@@ -104,7 +104,7 @@ async def test_accept_submit_and_payout_preserves_task_capacity_and_escrow(db: A
     assert submitted.status == "pending"
 
     submission = (
-        await db.execute(select(Submission).where(Submission.id == uuid.UUID(submitted.id)))
+        await db.execute(select(Submission).where(Submission.id == submitted.id))
     ).scalar_one()
     acceptance = (
         await db.execute(
