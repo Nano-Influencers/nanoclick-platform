@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.campaign import Campaign
 from app.models.platform_wallet import PlatformWallet
+from app.models.platform_wallet_transaction import PlatformWalletTransaction
 from app.models.task import Submission, Task, TaskAcceptance
 from app.models.user import User
 from app.models.wallet import Wallet, Transaction
@@ -236,6 +237,47 @@ async def test_wallet_database_rejects_negative_financial_state(db: AsyncSession
     await db.flush()
 
     wallet.balance_kobo = -1
+    with pytest.raises(IntegrityError):
+        await db.flush()
+    await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_financial_ledgers_are_immutable(db: AsyncSession):
+    user = await _user(db, "worker", "immutable-ledger")
+    wallet = Wallet(user_id=user.id, balance_kobo=100)
+    db.add(wallet)
+    await db.flush()
+    tx = Transaction(
+        wallet_id=wallet.id,
+        type="checkin_reward",
+        amount_kobo=10,
+        status="completed",
+        reference=str(uuid.uuid4()),
+    )
+    db.add(tx)
+    await db.flush()
+    await db.commit()
+
+    tx.description = "tampered"
+    with pytest.raises(IntegrityError):
+        await db.flush()
+    await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_platform_ledger_snapshot_must_match_wallet_balance(db: AsyncSession):
+    platform_wallet = (await db.execute(
+        select(PlatformWallet).where(PlatformWallet.wallet_key == "platform_revenue")
+    )).scalar_one()
+
+    db.add(PlatformWalletTransaction(
+        platform_wallet_id=platform_wallet.id,
+        type="campaign_margin",
+        amount_kobo=100,
+        balance_after_kobo=platform_wallet.balance_kobo + 1,
+        reference=f"bad-snapshot-{uuid.uuid4()}",
+    ))
     with pytest.raises(IntegrityError):
         await db.flush()
     await db.rollback()
