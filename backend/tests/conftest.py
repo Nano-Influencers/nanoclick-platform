@@ -13,7 +13,7 @@ from app.database import Base
 from app.models import *  # noqa: F401,F403
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def test_engine():
     from app.database import engine
 
