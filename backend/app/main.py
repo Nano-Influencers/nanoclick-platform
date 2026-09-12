@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
 from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
-from app.routers import admin_audit, admin_mfa, admin_kyc_documents, deposits, campaign_reports, submission_revisions
+from app.routers import admin_audit, admin_mfa, admin_kyc_documents, deposits, campaign_reports, submission_revisions, admin_lifecycle
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
@@ -138,6 +138,9 @@ app.include_router(submission_revisions.router)
 app.include_router(tasks.router)
 app.include_router(kyc.router)
 app.include_router(admin_mfa.router)
+# Lifecycle handlers are registered before the legacy admin router so the
+# synchronized campaign/submission implementations win for duplicate paths.
+app.include_router(admin_lifecycle.router)
 app.include_router(admin.router)
 app.include_router(admin_kyc_documents.router)
 app.include_router(admin_audit.router)
