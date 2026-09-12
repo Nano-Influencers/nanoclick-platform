@@ -17,10 +17,11 @@ async def test_provider_failure_refuses_to_finalize_without_debit_ledger(db):
     )
     db.add(user)
     await db.flush()
+    user_id = user.id
 
-    wallet = Wallet(user_id=user.id, balance_kobo=0)
+    wallet = Wallet(user_id=user_id, balance_kobo=0)
     withdrawal = Withdrawal(
-        user_id=user.id,
+        user_id=user_id,
         reference="wdw_missing_ledger",
         amount_kobo=50000,
         account_number="0123456789",
@@ -39,7 +40,7 @@ async def test_provider_failure_refuses_to_finalize_without_debit_ledger(db):
     saved_withdrawal = await db.scalar(
         select(Withdrawal).where(Withdrawal.reference == "wdw_missing_ledger")
     )
-    saved_wallet = await db.scalar(select(Wallet).where(Wallet.user_id == user.id))
+    saved_wallet = await db.scalar(select(Wallet).where(Wallet.user_id == user_id))
 
     assert saved_withdrawal.status == "processing"
     assert saved_withdrawal.completed_at is None
