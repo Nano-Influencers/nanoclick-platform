@@ -33,8 +33,8 @@ async function parseError(res) {
   }
 }
 
-async function request(path, { method = "GET", body, auth = true, _retried = false } = {}) {
-  const headers = { "Content-Type": "application/json" };
+async function request(path, { method = "GET", body, auth = true, headers: extraHeaders = {}, _retried = false } = {}) {
+  const headers = { "Content-Type": "application/json", ...extraHeaders };
   if (auth && accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
   const res = await fetch(`${API_URL}${path}`, {
     method,
@@ -45,7 +45,7 @@ async function request(path, { method = "GET", body, auth = true, _retried = fal
 
   if (res.status === 401 && auth && !_retried) {
     const refreshed = await tryRefresh();
-    if (refreshed) return request(path, { method, body, auth, _retried: true });
+    if (refreshed) return request(path, { method, body, auth, headers: extraHeaders, _retried: true });
     clearTokens();
     window.dispatchEvent(new CustomEvent("nano-auth-expired"));
     throw new ApiError("Session expired — please log in again.", 401);
@@ -104,6 +104,18 @@ export const api = {
     return tryRefresh();
   },
   async me() { return request("/auth/me"); },
+  async changePassword(current_password, new_password) {
+    return request("/auth/change-password", { method: "POST", body: { current_password, new_password } });
+  },
+  async forgotPassword(email) {
+    return request("/auth/forgot-password", { method: "POST", auth: false, body: { email } });
+  },
+  async resetPassword(token, new_password) {
+    return request("/auth/reset-password", { method: "POST", auth: false, body: { token, new_password } });
+  },
+  async deleteAccount() {
+    return request("/auth/me", { method: "DELETE" });
+  },
   async logout() {
     try {
       await request("/auth/logout?platform=web", { method: "POST", auth: false });
@@ -121,7 +133,11 @@ export const api = {
   async getBalance() { return request("/wallet/balance"); },
   async getTransactions() { return request("/wallet/transactions"); },
   async initiateDeposit(amount_ngn) {
-    return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn } });
+    return request("/wallet/deposit/initialize", {
+      method: "POST",
+      body: { amount_ngn },
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    });
   },
 
   async listCampaigns() { return request("/campaigns"); },
