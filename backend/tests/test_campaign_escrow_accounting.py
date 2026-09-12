@@ -1,14 +1,17 @@
+import asyncio
 import uuid
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.campaign import Campaign
+from app.models.platform_wallet import PlatformWallet
 from app.models.task import Submission, Task, TaskAcceptance
 from app.models.user import User
-from app.models.wallet import Wallet
+from app.models.wallet import Wallet, Transaction
 from app.services import wallet_service
 
 
@@ -30,6 +33,7 @@ async def test_task_payout_consumes_client_price_and_preserves_margin(db: AsyncS
     worker = await _user(db, "worker", "worker")
     db.add(Wallet(user_id=advertiser.id, balance_kobo=100_000))
     db.add(Wallet(user_id=worker.id, balance_kobo=0))
+    db.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
     await db.flush()
 
     campaign = Campaign(
@@ -97,11 +101,17 @@ async def test_task_payout_consumes_client_price_and_preserves_margin(db: AsyncS
     await db.refresh(campaign)
     adv_wallet = (await db.execute(select(Wallet).where(Wallet.user_id == advertiser.id))).scalar_one()
     worker_wallet = (await db.execute(select(Wallet).where(Wallet.user_id == worker.id))).scalar_one()
+    revenue_wallet = (await db.execute(
+        select(PlatformWallet).where(PlatformWallet.wallet_key == "platform_revenue")
+    )).scalar_one()
 
     assert campaign.escrow_kobo == 9_000
     assert adv_wallet.escrow_kobo == 9_000
     assert adv_wallet.balance_kobo == 90_000
     assert worker_wallet.balance_kobo == 600
+    assert revenue_wallet.balance_kobo == 400
+    assert adv_wallet.total_spent_kobo == 10_000
+    assert worker_wallet.total_earned_kobo == 600
 
 
 @pytest.mark.asyncio
@@ -141,3 +151,93 @@ async def test_task_payout_rejects_insufficient_campaign_escrow(db: AsyncSession
             client_charge_kobo=1_000,
         )
     assert exc.value.status_code in (400, 409)
+
+
+@pytest.mark.asyncio
+async def test_task_payout_is_idempotent_for_same_reference(db: AsyncSession):
+    advertiser = await _user(db, "advertiser", "idempotent-advertiser")
+    worker = await _user(db, "worker", "idempotent-worker")
+    db.add(Wallet(user_id=advertiser.id, balance_kobo=20_000))
+    db.add(Wallet(user_id=worker.id, balance_kobo=0))
+    db.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
+    await db.flush()
+
+    await wallet_service.lock_escrow(db, advertiser.id, 10_000, reference=str(uuid.uuid4()))
+    reference = str(uuid.uuid4())
+    first = await wallet_service.release_escrow_to_worker(
+        db, advertiser.id, worker.id, 600, 15, "one_off_single",
+        reference=reference, client_charge_kobo=1_000,
+    )
+    second = await wallet_service.release_escrow_to_worker(
+        db, advertiser.id, worker.id, 600, 15, "one_off_single",
+        reference=reference, client_charge_kobo=1_000,
+    )
+    await db.commit()
+
+    assert first[0].id == second[0].id
+    assert first[1].id == second[1].id
+
+    worker_wallet = (await db.execute(select(Wallet).where(Wallet.user_id == worker.id))).scalar_one()
+    revenue_wallet = (await db.execute(
+        select(PlatformWallet).where(PlatformWallet.wallet_key == "platform_revenue")
+    )).scalar_one()
+    task_transactions = (await db.execute(
+        select(Transaction).where(Transaction.wallet_id == worker_wallet.id, Transaction.reference == reference)
+    )).scalars().all()
+
+    assert worker_wallet.balance_kobo == 600
+    assert worker_wallet.total_earned_kobo == 600
+    assert worker_wallet.click_points == 15
+    assert revenue_wallet.balance_kobo == 400
+    assert len(task_transactions) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_debits_allow_only_one_spend(db_factory):
+    setup = db_factory()
+    async with setup as db:
+        user = await _user(db, "worker", "concurrent-debit")
+        db.add(Wallet(user_id=user.id, balance_kobo=100))
+        await db.commit()
+        user_id = user.id
+
+    async def attempt(reference: str):
+        async with db_factory() as session:
+            try:
+                await wallet_service.debit(
+                    session, user_id, 100, "withdrawal", reference=reference
+                )
+                await session.commit()
+                return "success"
+            except HTTPException as exc:
+                await session.rollback()
+                return exc.status_code
+            except IntegrityError:
+                await session.rollback()
+                return "integrity_error"
+
+    results = await asyncio.gather(attempt("concurrent-a"), attempt("concurrent-b"))
+
+    assert sorted(results, key=str) == [400, "success"]
+
+    async with db_factory() as db:
+        wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
+        transactions = (await db.execute(
+            select(Transaction).where(Transaction.wallet_id == wallet.id, Transaction.type == "withdrawal")
+        )).scalars().all()
+        assert wallet.balance_kobo == 0
+        assert wallet.total_withdrawn_kobo == 100
+        assert len(transactions) == 1
+
+
+@pytest.mark.asyncio
+async def test_wallet_database_rejects_negative_financial_state(db: AsyncSession):
+    user = await _user(db, "worker", "negative-invariant")
+    wallet = Wallet(user_id=user.id, balance_kobo=0)
+    db.add(wallet)
+    await db.flush()
+
+    wallet.balance_kobo = -1
+    with pytest.raises(IntegrityError):
+        await db.flush()
+    await db.rollback()
