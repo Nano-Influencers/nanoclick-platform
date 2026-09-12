@@ -20,7 +20,7 @@ async def test_kyc_document_url_returns_short_lived_signed_url(monkeypatch):
         async def execute(self, statement):
             return Result()
 
-    async def fake_sign(key, expires_in=300):
+    def fake_sign(key, expires_in=300):
         assert key == f"kyc/{user_id}/passport.pdf"
         assert expires_in == 300
         return {"download_url": "signed", "expires_in_seconds": 300}
