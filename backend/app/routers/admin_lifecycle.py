@@ -85,14 +85,23 @@ async def approve_submission_lifecycle(submission_id: uuid.UUID, client_rating: 
         raise HTTPException(404, "Campaign not found")
     if campaign.status != "active":
         raise HTTPException(409, f"Campaign is {campaign.status} and cannot settle this submission")
-    if campaign.escrow_kobo < campaign.client_price_per_action_kobo:
+    client_charge = campaign.client_price_per_action_kobo
+    if campaign.escrow_kobo < client_charge:
         raise HTTPException(409, "Campaign escrow is insufficient")
     click_points = calculate_click_points(cw_task_category=task.cw_task_category,
         worker_pay_kobo=task.pay_kobo, is_urgent=task.is_urgent, submitted_at=sub.submitted_at)
     await wallet_service.release_escrow_to_worker(db=db, advertiser_id=campaign.owner_id,
         worker_id=sub.worker_id, amount_kobo=task.pay_kobo, click_points=click_points,
         task_category=task.cw_task_category, reference=str(sub.id),
-        client_charge_kobo=campaign.client_price_per_action_kobo)
+        client_charge_kobo=client_charge)
+
+    # release_escrow_to_worker updates the advertiser wallet escrow and records
+    # the platform margin. Campaign.escrow_kobo is the campaign-level mirror,
+    # so keep it synchronized in the same transaction.
+    campaign.escrow_kobo -= client_charge
+    if campaign.escrow_kobo < 0:
+        raise HTTPException(409, "Campaign escrow would become negative")
+
     sub.status = "approved"
     sub.reviewed_at = datetime.utcnow()
     sub.client_rating = max(0.0, min(5.0, client_rating))
