@@ -160,6 +160,7 @@ async def test_reward_pool_distribution_rejects_insufficient_funding_without_cla
     pool = await _pool_wallet(db, 50000)
     pool_id = pool.id
     worker_a = await _worker(db, "insufficient")
+    await db.commit()
 
     async def fake_progress(_db, worker_id):
         return {
