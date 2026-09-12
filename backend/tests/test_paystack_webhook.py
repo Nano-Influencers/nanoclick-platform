@@ -221,4 +221,5 @@ async def test_transfer_reversed_after_success_refunds_once(db_factory):
 
         assert withdrawal.status == "reversed"
         assert wallet.balance_kobo == 9_000
+        assert wallet.total_withdrawn_kobo == 0
         assert len(reversals) == 1
