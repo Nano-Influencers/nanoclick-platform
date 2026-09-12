@@ -39,8 +39,6 @@ def _allocation_slots(slots_total: int, groups) -> list[int]:
     slots = [math.floor(slots_total * g.percentage / 100) for g in groups]
     remainder = slots_total - sum(slots)
     if remainder:
-        # Deterministically assign rounding remainder to the largest group(s),
-        # preserving the requested percentages as closely as possible.
         order = sorted(range(len(groups)), key=lambda i: (-groups[i].percentage, i))
         for i in range(remainder):
             slots[order[i % len(order)]] += 1
@@ -127,7 +125,8 @@ async def create_campaign(body: CampaignCreate, current_user: User = Depends(req
             )
             db.add(group)
             await db.flush()
-            db.add(Task(**common_task, allocation_group_id=group.id, slots_total=group_slots))
+            if group_slots > 0:
+                db.add(Task(**common_task, allocation_group_id=group.id, slots_total=group_slots))
     else:
         db.add(Task(**common_task, slots_total=slots_total))
     return campaign
@@ -152,7 +151,7 @@ async def get_campaign(campaign_id: uuid.UUID, current_user: User = Depends(requ
 async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
     if new_status not in {"paused", "cancelled", "active"}:
         raise HTTPException(400, "Status must be paused, active (resume), or cancelled")
-    r = await db.execute(select(Campaign).where(Campaign.id == campaign_id, Campaign.owner_id == current_user.id))
+    r = await db.execute(select(Campaign).where(Campaign.id == campaign_id, Campaign.owner_id == current_user.id).with_for_update())
     campaign = r.scalar_one_or_none()
     if not campaign:
         raise HTTPException(404, "Campaign not found")
@@ -160,14 +159,30 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
         raise HTTPException(400, f"Cannot change a {campaign.status} campaign")
     if new_status == "active" and campaign.status != "paused":
         raise HTTPException(400, "Only a paused campaign can be resumed")
-    if new_status == "cancelled" and campaign.escrow_kobo > 0:
-        refund_kobo = campaign.escrow_kobo
-        await wallet_service.refund_escrow(
-            db, current_user.id, refund_kobo, reference=f"{campaign_id}:cancel",
-            description="Campaign cancelled — budget refunded",
-        )
-        campaign.escrow_kobo = 0
-    campaign.status = new_status
+    tasks_r = await db.execute(select(Task).where(Task.campaign_id == campaign.id).with_for_update())
+    tasks = tasks_r.scalars().all()
+    if new_status == "cancelled":
+        if campaign.escrow_kobo > 0:
+            refund_kobo = campaign.escrow_kobo
+            await wallet_service.refund_escrow(
+                db, current_user.id, refund_kobo, reference=f"{campaign_id}:cancel",
+                description="Campaign cancelled — budget refunded",
+            )
+            campaign.escrow_kobo = 0
+        for task in tasks:
+            if task.status in ("pending_admin", "available"):
+                task.status = "cancelled"
+        campaign.status = "cancelled"
+    elif new_status == "paused":
+        for task in tasks:
+            if task.status == "available":
+                task.status = "paused"
+        campaign.status = "paused"
+    else:
+        for task in tasks:
+            if task.status == "paused" and task.slots_filled < task.slots_total:
+                task.status = "available"
+        campaign.status = "active"
     return {"status": new_status, "campaign_id": str(campaign_id)}
 
 
