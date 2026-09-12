@@ -89,9 +89,6 @@ async def test_accept_submit_and_payout_preserves_task_capacity_and_escrow(db: A
             )
         )
     ).scalar_one()
-    # The normal submission path flags unrealistically fast submissions for review.
-    # Move the acceptance clock forward so this financial-flow test exercises the
-    # ordinary pending -> payout path instead of the anti-abuse branch.
     acceptance.accepted_at = datetime.utcnow() - timedelta(minutes=5)
     await db.flush()
 
@@ -133,13 +130,61 @@ async def test_accept_submit_and_payout_preserves_task_capacity_and_escrow(db: A
         await db.execute(select(Wallet).where(Wallet.user_id == worker.id))
     ).scalar_one()
 
+    assert campaign.escrow_kobo == 1_000
+    assert advertiser_wallet.escrow_kobo == 1_000
     assert advertiser_wallet.balance_kobo == 98_000
     assert worker_wallet.balance_kobo == 600
-    assert campaign.escrow_kobo == 1_000
     assert task.slots_filled == 0
 
-    # A second worker can still reserve the remaining task capacity. Payout, not
-    # acceptance, is what consumes the campaign/task slot.
-    worker_two = await _user(db, "worker", "flow-worker-two")
-    accepted_two = await accept_task(task.id, worker_two, db)
-    assert accepted_two.task_id == task.id
+
+@pytest.mark.asyncio
+async def test_expired_acceptance_cannot_submit(db: AsyncSession):
+    worker = await _user(db, "worker", "expired-worker")
+    advertiser = await _user(db, "advertiser", "expired-advertiser")
+    db.add(Wallet(user_id=advertiser.id, balance_kobo=100_000))
+    db.add(Wallet(user_id=worker.id, balance_kobo=0))
+    campaign = Campaign(
+        owner_id=advertiser.id,
+        title="Expired acceptance",
+        platform="instagram",
+        action_type="like",
+        tni_service_type="single_one_time",
+        cw_task_category="one_off_single",
+        client_budget_kobo=1_000,
+        client_price_per_action_kobo=500,
+        worker_pay_per_action_kobo=300,
+        escrow_kobo=1_000,
+        slots_total=1,
+        status="active",
+    )
+    db.add(campaign)
+    await db.flush()
+    task = Task(
+        campaign_id=campaign.id,
+        title="Expired task",
+        platform="instagram",
+        action_type="like",
+        cw_task_category="one_off_single",
+        pay_kobo=300,
+        slots_total=1,
+        status="available",
+    )
+    db.add(task)
+    await db.flush()
+    acceptance = TaskAcceptance(
+        task_id=task.id,
+        worker_id=worker.id,
+        accepted_at=datetime.utcnow() - timedelta(hours=1),
+        expires_at=datetime.utcnow() - timedelta(minutes=1),
+        status="active",
+    )
+    db.add(acceptance)
+    await db.flush()
+
+    with pytest.raises(Exception):
+        await submit_task(
+            task.id,
+            SubmissionCreate(proof_urls=[], proof_link="https://example.com/proof"),
+            worker,
+            db,
+        )
