@@ -73,7 +73,9 @@ async def test_web_refresh_uses_httponly_cookie_and_hides_rotated_token(db_facto
         await db.commit()
 
     async with _client() as client:
-        client.cookies.set("nanoclick_refresh", refresh_token, path="/auth")
+        # Match the host/path used by ASGITransport so the Set-Cookie replaces
+        # the seeded refresh cookie rather than creating a second cookie entry.
+        client.cookies.set("nanoclick_refresh", refresh_token, domain="test.local", path="/auth")
         response = await client.post("/auth/refresh", params={"platform": "web"})
 
         assert response.status_code == 200
@@ -84,7 +86,8 @@ async def test_web_refresh_uses_httponly_cookie_and_hides_rotated_token(db_facto
         assert "nanoclick_refresh=" in set_cookie
         assert "HttpOnly" in set_cookie
         assert "Path=/auth" in set_cookie
-        assert client.cookies.get("nanoclick_refresh") != refresh_token
+        rotated_cookie = client.cookies.get("nanoclick_refresh", domain="test.local", path="/auth")
+        assert rotated_cookie != refresh_token
 
         replay = await client.post("/auth/refresh", json={"refresh_token": refresh_token})
         assert replay.status_code == 401
