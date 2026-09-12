@@ -7,7 +7,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_worker
 from app.models.user import User
 from app.models.task import Task, TaskAcceptance, Submission, TaskReport, LeaderboardScore
-from app.models.campaign import CampaignTargeting
+from app.models.campaign import Campaign, CampaignTargeting
 from app.schemas.task import TaskResponse, AcceptTaskResponse, SubmissionCreate, SubmissionResponse, SubmissionWithTaskResponse, TaskReportCreate, PresignedUrlRequest, PresignedUrlResponse, LeaderboardEntryResponse
 from app.services.storage import generate_presigned_upload_url, compute_image_hash
 from app.services.targeting_eligibility import is_worker_eligible
@@ -32,6 +32,17 @@ async def _enforce_task_visibility(task_id: uuid.UUID, current_user: User, db: A
     if targeted.scalar_one_or_none() is not None:
         raise HTTPException(403, "KYC verification required to access targeted tasks")
 
+async def _require_active_campaign(task: Task, db: AsyncSession) -> Campaign:
+    campaign_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id))
+    campaign = campaign_r.scalar_one_or_none()
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    if campaign.status != "active":
+        raise HTTPException(409, f"Campaign is {campaign.status} and is not accepting task activity")
+    if campaign.expires_at and campaign.expires_at <= datetime.utcnow():
+        raise HTTPException(409, "Campaign has expired")
+    return campaign
+
 @router.get("", response_model=list[TaskResponse])
 async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     is_high_earning: bool = Query(None), is_urgent: bool = Query(None), platform: str = Query(None),
@@ -48,7 +59,7 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
         TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status.in_(["active","submitted"]))))
     accepted_ids = list(accepted_result.scalars())
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
-    result = await db.execute(select(Task).where(and_(*conds)).order_by(Task.is_urgent.desc(), Task.created_at.desc()).limit(50))
+    result = await db.execute(select(Task).join(Campaign, Campaign.id == Task.campaign_id).where(and_(*conds, Campaign.status == "active")).order_by(Task.is_urgent.desc(), Task.created_at.desc()).limit(50))
     tasks = result.scalars().all()
     visible = []
     for task in tasks:
@@ -88,6 +99,7 @@ async def accept_task(task_id: uuid.UUID, current_user: User = Depends(require_w
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(404, "Task not available")
+    await _require_active_campaign(task, db)
     if task.slots_filled >= task.slots_total:
         raise HTTPException(409, "Task fully claimed")
     reserved_r = await db.execute(
@@ -127,6 +139,7 @@ async def submit_task(task_id: uuid.UUID, body: SubmissionCreate, current_user: 
     task = task_r.scalar_one_or_none()
     if not task:
         raise HTTPException(404, "Task not found")
+    await _require_active_campaign(task, db)
     await _enforce_task_visibility(task_id, current_user, db)
     speed_minutes = (datetime.utcnow() - acceptance.accepted_at).total_seconds() / 60
     flagged = speed_minutes < 2.0
