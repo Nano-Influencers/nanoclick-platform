@@ -67,9 +67,8 @@ async def test_accept_submit_and_payout_preserves_task_capacity_and_escrow(db: A
         db, advertiser.id, 2_000, reference=str(campaign.id)
     )
 
-    # Exercise the real router flow: acceptance reserves one of two slots.
     accepted = await accept_task(task.id, worker, db)
-    assert accepted.task_id == str(task.id)
+    assert accepted.task_id == task.id
 
     await db.refresh(task)
     assert task.slots_filled == 0
@@ -81,7 +80,6 @@ async def test_accept_submit_and_payout_preserves_task_capacity_and_escrow(db: A
     )
     assert len(reservation_count.scalars().all()) == 1
 
-    # Submit without proof URLs so the test stays independent of object storage.
     submitted = await submit_task(
         task.id,
         SubmissionCreate(proof_urls=[], proof_link="https://example.com/proof"),
@@ -100,8 +98,6 @@ async def test_accept_submit_and_payout_preserves_task_capacity_and_escrow(db: A
     ).scalar_one()
     assert acceptance.status == "submitted"
 
-    # Release the worker payout using the submission reference so the service
-    # resolves the campaign's client-side price and consumes escrow atomically.
     await wallet_service.release_escrow_to_worker(
         db,
         advertiser.id,
