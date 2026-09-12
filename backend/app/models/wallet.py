@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Integer, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import CheckConstraint, String, Integer, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from app.database import Base
@@ -8,6 +8,15 @@ from app.database import Base
 
 class Wallet(Base):
     __tablename__ = "wallets"
+    __table_args__ = (
+        CheckConstraint("balance_kobo >= 0", name="ck_wallet_balance_nonnegative"),
+        CheckConstraint("escrow_kobo >= 0", name="ck_wallet_escrow_nonnegative"),
+        CheckConstraint("click_points >= 0", name="ck_wallet_click_points_nonnegative"),
+        CheckConstraint("total_earned_kobo >= 0", name="ck_wallet_total_earned_nonnegative"),
+        CheckConstraint("total_withdrawn_kobo >= 0", name="ck_wallet_total_withdrawn_nonnegative"),
+        CheckConstraint("total_spent_kobo >= 0", name="ck_wallet_total_spent_nonnegative"),
+        CheckConstraint("checkin_streak >= 0", name="ck_wallet_checkin_streak_nonnegative"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, nullable=False)
@@ -63,6 +72,8 @@ class Transaction(Base):
             "wallet_id", "type", "reference",
             name="uq_transaction_wallet_type_reference",
         ),
+        CheckConstraint("amount_kobo >= 0", name="ck_transaction_amount_nonnegative"),
+        CheckConstraint("click_points_awarded >= 0", name="ck_transaction_click_points_nonnegative"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
