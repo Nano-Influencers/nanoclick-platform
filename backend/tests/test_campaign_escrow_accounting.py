@@ -6,9 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.campaign import Campaign
-from app.models.task import Submission, Task
+from app.models.task import Submission, Task, TaskAcceptance
 from app.models.user import User
 from app.models.wallet import Wallet
+from app.models.platform_wallet import PlatformWallet
 from app.services import wallet_service
 
 
@@ -30,6 +31,7 @@ async def test_task_payout_consumes_client_price_and_preserves_margin(db: AsyncS
     worker = await _user(db, "worker", "worker")
     db.add(Wallet(user_id=advertiser.id, balance_kobo=100_000))
     db.add(Wallet(user_id=worker.id, balance_kobo=0))
+    db.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
     await db.flush()
 
     campaign = Campaign(
@@ -61,24 +63,24 @@ async def test_task_payout_consumes_client_price_and_preserves_margin(db: AsyncS
     db.add(task)
     await db.flush()
 
-    submission = Submission(
-        task_id=task.id,
-        worker_id=worker.id,
-        acceptance_id=uuid.uuid4(),
-        status="pending",
-        proof_urls=[],
-    )
-    # The FK to task_acceptances is required by the schema, so create a valid
-    # acceptance row for the submission.
-    from app.models.task import TaskAcceptance
+    acceptance_id = uuid.uuid4()
     acceptance = TaskAcceptance(
-        id=submission.acceptance_id,
+        id=acceptance_id,
         task_id=task.id,
         worker_id=worker.id,
         expires_at=campaign.created_at,
         status="submitted",
     )
     db.add(acceptance)
+    await db.flush()
+
+    submission = Submission(
+        task_id=task.id,
+        worker_id=worker.id,
+        acceptance_id=acceptance_id,
+        status="pending",
+        proof_urls=[],
+    )
     db.add(submission)
     await db.flush()
 
