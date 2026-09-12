@@ -1,7 +1,8 @@
 import os
 
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 os.environ.setdefault(
     "DATABASE_URL",
@@ -16,15 +17,27 @@ from app.models.platform_wallet import PlatformWallet
 
 @pytest_asyncio.fixture
 async def test_engine():
-    from app.database import engine
+    # Keep the test engine scoped to the pytest event loop. The application
+    # engine is module-global and reusing its asyncpg pool across pytest's
+    # function-scoped loops causes "Future attached to a different loop".
+    engine = create_async_engine(
+        os.environ["DATABASE_URL"],
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+    )
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
-        session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
-        await session.commit()
+        result = await session.execute(
+            select(PlatformWallet).where(PlatformWallet.wallet_key == "platform_revenue")
+        )
+        if result.scalar_one_or_none() is None:
+            session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
+            await session.commit()
 
     yield engine
 
