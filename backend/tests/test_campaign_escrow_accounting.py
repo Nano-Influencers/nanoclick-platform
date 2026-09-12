@@ -33,7 +33,6 @@ async def test_task_payout_consumes_client_price_and_preserves_margin(db: AsyncS
     worker = await _user(db, "worker", "worker")
     db.add(Wallet(user_id=advertiser.id, balance_kobo=100_000))
     db.add(Wallet(user_id=worker.id, balance_kobo=0))
-    db.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
     await db.flush()
 
     campaign = Campaign(
@@ -159,7 +158,6 @@ async def test_task_payout_is_idempotent_for_same_reference(db: AsyncSession):
     worker = await _user(db, "worker", "idempotent-worker")
     db.add(Wallet(user_id=advertiser.id, balance_kobo=20_000))
     db.add(Wallet(user_id=worker.id, balance_kobo=0))
-    db.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
     await db.flush()
 
     await wallet_service.lock_escrow(db, advertiser.id, 10_000, reference=str(uuid.uuid4()))
@@ -194,8 +192,7 @@ async def test_task_payout_is_idempotent_for_same_reference(db: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_concurrent_debits_allow_only_one_spend(db_factory):
-    setup = db_factory()
-    async with setup as db:
+    async with db_factory() as db:
         user = await _user(db, "worker", "concurrent-debit")
         db.add(Wallet(user_id=user.id, balance_kobo=100))
         await db.commit()
@@ -218,7 +215,8 @@ async def test_concurrent_debits_allow_only_one_spend(db_factory):
 
     results = await asyncio.gather(attempt("concurrent-a"), attempt("concurrent-b"))
 
-    assert sorted(results, key=str) == [400, "success"]
+    assert results.count("success") == 1
+    assert results.count(400) == 1
 
     async with db_factory() as db:
         wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
