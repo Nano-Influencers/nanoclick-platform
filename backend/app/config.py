@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
+    PAYSTACK_CALLBACK_URL: str = "http://localhost:5173/app/payment-return"
 
     S3_ENDPOINT_URL: str = ""
     S3_ACCESS_KEY_ID: str = ""
@@ -85,6 +86,7 @@ class Settings(BaseSettings):
         for name, value in (
             ("OAUTH_REDIRECT_BASE", self.OAUTH_REDIRECT_BASE),
             ("OAUTH_WEB_REDIRECT_URL", self.OAUTH_WEB_REDIRECT_URL),
+            ("PAYSTACK_CALLBACK_URL", self.PAYSTACK_CALLBACK_URL),
         ):
             if not value.startswith("https://"):
                 raise ValueError(f"{name} must use HTTPS in production")
