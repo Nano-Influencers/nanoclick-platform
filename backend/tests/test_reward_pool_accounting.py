@@ -158,6 +158,7 @@ async def test_reward_pool_distribution_allocates_remainder_without_leaking_fund
 @pytest.mark.asyncio
 async def test_reward_pool_distribution_rejects_insufficient_funding_without_claims(db, monkeypatch):
     pool = await _pool_wallet(db, 50000)
+    pool_id = pool.id
     worker_a = await _worker(db, "insufficient")
 
     async def fake_progress(_db, worker_id):
@@ -174,5 +175,5 @@ async def test_reward_pool_distribution_rejects_insufficient_funding_without_cla
         )
 
     await db.rollback()
-    pool_check = await db.execute(select(PlatformWallet).where(PlatformWallet.id == pool.id))
+    pool_check = await db.execute(select(PlatformWallet).where(PlatformWallet.id == pool_id))
     assert pool_check.scalar_one().balance_kobo == 50000
