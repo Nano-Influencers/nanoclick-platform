@@ -159,6 +159,8 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
         raise HTTPException(400, f"Cannot change a {campaign.status} campaign")
     if new_status == "active" and campaign.status != "paused":
         raise HTTPException(400, "Only a paused campaign can be resumed")
+    if new_status == "paused" and campaign.status not in ("active", "awaiting_workers"):
+        raise HTTPException(400, f"Only an active campaign can be paused; current status is '{campaign.status}'")
     tasks_r = await db.execute(select(Task).where(Task.campaign_id == campaign.id).with_for_update())
     tasks = tasks_r.scalars().all()
     if new_status == "cancelled":
@@ -170,7 +172,7 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
             )
             campaign.escrow_kobo = 0
         for task in tasks:
-            if task.status in ("pending_admin", "available"):
+            if task.status in ("pending_admin", "available", "paused"):
                 task.status = "cancelled"
         campaign.status = "cancelled"
     elif new_status == "paused":
