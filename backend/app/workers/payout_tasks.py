@@ -78,10 +78,6 @@ async def _reconcile_provider_transfer(reference: str):
         withdrawal.provider_reference = provider.get("transfer_code") or provider.get("reference") or reference
 
         if status == "success":
-            # Paystack verification is authoritative here: a verified success
-            # means the provider completed the transfer even if the webhook was
-            # delayed or lost, so do not leave the wallet withdrawal stranded
-            # in processing forever.
             withdrawal.status = "successful"
             withdrawal.completed_at = datetime.utcnow()
             await notify(
@@ -156,7 +152,8 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
                 status = (provider.get("status") or "").lower()
                 withdrawal.provider_reference = provider.get("transfer_code") or provider.get("reference") or reference
                 if status == "success":
-                    withdrawal.status = "processing"
+                    withdrawal.status = "successful"
+                    withdrawal.completed_at = datetime.utcnow()
                 elif status in ("failed", "reversed"):
                     await _mark_provider_failure(db, withdrawal, provider.get("failures") or f"Paystack transfer {status}")
                 else:
@@ -180,15 +177,8 @@ async def _do_withdrawal(user_id, amount_kobo, reference, account_number, bank_c
                         await _mark_provider_failure(db, failed_withdrawal, f"Paystack rejected transfer ({exc.response.status_code})")
                         await db.commit()
                     return
-                # The provider may have accepted the transfer before returning
-                # an error. Reconcile only after the session-level reference
-                # lock has been released; otherwise the reconciliation session
-                # can deadlock waiting for this transaction's advisory lock.
                 reconcile_after_unlock = True
             except Exception:
-                # A network timeout can be ambiguous: Paystack may have
-                # accepted the transfer even though the client saw an error.
-                # Never reconcile while holding the reference lock.
                 reconcile_after_unlock = True
             else:
                 provider_reference = result.get("transfer_code") or result.get("reference") or reference
