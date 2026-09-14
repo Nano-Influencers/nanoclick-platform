@@ -28,7 +28,6 @@ class ApiClient {
   Future<bool>? _refreshInFlight;
 
   bool get isLoggedIn => _accessToken != null;
-
   String get _authPlatform => storage.isWeb ? 'web' : 'app';
 
   Future<void> initialize() async {
@@ -111,11 +110,7 @@ class ApiClient {
         await setTokens(access: access);
         return true;
       }
-      final res = await _client.post(
-        _uri('/auth/refresh'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'refresh_token': refresh}),
-      );
+      final res = await _client.post(_uri('/auth/refresh'), headers: {'Content-Type': 'application/json'}, body: jsonEncode({'refresh_token': refresh}));
       if (res.statusCode != 200) return false;
       final data = jsonDecode(res.body);
       final access = data['access_token'];
@@ -126,39 +121,17 @@ class ApiClient {
     } catch (_) { return false; }
   }
 
-  Future<void> register({required String email, required String password, required String fullName, String? referralCode}) async {
-    await _request('POST', '/auth/register', auth: false, body: {'email': email, 'password': password, 'full_name': fullName, 'role': 'worker', 'referral_code': referralCode});
-  }
-
-  Future<void> login(String email, String password) async {
-    final data = await _request('POST', '/auth/login?platform=$_authPlatform', auth: false, body: {'email': email, 'password': password});
-    await setTokens(access: data['access_token'], refresh: data['refresh_token']);
-  }
-
+  Future<void> register({required String email, required String password, required String fullName, String? referralCode}) async => await _request('POST', '/auth/register', auth: false, body: {'email': email, 'password': password, 'full_name': fullName, 'role': 'worker', 'referral_code': referralCode});
+  Future<void> login(String email, String password) async { final data = await _request('POST', '/auth/login?platform=$_authPlatform', auth: false, body: {'email': email, 'password': password}); await setTokens(access: data['access_token'], refresh: data['refresh_token']); }
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
-
-  Future<void> logout() async {
-    try { await _request('POST', '/auth/logout?platform=$_authPlatform', auth: false); } catch (_) {}
-    await clearTokens();
-  }
-
+  Future<void> logout() async { try { await _request('POST', '/auth/logout?platform=$_authPlatform', auth: false); } catch (_) {} await clearTokens(); }
   Future<void> changePassword(String currentPassword, String newPassword) async => await _request('POST', '/auth/change-password', body: {'current_password': currentPassword, 'new_password': newPassword});
   Future<void> forgotPassword(String email) async => await _request('POST', '/auth/forgot-password', auth: false, body: {'email': email});
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
 
-  String oauthUrl(String provider, {String platform = 'web'}) {
-    if (platform == 'app') return '$baseUrl/auth/$provider/login?role=worker&platform=app';
-    final origin = storage.currentOrigin();
-    final redirectUri = Uri.encodeComponent('$origin/');
-    return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri';
-  }
-
-  Future<void> exchangeOAuthCode(String code, {String? platform}) async {
-    final target = platform ?? _authPlatform;
-    final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}&platform=$target', auth: false);
-    await setTokens(access: data['access_token'], refresh: data['refresh_token']);
-  }
+  String oauthUrl(String provider, {String platform = 'web'}) { if (platform == 'app') return '$baseUrl/auth/$provider/login?role=worker&platform=app'; final origin = storage.currentOrigin(); final redirectUri = Uri.encodeComponent('$origin/'); return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri'; }
+  Future<void> exchangeOAuthCode(String code, {String? platform}) async { final target = platform ?? _authPlatform; final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}&platform=$target', auth: false); await setTokens(access: data['access_token'], refresh: data['refresh_token']); }
 
   Future<Map<String, dynamic>> getWalletBalance() async => await _request('GET', '/wallet/balance') as Map<String, dynamic>;
   Future<Map<String, dynamic>> referralStats() async => await _request('GET', '/wallet/referral-stats') as Map<String, dynamic>;
@@ -168,7 +141,6 @@ class ApiClient {
   Future<Map<String, dynamic>> withdraw({required double amountNgn, required String bankCode, required String accountNumber}) async => await _request('POST', '/wallet/withdraw', body: {'amount_ngn': amountNgn, 'bank_code': bankCode, 'account_number': accountNumber}) as Map<String, dynamic>;
   Future<Map<String, dynamic>> spin() async => await _request('POST', '/wallet/spin') as Map<String, dynamic>;
   Future<Map<String, dynamic>> checkin() async => await _request('POST', '/wallet/checkin') as Map<String, dynamic>;
-
   Future<List<dynamic>> listTasks() async => await _request('GET', '/tasks') as List<dynamic>;
   Future<Map<String, dynamic>> getTask(String taskId) async => await _request('GET', '/tasks/$taskId') as Map<String, dynamic>;
   Future<Map<String, dynamic>> acceptTask(String taskId) async => await _request('POST', '/tasks/$taskId/accept') as Map<String, dynamic>;
@@ -180,8 +152,10 @@ class ApiClient {
   Future<Map<String, dynamic>> myTaskStats() async => await _request('GET', '/tasks/my-stats') as Map<String, dynamic>;
   Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async => await _request('POST', '/tasks/upload-url', body: {'file_extension': fileExtension}) as Map<String, dynamic>;
 
-  Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes) async {
-    final res = await _client.put(Uri.parse(uploadUrl), body: bytes);
+  /// Upload to a presigned PUT URL. The content type must match the value
+  /// used when the backend signed the URL, otherwise S3/R2 rejects the request.
+  Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes, {required String contentType}) async {
+    final res = await _client.put(Uri.parse(uploadUrl), headers: {'Content-Type': contentType}, body: bytes);
     if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
   }
 
