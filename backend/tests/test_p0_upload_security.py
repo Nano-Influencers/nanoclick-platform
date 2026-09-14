@@ -25,6 +25,17 @@ def test_submission_accepts_worker_storage_key():
     assert body.proof_urls[0].startswith("proofs/")
 
 
+def test_submission_accepts_proof_link_without_upload():
+    body = SubmissionCreate(proof_link="https://example.com/proof")
+    assert body.proof_urls == []
+    assert body.proof_link == "https://example.com/proof"
+
+
+def test_submission_rejects_empty_proof_submission():
+    with pytest.raises(ValidationError):
+        SubmissionCreate()
+
+
 def test_kyc_rejects_http_document_url():
     with pytest.raises(ValidationError):
         KycSubmitRequest(document_url="https://example.com/id.pdf")
