@@ -71,6 +71,14 @@ jobs:
           PYTHONPATH: .
         run: PYTHONPATH=. pytest -q
 
+  backend-image:
+    name: Backend Container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build --pull -t nanoclick-backend:ci ./backend
+
   nano-influencers:
     name: Nano Influencers Web
     runs-on: ubuntu-latest
