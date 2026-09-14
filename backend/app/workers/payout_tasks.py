@@ -78,7 +78,19 @@ async def _reconcile_provider_transfer(reference: str):
         withdrawal.provider_reference = provider.get("transfer_code") or provider.get("reference") or reference
 
         if status == "success":
-            withdrawal.status = "processing"
+            # Paystack verification is authoritative here: a verified success
+            # means the provider completed the transfer even if the webhook was
+            # delayed or lost, so do not leave the wallet withdrawal stranded
+            # in processing forever.
+            withdrawal.status = "successful"
+            withdrawal.completed_at = datetime.utcnow()
+            await notify(
+                db,
+                withdrawal.user_id,
+                "withdrawal_processed",
+                "Withdrawal successful",
+                f"₦{withdrawal.amount_kobo/100:,.2f} has been sent to your bank account.",
+            )
         elif status in ("failed", "reversed"):
             await _mark_provider_failure(db, withdrawal, provider.get("failures") or f"Paystack transfer {status}")
             await notify(
@@ -251,7 +263,6 @@ async def _reset():
             daily_repeating_single_kobo=0, daily_repeating_grouped_kobo=0,
             daily_trend_push_kobo=0, daily_skill_based_kobo=0, daily_unpaid_kobo=0,
             daily_one_off_single_cps=0, daily_one_off_grouped_cps=0,
-            daily_repeating_single_cps=0, daily_repeating_grouped_cps=0,
-            daily_trend_push_cps=0, daily_skill_based_cps=0, daily_unpaid_cps=0,
+            daily_trend_push_cps=0, daily_unpaid_cps=0,
             daily_reset_at=datetime.utcnow()))
         await db.commit()
