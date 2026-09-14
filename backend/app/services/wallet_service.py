@@ -72,6 +72,13 @@ async def credit(db: AsyncSession, user_id: uuid.UUID, amount_kobo: int, tx_type
             return existing
     wallet.balance_kobo += amount_kobo
     wallet.click_points += click_points
+    if tx_type == "withdrawal_reversal":
+        # debit() increments total_withdrawn_kobo when the withdrawal is
+        # requested. A confirmed provider failure/reversal returns those funds,
+        # so the aggregate must be reversed atomically with the refund.
+        if wallet.total_withdrawn_kobo < amount_kobo:
+            raise HTTPException(status_code=409, detail="Withdrawal total cannot be reversed safely")
+        wallet.total_withdrawn_kobo -= amount_kobo
     tx = Transaction(wallet_id=wallet.id, type=tx_type, amount_kobo=amount_kobo,
                      click_points_awarded=click_points, status="completed",
                      reference=reference, description=description)
