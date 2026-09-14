@@ -258,6 +258,12 @@ async def refund_escrow(db: AsyncSession, advertiser_id: uuid.UUID, amount_kobo:
     if amount_kobo <= 0:
         raise HTTPException(status_code=400, detail="Refund amount must be positive")
 
+    wallet = await _lock_wallet(db, advertiser_id)
+    if reference:
+        existing = await _existing_transaction(db, wallet.id, "escrow_release", reference, amount_kobo)
+        if existing:
+            return existing
+
     campaign = None
     if reference:
         prefix = reference.split(":", 1)[0]
@@ -276,11 +282,6 @@ async def refund_escrow(db: AsyncSession, advertiser_id: uuid.UUID, amount_kobo:
                 if campaign.escrow_kobo != amount_kobo:
                     raise HTTPException(status_code=409, detail="Campaign and refund escrow amounts diverge")
 
-    wallet = await _lock_wallet(db, advertiser_id)
-    if reference:
-        existing = await _existing_transaction(db, wallet.id, "escrow_release", reference, amount_kobo)
-        if existing:
-            return existing
     if wallet.escrow_kobo < amount_kobo:
         raise HTTPException(status_code=409, detail="Escrow balance insufficient for requested refund")
 
