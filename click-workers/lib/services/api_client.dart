@@ -68,8 +68,10 @@ class ApiClient {
     return 'Something went wrong (${res.statusCode})';
   }
 
-  Future<dynamic> _request(String method, String path, {Map<String, dynamic>? body, bool auth = true, bool retrying = false}) async {
-    final headers = {'Content-Type': 'application/json'};
+  String _idempotencyKey() => 'nano-${DateTime.now().microsecondsSinceEpoch}-${DateTime.now().millisecondsSinceEpoch}';
+
+  Future<dynamic> _request(String method, String path, {Map<String, dynamic>? body, bool auth = true, bool retrying = false, Map<String, String>? extraHeaders}) async {
+    final headers = {'Content-Type': 'application/json', ...?extraHeaders};
     if (auth && _accessToken != null) headers['Authorization'] = 'Bearer $_accessToken';
     final uri = _uri(path);
     final encodedBody = body != null ? jsonEncode(body) : null;
@@ -82,7 +84,7 @@ class ApiClient {
     }
     if (res.statusCode == 401 && auth && !retrying) {
       final refreshed = await _tryRefresh();
-      if (refreshed) return _request(method, path, body: body, auth: auth, retrying: true);
+      if (refreshed) return _request(method, path, body: body, auth: auth, retrying: true, extraHeaders: extraHeaders);
       await clearTokens();
       throw ApiException('Session expired — please log in again.', 401);
     }
@@ -136,9 +138,10 @@ class ApiClient {
   Future<Map<String, dynamic>> getWalletBalance() async => await _request('GET', '/wallet/balance') as Map<String, dynamic>;
   Future<Map<String, dynamic>> referralStats() async => await _request('GET', '/wallet/referral-stats') as Map<String, dynamic>;
   Future<List<dynamic>> getTransactions() async => await _request('GET', '/wallet/transactions') as List<dynamic>;
-  Future<Map<String, dynamic>> initiateDeposit(double amountNgn) async => await _request('POST', '/wallet/deposit/initialize', body: {'amount_ngn': amountNgn}) as Map<String, dynamic>;
-  Future<Map<String, dynamic>> resolveAccount(String bankCode, String accountNumber) async => await _request('GET', '/wallet/resolve-account?bank_code=$bankCode&account_number=$accountNumber') as Map<String, dynamic>;
-  Future<Map<String, dynamic>> withdraw({required double amountNgn, required String bankCode, required String accountNumber}) async => await _request('POST', '/wallet/withdraw', body: {'amount_ngn': amountNgn, 'bank_code': bankCode, 'account_number': accountNumber}) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> initiateDeposit(double amountNgn) async => await _request('POST', '/wallet/deposit/initialize', body: {'amount_ngn': amountNgn}, extraHeaders: {'Idempotency-Key': _idempotencyKey()}) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> resolveAccount(String bankCode, String accountNumber) async => await _request('GET', '/wallet/resolve-account?bank_code=${Uri.encodeQueryComponent(bankCode)}&account_number=${Uri.encodeQueryComponent(accountNumber)}') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> withdraw({required double amountNgn, required String bankCode, required String accountNumber}) async => await _request('POST', '/wallet/withdraw', body: {'amount_ngn': amountNgn, 'bank_code': bankCode, 'account_number': accountNumber}, extraHeaders: {'Idempotency-Key': _idempotencyKey()}) as Map<String, dynamic>;
+  Future<List<dynamic>> getWithdrawals() async => await _request('GET', '/wallet/withdrawals') as List<dynamic>;
   Future<Map<String, dynamic>> spin() async => await _request('POST', '/wallet/spin') as Map<String, dynamic>;
   Future<Map<String, dynamic>> checkin() async => await _request('POST', '/wallet/checkin') as Map<String, dynamic>;
   Future<List<dynamic>> listTasks() async => await _request('GET', '/tasks') as List<dynamic>;
@@ -147,8 +150,8 @@ class ApiClient {
   Future<void> cancelAcceptance(String taskId) async => await _request('POST', '/tasks/$taskId/cancel');
   Future<Map<String, dynamic>> submitTask(String taskId, List<String> proofUrls, {String? proofLink}) async => await _request('POST', '/tasks/$taskId/submit', body: {'proof_urls': proofUrls, 'proof_link': proofLink}) as Map<String, dynamic>;
   Future<void> reportTask(String taskId, String reason) async => await _request('POST', '/tasks/$taskId/report', body: {'reason': reason});
-  Future<List<dynamic>> mySubmissions({String? status}) async => await _request('GET', '/tasks/my-submissions${status != null ? '?status=$status' : ''}') as List<dynamic>;
-  Future<List<dynamic>> leaderboard(String period) async => await _request('GET', '/tasks/leaderboard/$period') as List<dynamic>;
+  Future<List<dynamic>> mySubmissions({String? status}) async => await _request('GET', '/tasks/my-submissions${status != null ? '?status=${Uri.encodeQueryComponent(status)}' : ''}') as List<dynamic>;
+  Future<List<dynamic>> leaderboard(String period) async => await _request('GET', '/tasks/leaderboard/${Uri.encodeComponent(period)}') as List<dynamic>;
   Future<Map<String, dynamic>> myTaskStats() async => await _request('GET', '/tasks/my-stats') as Map<String, dynamic>;
   Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async => await _request('POST', '/tasks/upload-url', body: {'file_extension': fileExtension}) as Map<String, dynamic>;
 
