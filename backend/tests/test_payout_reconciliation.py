@@ -26,7 +26,7 @@ async def _user(db, user_id):
 
 
 @pytest.mark.asyncio
-async def test_reconciliation_keeps_provider_success_processing(db_factory, monkeypatch):
+async def test_reconciliation_finalizes_provider_success(db_factory, monkeypatch):
     user_id = uuid.uuid4()
     reference = "wdw_reconcile_success"
 
@@ -56,8 +56,9 @@ async def test_reconciliation_keeps_provider_success_processing(db_factory, monk
 
     async with db_factory() as db:
         withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
-        assert withdrawal.status == "processing"
+        assert withdrawal.status == "successful"
         assert withdrawal.provider_reference == "TRF_test_001"
+        assert withdrawal.completed_at is not None
 
 
 @pytest.mark.asyncio
@@ -218,5 +219,6 @@ async def test_duplicate_worker_delivery_reconciles_before_second_transfer(db_fa
 
     async with db_factory() as db:
         withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
-        assert withdrawal.status == "processing"
+        assert withdrawal.status == "successful"
         assert withdrawal.provider_reference == "TRF_duplicate_test"
+        assert withdrawal.completed_at is not None
