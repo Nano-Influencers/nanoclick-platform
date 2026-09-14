@@ -56,9 +56,11 @@ async def test_reconciliation_finalizes_provider_success(db_factory, monkeypatch
 
     async with db_factory() as db:
         withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
+        wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
         assert withdrawal.status == "successful"
         assert withdrawal.provider_reference == "TRF_test_001"
         assert withdrawal.completed_at is not None
+        assert wallet.total_withdrawn_kobo == 20_000
 
 
 @pytest.mark.asyncio
