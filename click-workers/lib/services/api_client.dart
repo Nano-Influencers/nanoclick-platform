@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'api_http_client.dart';
@@ -21,11 +22,13 @@ class ApiClient {
   static final ApiClient instance = ApiClient._();
 
   static const String baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:8000');
+  static const Duration requestTimeout = Duration(seconds: 20);
   final http.Client _client = createApiHttpClient();
   String? _accessToken;
   String? _refreshToken;
   bool _initialized = false;
   Future<bool>? _refreshInFlight;
+  static int _requestSequence = 0;
 
   bool get isLoggedIn => _accessToken != null;
   String get _authPlatform => storage.isWeb ? 'web' : 'app';
@@ -58,6 +61,16 @@ class ApiClient {
 
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
+  String _requestId() {
+    _requestSequence = (_requestSequence + 1) & 0x7fffffff;
+    return 'nano-${DateTime.now().microsecondsSinceEpoch}-$_requestSequence';
+  }
+
+  String _idempotencyKey() {
+    _requestSequence = (_requestSequence + 1) & 0x7fffffff;
+    return 'nano-${DateTime.now().microsecondsSinceEpoch}-$_requestSequence';
+  }
+
   String _extractError(http.Response res) {
     try {
       final body = jsonDecode(res.body);
@@ -68,20 +81,30 @@ class ApiClient {
     return 'Something went wrong (${res.statusCode})';
   }
 
-  String _idempotencyKey() => 'nano-${DateTime.now().microsecondsSinceEpoch}-${DateTime.now().millisecondsSinceEpoch}';
+  Future<http.Response> _send(Future<http.Response> operation) async {
+    try {
+      return await operation.timeout(requestTimeout);
+    } on TimeoutException {
+      throw ApiException('The request timed out. Please try again.', 408);
+    } catch (error) {
+      if (error is ApiException) rethrow;
+      throw ApiException('Unable to reach the server. Check your connection and try again.', 0);
+    }
+  }
 
   Future<dynamic> _request(String method, String path, {Map<String, dynamic>? body, bool auth = true, bool retrying = false, Map<String, String>? extraHeaders}) async {
-    final headers = {'Content-Type': 'application/json', ...?extraHeaders};
+    final headers = {'Content-Type': 'application/json', 'X-Request-ID': _requestId(), ...?extraHeaders};
     if (auth && _accessToken != null) headers['Authorization'] = 'Bearer $_accessToken';
     final uri = _uri(path);
     final encodedBody = body != null ? jsonEncode(body) : null;
-    http.Response res;
+    late final Future<http.Response> operation;
     switch (method) {
-      case 'POST': res = await _client.post(uri, headers: headers, body: encodedBody); break;
-      case 'PATCH': res = await _client.patch(uri, headers: headers, body: encodedBody); break;
-      case 'DELETE': res = await _client.delete(uri, headers: headers, body: encodedBody); break;
-      default: res = await _client.get(uri, headers: headers);
+      case 'POST': operation = _client.post(uri, headers: headers, body: encodedBody); break;
+      case 'PATCH': operation = _client.patch(uri, headers: headers, body: encodedBody); break;
+      case 'DELETE': operation = _client.delete(uri, headers: headers, body: encodedBody); break;
+      default: operation = _client.get(uri, headers: headers);
     }
+    final res = await _send(operation);
     if (res.statusCode == 401 && auth && !retrying) {
       final refreshed = await _tryRefresh();
       if (refreshed) return _request(method, path, body: body, auth: auth, retrying: true, extraHeaders: extraHeaders);
@@ -90,7 +113,11 @@ class ApiClient {
     }
     if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException(_extractError(res), res.statusCode);
     if (res.body.isEmpty) return null;
-    return jsonDecode(res.body);
+    try {
+      return jsonDecode(res.body);
+    } catch (_) {
+      throw ApiException('The server returned an invalid response.', 502);
+    }
   }
 
   Future<bool> _tryRefresh() {
@@ -109,10 +136,14 @@ class ApiClient {
         final restored = await storage.restoreSession(baseUrl);
         final access = restored['access'];
         if (access is! String || access.isEmpty) return false;
-        await setTokens(access: access);
+        await setTokens(access: access, refresh: restored['refresh']);
         return true;
       }
-      final res = await _client.post(_uri('/auth/refresh'), headers: {'Content-Type': 'application/json'}, body: jsonEncode({'refresh_token': refresh}));
+      final res = await _send(_client.post(
+        _uri('/auth/refresh?platform=app'),
+        headers: {'Content-Type': 'application/json', 'X-Request-ID': _requestId()},
+        body: jsonEncode({'refresh_token': refresh}),
+      ));
       if (res.statusCode != 200) return false;
       final data = jsonDecode(res.body);
       final access = data['access_token'];
@@ -164,7 +195,7 @@ class ApiClient {
   /// Upload to a presigned PUT URL. The content type must match the value
   /// used when the backend signed the URL, otherwise S3/R2 rejects the request.
   Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes, {required String contentType}) async {
-    final res = await _client.put(Uri.parse(uploadUrl), headers: {'Content-Type': contentType}, body: bytes);
+    final res = await _send(_client.put(Uri.parse(uploadUrl), headers: {'Content-Type': contentType, 'X-Request-ID': _requestId()}, body: bytes));
     if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
   }
 
