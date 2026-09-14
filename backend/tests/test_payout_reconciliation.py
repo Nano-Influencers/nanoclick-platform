@@ -32,7 +32,7 @@ async def test_reconciliation_finalizes_provider_success(db_factory, monkeypatch
 
     async with db_factory() as db:
         await _user(db, user_id)
-        db.add(Wallet(user_id=user_id, balance_kobo=50_000))
+        db.add(Wallet(user_id=user_id, balance_kobo=50_000, total_withdrawn_kobo=20_000))
         db.add(
             Withdrawal(
                 user_id=user_id,
@@ -68,7 +68,7 @@ async def test_reconciliation_failure_refunds_once(db_factory, monkeypatch):
 
     async with db_factory() as db:
         await _user(db, user_id)
-        wallet = Wallet(user_id=user_id, balance_kobo=10_000)
+        wallet = Wallet(user_id=user_id, balance_kobo=10_000, total_withdrawn_kobo=10_000)
         db.add(wallet)
         await db.flush()
         db.add(
@@ -113,6 +113,7 @@ async def test_reconciliation_failure_refunds_once(db_factory, monkeypatch):
 
         assert withdrawal.status == "failed"
         assert wallet.balance_kobo == 10_000
+        assert wallet.total_withdrawn_kobo == 0
         assert len(reversals) == 1
 
 
@@ -123,7 +124,7 @@ async def test_reconciliation_is_idempotent_after_failure(db_factory, monkeypatc
 
     async with db_factory() as db:
         await _user(db, user_id)
-        wallet = Wallet(user_id=user_id, balance_kobo=0)
+        wallet = Wallet(user_id=user_id, balance_kobo=0, total_withdrawn_kobo=5_000)
         db.add(wallet)
         await db.flush()
         db.add(
@@ -162,7 +163,9 @@ async def test_reconciliation_is_idempotent_after_failure(db_factory, monkeypatc
 
     async with db_factory() as db:
         reversals = (await db.execute(select(Transaction).where(Transaction.reference == f"{reference}:reversal"))).scalars().all()
+        wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
         assert len(reversals) == 0
+        assert wallet.total_withdrawn_kobo == 5_000
 
 
 @pytest.mark.asyncio
