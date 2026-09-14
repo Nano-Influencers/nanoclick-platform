@@ -104,7 +104,7 @@ export const api = {
   async getBalance() { return request("/wallet/balance"); },
   async getTransactions() { return request("/wallet/transactions"); },
   async getDepositStatus(reference) { return request(`/wallet/deposits/${encodeURIComponent(reference)}`); },
-  async initiateDeposit(amount_ngn) { return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn }, headers: { "Idempotency-Key": idempotencyKey() } }); },
+  async initiateDeposit(amount_ngn, options = {}) { return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn }, headers: { "Idempotency-Key": options.idempotencyKey || idempotencyKey() } }); },
   async listCampaigns() { return request("/campaigns"); },
   async getCampaign(id) { return request(`/campaigns/${id}`); },
   async getCampaignReport(id) { return request(`/campaigns/${id}/report`); },
@@ -117,4 +117,4 @@ export const api = {
   async markAllNotificationsRead() { return request(`/notifications/read-all`, { method: "POST" }); },
 };
 
-export { ApiError, getTokens, clearTokens };
+export { ApiError, getTokens, clearTokens, idempotencyKey };
