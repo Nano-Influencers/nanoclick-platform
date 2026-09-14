@@ -1,3 +1,4 @@
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -20,6 +21,7 @@ from app.services.email_service import send_password_reset_email
 from app.services.oauth_service import exchange_facebook_code, exchange_google_code, facebook_auth_url, google_auth_url
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 _COOKIE_NAME = "nanoclick_refresh"
 _COOKIE_PATH = "/auth"
 
@@ -224,8 +226,10 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
         try:
             await send_password_reset_email(user.email, token)
         except Exception:
-            # Do not expose delivery/provider details or reset tokens to clients.
-            raise HTTPException(503, "Password reset service is temporarily unavailable")
+            # Keep the external response identical to the unknown-account path
+            # so SMTP outages cannot become an account-enumeration oracle.
+            # The exception is logged server-side without exposing provider details.
+            logger.exception("Password reset email delivery failed")
     return {"message": "If that email is registered, a password reset link has been sent."}
 
 
@@ -248,44 +252,38 @@ async def delete_my_account(current_user: User = Depends(get_current_user), db: 
 
 
 @router.get("/google/login")
-async def google_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if not settings.GOOGLE_CLIENT_ID: raise HTTPException(503, "Google OAuth not configured")
-    role = role if role in ("advertiser", "worker") else "worker"; platform = platform if platform in ("app", "web") else "app"
-    validated_redirect = _validate_redirect_uri(redirect_uri)
-    if redirect_uri and not validated_redirect: raise HTTPException(400, "redirect_uri is not in the allowed list")
-    state = await _begin_oauth(db, role, platform, validated_redirect)
-    return RedirectResponse(google_auth_url(state), 302)
-
-
-@router.get("/google/callback", include_in_schema=False)
-async def google_callback(code: str = Query(...), state: str = Query(...), error: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if error: raise HTTPException(400, f"Google login denied: {error}")
-    oauth_state = await _consume_oauth_state(db, state)
-    try:
-        provider_data = await exchange_google_code(code)
-        user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
-        return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
-    except HTTPException: raise
-    except Exception: raise HTTPException(502, "Google OAuth exchange failed")
+async def google_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str | None = None, db: AsyncSession = Depends(get_db)):
+    if role not in ("worker", "advertiser"): raise HTTPException(400, "Invalid role")
+    if platform == "web":
+        safe_redirect = _validate_redirect_uri(redirect_uri or settings.OAUTH_WEB_REDIRECT_URL)
+        if not safe_redirect: raise HTTPException(400, "Invalid redirect URI")
+    else: safe_redirect = None
+    state = await _begin_oauth(db, role, platform, safe_redirect)
+    return RedirectResponse(url=google_auth_url(state, role=role, redirect_uri=safe_redirect))
 
 
 @router.get("/facebook/login")
-async def facebook_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if not settings.FACEBOOK_CLIENT_ID: raise HTTPException(503, "Facebook OAuth not configured")
-    role = role if role in ("advertiser", "worker") else "worker"; platform = platform if platform in ("app", "web") else "app"
-    validated_redirect = _validate_redirect_uri(redirect_uri)
-    if redirect_uri and not validated_redirect: raise HTTPException(400, "redirect_uri is not in the allowed list")
-    state = await _begin_oauth(db, role, platform, validated_redirect)
-    return RedirectResponse(facebook_auth_url(state), 302)
+async def facebook_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str | None = None, db: AsyncSession = Depends(get_db)):
+    if role not in ("worker", "advertiser"): raise HTTPException(400, "Invalid role")
+    if platform == "web":
+        safe_redirect = _validate_redirect_uri(redirect_uri or settings.OAUTH_WEB_REDIRECT_URL)
+        if not safe_redirect: raise HTTPException(400, "Invalid redirect URI")
+    else: safe_redirect = None
+    state = await _begin_oauth(db, role, platform, safe_redirect)
+    return RedirectResponse(url=facebook_auth_url(state, role=role, redirect_uri=safe_redirect))
 
 
-@router.get("/facebook/callback", include_in_schema=False)
-async def facebook_callback(code: str = Query(...), state: str = Query(...), error: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if error: raise HTTPException(400, f"Facebook login denied: {error}")
-    oauth_state = await _consume_oauth_state(db, state)
-    try:
-        provider_data = await exchange_facebook_code(code)
-        user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
-        return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
-    except HTTPException: raise
-    except Exception: raise HTTPException(502, "Facebook OAuth exchange failed")
+@router.get("/google/callback")
+async def google_callback(code: str, state: str, db: AsyncSession = Depends(get_db)):
+    record = await _consume_oauth_state(db, state)
+    provider_data = await exchange_google_code(code, redirect_uri=record.redirect_uri)
+    user = await _upsert_oauth_user(db, provider_data, role=record.role)
+    return await _oauth_redirect(db, user, record.platform, record.redirect_uri)
+
+
+@router.get("/facebook/callback")
+async def facebook_callback(code: str, state: str, db: AsyncSession = Depends(get_db)):
+    record = await _consume_oauth_state(db, state)
+    provider_data = await exchange_facebook_code(code, redirect_uri=record.redirect_uri)
+    user = await _upsert_oauth_user(db, provider_data, role=record.role)
+    return await _oauth_redirect(db, user, record.platform, record.redirect_uri)
