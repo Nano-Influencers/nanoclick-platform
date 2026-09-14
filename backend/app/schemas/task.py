@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from urllib.parse import urlparse
+
 
 class TaskResponse(BaseModel):
     id: uuid.UUID
@@ -22,15 +24,44 @@ class TaskResponse(BaseModel):
     created_at: datetime
     model_config = {"from_attributes": True}
 
+
 class AcceptTaskResponse(BaseModel):
     acceptance_id: uuid.UUID
     task_id: uuid.UUID
     expires_at: datetime
     message: str
 
+
 class SubmissionCreate(BaseModel):
-    proof_urls: list[str]
-    proof_link: str | None = None
+    # Despite the legacy field name, these are opaque private-storage keys,
+    # never HTTP URLs. The API deliberately keeps the name for client compatibility.
+    proof_urls: list[str] = Field(min_length=1, max_length=5)
+    proof_link: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("proof_urls")
+    @classmethod
+    def validate_proof_keys(cls, values: list[str]) -> list[str]:
+        for value in values:
+            value = value.strip()
+            if not value or len(value) > 500:
+                raise ValueError("Invalid proof storage key")
+            parsed = urlparse(value)
+            if parsed.scheme or parsed.netloc or value.startswith("/") or "\\" in value:
+                raise ValueError("Proofs must use private storage keys, not URLs")
+            if ".." in value.split("/") or not value.startswith("proofs/"):
+                raise ValueError("Proof storage key must be under the private proofs prefix")
+        return values
+
+    @field_validator("proof_link")
+    @classmethod
+    def validate_proof_link(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlparse(value.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Proof link must be a valid HTTP(S) URL")
+        return value.strip()
+
 
 class SubmissionResponse(BaseModel):
     id: uuid.UUID
@@ -40,6 +71,7 @@ class SubmissionResponse(BaseModel):
     rejection_reason: str | None
     submitted_at: datetime
     model_config = {"from_attributes": True}
+
 
 class SubmissionWithTaskResponse(BaseModel):
     id: uuid.UUID
@@ -54,17 +86,21 @@ class SubmissionWithTaskResponse(BaseModel):
     submitted_at: datetime
     reviewed_at: datetime | None
 
+
 class TaskReportCreate(BaseModel):
     reason: str
 
+
 class PresignedUrlRequest(BaseModel):
-    file_extension: str
+    file_extension: str = Field(min_length=2, max_length=5)
+
 
 class PresignedUrlResponse(BaseModel):
     upload_url: str
     file_key: str
-    public_url: str
+    content_type: str
     expires_in_seconds: int
+
 
 class LeaderboardEntryResponse(BaseModel):
     rank: int
