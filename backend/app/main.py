@@ -16,21 +16,23 @@ from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
 
 logger = logging.getLogger("nanoclick.api")
+_is_production = settings.APP_ENV.strip().lower() in {"production", "prod"}
 
 app = FastAPI(
     title="NanoClick API",
     description="Backend for Nano Influencers (advertiser) and Click Workers (worker) apps.",
     version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
 )
 
 
@@ -41,7 +43,7 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if settings.APP_ENV == "production":
+    if _is_production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
