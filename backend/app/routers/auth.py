@@ -14,20 +14,10 @@ from app.models.auth_session import AuthSession, OAuthCode, OAuthState
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.schemas.auth import (
-    ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
-    RefreshRequest, RegisterRequest, ResetPasswordRequest,
-    TokenResponse, UserResponse,
-)
-from app.services.auth_service import (
-    create_access_token, create_refresh_token, decode_token,
-    generate_referral_code, hash_password, hash_token_identifier,
-    new_oauth_state, token_jti, verify_password,
-)
-from app.services.oauth_service import (
-    exchange_facebook_code, exchange_google_code,
-    facebook_auth_url, google_auth_url,
-)
+from app.schemas.auth import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse
+from app.services.auth_service import create_access_token, create_refresh_token, decode_token, generate_referral_code, hash_password, hash_token_identifier, new_oauth_state, token_jti, verify_password
+from app.services.email_service import send_password_reset_email
+from app.services.oauth_service import exchange_facebook_code, exchange_google_code, facebook_auth_url, google_auth_url
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _COOKIE_NAME = "nanoclick_refresh"
@@ -49,15 +39,7 @@ def _is_web_platform(platform: str) -> bool:
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
-    response.set_cookie(
-        key=_COOKIE_NAME,
-        value=refresh_token,
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        httponly=True,
-        secure=settings.AUTH_COOKIE_SECURE,
-        samesite=settings.AUTH_COOKIE_SAMESITE.lower(),
-        path=_COOKIE_PATH,
-    )
+    response.set_cookie(key=_COOKIE_NAME, value=refresh_token, max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, httponly=True, secure=settings.AUTH_COOKIE_SECURE, samesite=settings.AUTH_COOKIE_SAMESITE.lower(), path=_COOKIE_PATH)
 
 
 def _clear_refresh_cookie(response: Response) -> None:
@@ -69,11 +51,7 @@ async def _create_refresh_session(db: AsyncSession, user_id: uuid.UUID, refresh_
     if not jti:
         raise HTTPException(500, "Failed to create authentication session")
     payload = decode_token(refresh_token)
-    db.add(AuthSession(
-        user_id=user_id,
-        token_jti_hash=hash_token_identifier(jti),
-        expires_at=datetime.utcfromtimestamp(payload["exp"]),
-    ))
+    db.add(AuthSession(user_id=user_id, token_jti_hash=hash_token_identifier(jti), expires_at=datetime.utcfromtimestamp(payload["exp"])))
 
 
 async def _issue_tokens(db: AsyncSession, user: User) -> TokenResponse:
@@ -84,18 +62,13 @@ async def _issue_tokens(db: AsyncSession, user: User) -> TokenResponse:
 
 
 async def _revoke_user_sessions(db: AsyncSession, user_id: uuid.UUID) -> None:
-    await db.execute(update(AuthSession).where(
-        AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None)
-    ).values(revoked_at=datetime.utcnow()))
+    await db.execute(update(AuthSession).where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None)).values(revoked_at=datetime.utcnow()))
 
 
 async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
-    if not provider_data.get("email"):
-        raise HTTPException(400, "No email from OAuth provider")
-    result = await db.execute(select(User).where(
-        User.oauth_provider == provider_data["provider"],
-        User.oauth_provider_id == provider_data["provider_id"],
-    ))
+    if not provider_data.get("email") or not provider_data.get("email_verified"):
+        raise HTTPException(403, "A verified email address is required for social login")
+    result = await db.execute(select(User).where(User.oauth_provider == provider_data["provider"], User.oauth_provider_id == provider_data["provider_id"]))
     user = result.scalar_one_or_none()
     if user:
         if not user.is_active:
@@ -109,12 +82,7 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
         user.oauth_provider = provider_data["provider"]
         user.oauth_provider_id = provider_data["provider_id"]
         return user
-    user = User(
-        email=provider_data["email"], password_hash=None,
-        full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0],
-        role=role, referral_code=generate_referral_code(),
-        oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"],
-    )
+    user = User(email=provider_data["email"], password_hash=None, full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0], role=role, referral_code=generate_referral_code(), oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"])
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
@@ -123,10 +91,7 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
 
 async def _begin_oauth(db: AsyncSession, role: str, platform: str, redirect_uri: str | None) -> str:
     state = new_oauth_state()
-    db.add(OAuthState(
-        nonce_hash=hash_token_identifier(state), role=role, platform=platform,
-        redirect_uri=redirect_uri, expires_at=datetime.utcnow() + timedelta(minutes=10),
-    ))
+    db.add(OAuthState(nonce_hash=hash_token_identifier(state), role=role, platform=platform, redirect_uri=redirect_uri, expires_at=datetime.utcnow() + timedelta(minutes=10)))
     await db.flush()
     return state
 
@@ -134,9 +99,7 @@ async def _begin_oauth(db: AsyncSession, role: str, platform: str, redirect_uri:
 async def _consume_oauth_state(db: AsyncSession, state: str) -> OAuthState:
     if not state:
         raise HTTPException(400, "Missing OAuth state")
-    result = await db.execute(select(OAuthState).where(
-        OAuthState.nonce_hash == hash_token_identifier(state)
-    ).with_for_update())
+    result = await db.execute(select(OAuthState).where(OAuthState.nonce_hash == hash_token_identifier(state)).with_for_update())
     record = result.scalar_one_or_none()
     if not record or record.consumed_at is not None or record.expires_at < datetime.utcnow():
         raise HTTPException(400, "Invalid or expired OAuth state")
@@ -146,15 +109,9 @@ async def _consume_oauth_state(db: AsyncSession, state: str) -> OAuthState:
 
 async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_uri: str | None):
     code = secrets.token_urlsafe(32)
-    db.add(OAuthCode(
-        code_hash=hash_token_identifier(code), user_id=user.id,
-        redirect_uri=redirect_uri, expires_at=datetime.utcnow() + timedelta(minutes=2),
-    ))
+    db.add(OAuthCode(code_hash=hash_token_identifier(code), user_id=user.id, redirect_uri=redirect_uri, expires_at=datetime.utcnow() + timedelta(minutes=2)))
     await db.flush()
-    if platform == "web":
-        base = redirect_uri or settings.OAUTH_WEB_REDIRECT_URL
-    else:
-        base = "nanoclick://oauth"
+    base = redirect_uri or settings.OAUTH_WEB_REDIRECT_URL if platform == "web" else "nanoclick://oauth"
     sep = "&" if "?" in base else "?"
     return RedirectResponse(url=f"{base}{sep}oauth_code={code}", status_code=302)
 
@@ -170,12 +127,8 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if body.referral_code:
         ref = await db.execute(select(User).where(User.referral_code == body.referral_code))
         r = ref.scalar_one_or_none()
-        if r:
-            referred_by = r.id
-    user = User(
-        email=body.email, password_hash=hash_password(body.password), full_name=body.full_name,
-        role=body.role, referral_code=generate_referral_code(), referred_by=referred_by,
-    )
+        if r: referred_by = r.id
+    user = User(email=body.email, password_hash=hash_password(body.password), full_name=body.full_name, role=body.role, referral_code=generate_referral_code(), referred_by=referred_by)
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
@@ -186,14 +139,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 async def login(body: LoginRequest, response: Response, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(401, "Invalid credentials")
-    if user.password_hash is None:
-        raise HTTPException(400, f"This account uses {user.oauth_provider or 'social'} login")
-    if not verify_password(body.password, user.password_hash):
-        raise HTTPException(401, "Invalid credentials")
-    if not user.is_active:
-        raise HTTPException(403, "Account disabled")
+    if not user: raise HTTPException(401, "Invalid credentials")
+    if user.password_hash is None: raise HTTPException(400, f"This account uses {user.oauth_provider or 'social'} login")
+    if not verify_password(body.password, user.password_hash): raise HTTPException(401, "Invalid credentials")
+    if not user.is_active: raise HTTPException(403, "Account disabled")
     tokens = await _issue_tokens(db, user)
     if _is_web_platform(platform):
         _set_refresh_cookie(response, tokens.refresh_token)
@@ -202,101 +151,65 @@ async def login(body: LoginRequest, response: Response, platform: str = Query("a
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(request: Request, response: Response, body: RefreshRequest | None = None,
-                  platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
+async def refresh(request: Request, response: Response, body: RefreshRequest | None = None, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
     supplied_refresh = body.refresh_token if body else None
     refresh_token = supplied_refresh or request.cookies.get(_COOKIE_NAME)
-    if not refresh_token:
-        raise HTTPException(401, "Refresh token required")
+    if not refresh_token: raise HTTPException(401, "Refresh token required")
     payload = decode_token(refresh_token)
-    if not payload or payload.get("type") != "refresh" or not payload.get("jti"):
-        raise HTTPException(401, "Invalid refresh token")
-    jti_hash = hash_token_identifier(payload["jti"])
-    result = await db.execute(select(AuthSession).where(
-        AuthSession.token_jti_hash == jti_hash
-    ).with_for_update())
+    if not payload or payload.get("type") != "refresh" or not payload.get("jti"): raise HTTPException(401, "Invalid refresh token")
+    result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(payload["jti"])).with_for_update())
     session = result.scalar_one_or_none()
-    if not session or session.revoked_at is not None or session.expires_at < datetime.utcnow():
-        raise HTTPException(401, "Refresh session expired or revoked")
-    try:
-        user_id = uuid.UUID(payload["sub"])
-    except (ValueError, TypeError):
-        raise HTTPException(401, "Invalid refresh token")
-    if session.user_id != user_id:
-        raise HTTPException(401, "Invalid refresh session")
+    if not session or session.revoked_at is not None or session.expires_at < datetime.utcnow(): raise HTTPException(401, "Refresh session expired or revoked")
+    try: user_id = uuid.UUID(payload["sub"])
+    except (ValueError, TypeError): raise HTTPException(401, "Invalid refresh token")
+    if session.user_id != user_id: raise HTTPException(401, "Invalid refresh session")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(401, "User not found")
-    session.revoked_at = datetime.utcnow()
-    session.last_used_at = datetime.utcnow()
+    if not user or not user.is_active: raise HTTPException(401, "User not found")
+    session.revoked_at = datetime.utcnow(); session.last_used_at = datetime.utcnow()
     tokens = await _issue_tokens(db, user)
     new_jti = token_jti(tokens.refresh_token)
     session.replaced_by_jti_hash = hash_token_identifier(new_jti) if new_jti else None
     if _is_web_platform(platform) or not supplied_refresh:
-        _set_refresh_cookie(response, tokens.refresh_token)
-        tokens.refresh_token = None
+        _set_refresh_cookie(response, tokens.refresh_token); tokens.refresh_token = None
     return tokens
 
 
 @router.post("/logout")
-async def logout(request: Request, response: Response, body: RefreshRequest | None = None,
-                 platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
+async def logout(request: Request, response: Response, body: RefreshRequest | None = None, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
     refresh_token = (body.refresh_token if body else None) or request.cookies.get(_COOKIE_NAME)
     if refresh_token:
-        payload = decode_token(refresh_token)
-        jti = payload.get("jti") if payload and payload.get("type") == "refresh" else None
+        payload = decode_token(refresh_token); jti = payload.get("jti") if payload and payload.get("type") == "refresh" else None
         if jti:
-            result = await db.execute(select(AuthSession).where(
-                AuthSession.token_jti_hash == hash_token_identifier(jti)
-            ).with_for_update())
+            result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(jti)).with_for_update())
             session = result.scalar_one_or_none()
-            if session and session.revoked_at is None:
-                session.revoked_at = datetime.utcnow()
-    if _is_web_platform(platform) or request.cookies.get(_COOKIE_NAME):
-        _clear_refresh_cookie(response)
+            if session and session.revoked_at is None: session.revoked_at = datetime.utcnow()
+    if _is_web_platform(platform) or request.cookies.get(_COOKIE_NAME): _clear_refresh_cookie(response)
     return {"message": "Logged out"}
 
 
 @router.post("/oauth/exchange", response_model=TokenResponse)
-async def exchange_oauth_code(response: Response,
-                              code: str = Query(..., min_length=20, max_length=200),
-                              platform: str = Query("app"),
-                              db: AsyncSession = Depends(get_db)):
-    """Exchange a short-lived OAuth code exactly once."""
-    result = await db.execute(select(OAuthCode).where(
-        OAuthCode.code_hash == hash_token_identifier(code)
-    ).with_for_update())
+async def exchange_oauth_code(response: Response, code: str = Query(..., min_length=20, max_length=200), platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(OAuthCode).where(OAuthCode.code_hash == hash_token_identifier(code)).with_for_update())
     record = result.scalar_one_or_none()
-    if not record or record.used_at is not None or record.expires_at < datetime.utcnow():
-        raise HTTPException(401, "Invalid or expired OAuth code")
-    user_result = await db.execute(select(User).where(User.id == record.user_id))
-    user = user_result.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(401, "User not found")
-    record.used_at = datetime.utcnow()
-    tokens = await _issue_tokens(db, user)
-    if _is_web_platform(platform):
-        _set_refresh_cookie(response, tokens.refresh_token)
-        tokens.refresh_token = None
+    if not record or record.used_at is not None or record.expires_at < datetime.utcnow(): raise HTTPException(401, "Invalid or expired OAuth code")
+    user_result = await db.execute(select(User).where(User.id == record.user_id)); user = user_result.scalar_one_or_none()
+    if not user or not user.is_active: raise HTTPException(401, "User not found")
+    record.used_at = datetime.utcnow(); tokens = await _issue_tokens(db, user)
+    if _is_web_platform(platform): _set_refresh_cookie(response, tokens.refresh_token); tokens.refresh_token = None
     return tokens
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(current_user: User = Depends(get_current_user)):
-    return current_user
+async def me(current_user: User = Depends(get_current_user)): return current_user
 
 
 @router.post("/change-password")
 async def change_password(body: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if current_user.password_hash is None:
-        raise HTTPException(400, f"This account uses {current_user.oauth_provider or 'social'} login and has no password to change")
-    if not verify_password(body.current_password, current_user.password_hash):
-        raise HTTPException(401, "Current password is incorrect")
-    if len(body.new_password) < 8:
-        raise HTTPException(400, "New password must be at least 8 characters")
-    current_user.password_hash = hash_password(body.new_password)
-    await _revoke_user_sessions(db, current_user.id)
+    if current_user.password_hash is None: raise HTTPException(400, f"This account uses {current_user.oauth_provider or 'social'} login and has no password to change")
+    if not verify_password(body.current_password, current_user.password_hash): raise HTTPException(401, "Current password is incorrect")
+    if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
+    current_user.password_hash = hash_password(body.new_password); await _revoke_user_sessions(db, current_user.id)
     return {"message": "Password changed; please sign in again"}
 
 
@@ -307,87 +220,72 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     if user and user.password_hash is not None:
         token = secrets.token_urlsafe(32)
         db.add(PasswordResetToken(user_id=user.id, token=hash_token_identifier(token), expires_at=datetime.utcnow() + timedelta(hours=1)))
+        await db.flush()
+        try:
+            await send_password_reset_email(user.email, token)
+        except Exception:
+            # Do not expose delivery/provider details or reset tokens to clients.
+            raise HTTPException(503, "Password reset service is temporarily unavailable")
     return {"message": "If that email is registered, a password reset link has been sent."}
 
 
 @router.post("/reset-password")
 async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(PasswordResetToken).where(
-        PasswordResetToken.token == hash_token_identifier(body.token)
-    ).with_for_update())
+    result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == hash_token_identifier(body.token)).with_for_update())
     reset_token = result.scalar_one_or_none()
-    if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow():
-        raise HTTPException(400, "This reset link is invalid or has expired")
-    if len(body.new_password) < 8:
-        raise HTTPException(400, "New password must be at least 8 characters")
-    user_result = await db.execute(select(User).where(User.id == reset_token.user_id))
-    user = user_result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(404, "Account no longer exists")
-    user.password_hash = hash_password(body.new_password)
-    reset_token.used = True
-    await _revoke_user_sessions(db, user.id)
+    if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow(): raise HTTPException(400, "This reset link is invalid or has expired")
+    if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
+    user_result = await db.execute(select(User).where(User.id == reset_token.user_id)); user = user_result.scalar_one_or_none()
+    if not user: raise HTTPException(404, "Account no longer exists")
+    user.password_hash = hash_password(body.new_password); reset_token.used = True; await _revoke_user_sessions(db, user.id)
     return {"message": "Password reset — you can now log in with your new password"}
 
 
 @router.delete("/me")
 async def delete_my_account(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    current_user.is_active = False
-    await _revoke_user_sessions(db, current_user.id)
+    current_user.is_active = False; await _revoke_user_sessions(db, current_user.id)
     return {"message": "Account deactivated"}
 
 
 @router.get("/google/login")
 async def google_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if not settings.GOOGLE_CLIENT_ID:
-        raise HTTPException(503, "Google OAuth not configured")
-    role = role if role in ("advertiser", "worker") else "worker"
-    platform = platform if platform in ("app", "web") else "app"
+    if not settings.GOOGLE_CLIENT_ID: raise HTTPException(503, "Google OAuth not configured")
+    role = role if role in ("advertiser", "worker") else "worker"; platform = platform if platform in ("app", "web") else "app"
     validated_redirect = _validate_redirect_uri(redirect_uri)
-    if redirect_uri and not validated_redirect:
-        raise HTTPException(400, "redirect_uri is not in the allowed list")
+    if redirect_uri and not validated_redirect: raise HTTPException(400, "redirect_uri is not in the allowed list")
     state = await _begin_oauth(db, role, platform, validated_redirect)
     return RedirectResponse(google_auth_url(state), 302)
 
 
 @router.get("/google/callback", include_in_schema=False)
 async def google_callback(code: str = Query(...), state: str = Query(...), error: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if error:
-        raise HTTPException(400, f"Google login denied: {error}")
+    if error: raise HTTPException(400, f"Google login denied: {error}")
     oauth_state = await _consume_oauth_state(db, state)
     try:
         provider_data = await exchange_google_code(code)
         user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
         return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(502, "Google OAuth exchange failed")
+    except HTTPException: raise
+    except Exception: raise HTTPException(502, "Google OAuth exchange failed")
 
 
 @router.get("/facebook/login")
 async def facebook_login(role: str = Query("worker"), platform: str = Query("app"), redirect_uri: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if not settings.FACEBOOK_APP_ID:
-        raise HTTPException(503, "Facebook OAuth not configured")
-    role = role if role in ("advertiser", "worker") else "worker"
-    platform = platform if platform in ("app", "web") else "app"
+    if not settings.FACEBOOK_CLIENT_ID: raise HTTPException(503, "Facebook OAuth not configured")
+    role = role if role in ("advertiser", "worker") else "worker"; platform = platform if platform in ("app", "web") else "app"
     validated_redirect = _validate_redirect_uri(redirect_uri)
-    if redirect_uri and not validated_redirect:
-        raise HTTPException(400, "redirect_uri is not in the allowed list")
+    if redirect_uri and not validated_redirect: raise HTTPException(400, "redirect_uri is not in the allowed list")
     state = await _begin_oauth(db, role, platform, validated_redirect)
     return RedirectResponse(facebook_auth_url(state), 302)
 
 
 @router.get("/facebook/callback", include_in_schema=False)
 async def facebook_callback(code: str = Query(...), state: str = Query(...), error: str = Query(None), db: AsyncSession = Depends(get_db)):
-    if error:
-        raise HTTPException(400, f"Facebook login denied: {error}")
+    if error: raise HTTPException(400, f"Facebook login denied: {error}")
     oauth_state = await _consume_oauth_state(db, state)
     try:
         provider_data = await exchange_facebook_code(code)
         user = await _upsert_oauth_user(db, provider_data, oauth_state.role)
         return await _oauth_redirect(db, user, oauth_state.platform, oauth_state.redirect_uri)
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(502, "Facebook OAuth exchange failed")
+    except HTTPException: raise
+    except Exception: raise HTTPException(502, "Facebook OAuth exchange failed")
