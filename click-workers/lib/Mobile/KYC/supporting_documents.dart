@@ -57,6 +57,6 @@ class _SupportingDocumentsState extends State<SupportingDocuments> {
       SizedBox(height: 2.h), const Text('Upload a clear image or PDF of the identification document.'), SizedBox(height: 1.h),
       SizedBox(width: double.infinity, height: 52, child: OutlinedButton.icon(onPressed: uploading ? null : _pickDocument, icon: const Icon(Icons.upload_file), label: Text(selectedFile == null ? 'Choose document' : selectedFile!.name))), SizedBox(height: 3.h),
       SizedBox(width: double.infinity, height: 52, child: ElevatedButton(onPressed: uploading ? null : _continue, style: ElevatedButton.styleFrom(backgroundColor: Colors.black), child: uploading ? const CircularProgressIndicator(color: Colors.white) : const Text('Continue')))
-    ]))),
+    ])))),
   );
 }
