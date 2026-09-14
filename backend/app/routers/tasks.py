@@ -53,7 +53,7 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     if is_high_earning is not None: conds.append(Task.is_high_earning == is_high_earning)
     if is_urgent is not None: conds.append(Task.is_urgent == is_urgent)
     if platform: conds.append(Task.platform == platform)
-    accepted_result = await db.execute(select(TaskAcceptance.task_id).where(and_(TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status.in_(["active","submitted"]))))
+    accepted_result = await db.execute(select(TaskAcceptance.task_id).where(TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status.in_(["active", "submitted"])))
     accepted_ids = list(accepted_result.scalars())
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
     result = await db.execute(select(Task).join(Campaign, Campaign.id == Task.campaign_id).where(and_(*conds, Campaign.status == "active")).order_by(Task.is_urgent.desc(), Task.created_at.desc()).limit(50))
@@ -114,7 +114,7 @@ async def submit_task(task_id: uuid.UUID, body: SubmissionCreate, current_user: 
     await _validate_proofs(body.proof_urls, current_user.id)
     speed_minutes = (datetime.utcnow() - acceptance.accepted_at).total_seconds() / 60
     flagged = speed_minutes < 2.0
-    image_hash = await compute_image_hash(body.proof_urls[0])
+    image_hash = await compute_image_hash(body.proof_urls[0]) if body.proof_urls else None
     sub = Submission(task_id=task_id, worker_id=current_user.id, acceptance_id=acceptance.id, status="under_review" if flagged else "pending", proof_urls=body.proof_urls, proof_link=body.proof_link, proof_image_hash=image_hash, task_speed_minutes=speed_minutes)
     if flagged: sub.rejection_reason = "Submitted too quickly — flagged for review"
     db.add(sub)
