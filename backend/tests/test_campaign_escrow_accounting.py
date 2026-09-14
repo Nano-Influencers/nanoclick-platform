@@ -281,3 +281,32 @@ async def test_platform_ledger_snapshot_must_match_wallet_balance(db: AsyncSessi
     with pytest.raises(IntegrityError):
         await db.flush()
     await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_task_payout_idempotency_cannot_return_another_worker_transaction(db: AsyncSession):
+    advertiser = await _user(db, "advertiser", "cross-worker-advertiser")
+    worker_a = await _user(db, "worker", "cross-worker-a")
+    worker_b = await _user(db, "worker", "cross-worker-b")
+    db.add(Wallet(user_id=advertiser.id, balance_kobo=20_000))
+    db.add(Wallet(user_id=worker_a.id, balance_kobo=0))
+    db.add(Wallet(user_id=worker_b.id, balance_kobo=0))
+    await db.flush()
+
+    await wallet_service.lock_escrow(db, advertiser.id, 5_000, reference=str(uuid.uuid4()))
+    reference = str(uuid.uuid4())
+    await wallet_service.release_escrow_to_worker(
+        db, advertiser.id, worker_a.id, 600, 10, "one_off_single",
+        reference=reference, client_charge_kobo=1_000,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await wallet_service.release_escrow_to_worker(
+            db, advertiser.id, worker_b.id, 600, 10, "one_off_single",
+            reference=reference, client_charge_kobo=1_000,
+        )
+    assert exc.value.status_code == 409
+
+    await db.commit()
+    worker_b_wallet = (await db.execute(select(Wallet).where(Wallet.user_id == worker_b.id))).scalar_one()
+    assert worker_b_wallet.balance_kobo == 0
