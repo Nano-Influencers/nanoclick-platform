@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from pydantic import BaseModel, Field
 
 
@@ -34,8 +35,8 @@ class CampaignCreate(BaseModel):
     tni_service_type: str = Field(min_length=1, max_length=30)
     description: str | None = None
     target_url: str | None = None
-    client_budget_ngn: float = Field(gt=0)
-    client_price_per_action_ngn: float = Field(gt=0)
+    client_budget_ngn: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
+    client_price_per_action_ngn: Decimal = Field(gt=0, max_digits=14, decimal_places=2)
     expires_at: datetime | None = None
     is_urgent: bool = False
     has_instructions: bool = False
