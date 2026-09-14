@@ -7,17 +7,7 @@ from app.database import Base
 
 
 class PasswordResetToken(Base):
-    """
-    Backs POST /auth/forgot-password + POST /auth/reset-password.
-
-    NOTE: this backend has no email-sending infrastructure configured yet
-    (no SMTP/SendGrid/SES settings exist in app.config). The token is
-    generated and stored correctly here, but forgot_password() currently
-    only *logs* the reset link server-side instead of emailing it — see
-    the comment in app/routers/auth.py. Wire up a real mail provider before
-    relying on this in production; until then, forgot-password is a
-    structurally complete but not end-user-deliverable feature.
-    """
+    """Single-use, hashed password-reset tokens with a one-hour lifetime."""
     __tablename__ = "password_reset_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
