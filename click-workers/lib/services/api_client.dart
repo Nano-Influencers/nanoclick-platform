@@ -152,6 +152,12 @@ class ApiClient {
   Future<Map<String, dynamic>> myTaskStats() async => await _request('GET', '/tasks/my-stats') as Map<String, dynamic>;
   Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async => await _request('POST', '/tasks/upload-url', body: {'file_extension': fileExtension}) as Map<String, dynamic>;
 
+  Future<String> proofDownloadUrl(String fileKey) async {
+    final encodedKey = Uri.encodeQueryComponent(fileKey);
+    final data = await _request('GET', '/tasks/proof-url?file_key=$encodedKey') as Map<String, dynamic>;
+    return data['download_url'] as String;
+  }
+
   /// Upload to a presigned PUT URL. The content type must match the value
   /// used when the backend signed the URL, otherwise S3/R2 rejects the request.
   Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes, {required String contentType}) async {
