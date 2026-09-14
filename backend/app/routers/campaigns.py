@@ -1,5 +1,6 @@
 import uuid, math
 from datetime import datetime
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -45,19 +46,24 @@ def _allocation_slots(slots_total: int, groups) -> list[int]:
     return slots
 
 
+def _ngn_to_kobo(amount: Decimal) -> int:
+    """Convert a two-decimal NGN amount to integer kobo without float rounding."""
+    return int(amount * Decimal("100"))
+
+
 @router.post("", response_model=CampaignResponse, status_code=201)
 async def create_campaign(body: CampaignCreate, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
     if body.tni_service_type not in TNI_TO_CW_CATEGORY:
         raise HTTPException(400, f"Unknown tni_service_type: {body.tni_service_type}")
     cw_category = TNI_TO_CW_CATEGORY[body.tni_service_type]
-    client_price_kobo = int(body.client_price_per_action_ngn * 100)
-    client_budget_kobo = int(body.client_budget_ngn * 100)
+    client_price_kobo = _ngn_to_kobo(body.client_price_per_action_ngn)
+    client_budget_kobo = _ngn_to_kobo(body.client_budget_ngn)
     has_targeting = _has_targeting(body.targeting)
     if has_targeting:
-        client_budget_kobo = int(client_budget_kobo * 1.5)
-        client_price_kobo = int(client_price_kobo * 1.5)
+        client_budget_kobo = int(Decimal(client_budget_kobo) * Decimal("1.5"))
+        client_price_kobo = int(Decimal(client_price_kobo) * Decimal("1.5"))
     if body.has_instructions and body.instructions:
-        client_budget_kobo = int(client_budget_kobo * 1.2)
+        client_budget_kobo = int(Decimal(client_budget_kobo) * Decimal("1.2"))
     if client_price_kobo <= 0:
         raise HTTPException(400, "Price per action must be > 0")
     worker_pay_kobo = calculate_worker_pay_kobo(
@@ -160,7 +166,7 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
     if new_status == "active" and campaign.status != "paused":
         raise HTTPException(400, "Only a paused campaign can be resumed")
     if new_status == "paused" and campaign.status not in ("active", "awaiting_workers"):
-        raise HTTPException(400, f"Only an active campaign can be paused; current status is '{campaign.status}'")
+        raise HTTPException(400, "Only an active campaign can be paused")
     tasks_r = await db.execute(select(Task).where(Task.campaign_id == campaign.id).with_for_update())
     tasks = tasks_r.scalars().all()
     if new_status == "cancelled":
@@ -172,7 +178,7 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
             )
             campaign.escrow_kobo = 0
         for task in tasks:
-            if task.status in ("pending_admin", "available", "paused"):
+            if task.status in ("pending_admin", "available"):
                 task.status = "cancelled"
         campaign.status = "cancelled"
     elif new_status == "paused":
