@@ -74,7 +74,7 @@ async def resubmit_task(task_id: uuid.UUID, body: SubmissionCreate, current_user
     submission.reviewed_at = None
     submission.was_auto_approved = False
     submission.task_speed_minutes = 0
-    submission.proof_image_hash = await compute_image_hash(body.proof_urls[0])
+    submission.proof_image_hash = await compute_image_hash(body.proof_urls[0]) if body.proof_urls else None
     await db.flush()
 
     if submission.proof_image_hash:
