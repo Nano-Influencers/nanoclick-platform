@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:click_workers/Mobile/Tasks/task_submitted.dart';
 import 'package:flutter/material.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
@@ -45,9 +47,19 @@ class _SubmitTaskState extends State<SubmitTask> {
         final file = _selectedFiles[index];
         final isVideo = file.path.toLowerCase().endsWith('.mp4');
         return Stack(children: [
-          ClipRRect(borderRadius: BorderRadius.circular(8), child: isVideo
-              ? Container(color: Colors.black26, child: const Center(child: Icon(Icons.videocam, size: 40, color: Colors.orange)))
-              : Image.network(file.path, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image))),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: isVideo
+                ? Container(color: Colors.black26, child: const Center(child: Icon(Icons.videocam, size: 40, color: Colors.orange)))
+                : FutureBuilder<Uint8List>(
+                    future: file.readAsBytes(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                      if (!snapshot.hasData) return const Icon(Icons.broken_image);
+                      return Image.memory(snapshot.data!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image));
+                    },
+                  ),
+          ),
           Positioned(top: 2, right: 2, child: GestureDetector(onTap: () => setState(() => _selectedFiles.removeAt(index)), child: Container(decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle), child: const Icon(Icons.close, size: 18, color: Colors.white)))),
         ]);
       },
@@ -56,7 +68,17 @@ class _SubmitTaskState extends State<SubmitTask> {
 
   Future<List<Map<String, dynamic>>> getPreviousSubmissions() async {
     final all = await ApiClient.instance.mySubmissions();
-    return all.where((s) => (s as Map<String, dynamic>)['task_id'] == widget.taskID).cast<Map<String, dynamic>>().toList();
+    final matching = all.where((s) => (s as Map<String, dynamic>)['task_id'] == widget.taskID).cast<Map<String, dynamic>>().toList();
+    for (final submission in matching) {
+      final proofKeys = (submission['proof_urls'] as List?)?.map((value) => value.toString()).toList() ?? <String>[];
+      if (proofKeys.isEmpty) continue;
+      try {
+        submission['preview_url'] = await ApiClient.instance.proofDownloadUrl(proofKeys.first);
+      } catch (_) {
+        submission['preview_url'] = '';
+      }
+    }
+    return matching;
   }
 
   Widget uploadCard() => SizedBox(width: 90.w, child: Card(elevation: 6, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), color: Colors.white, child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -115,7 +137,7 @@ class _SubmitTaskState extends State<SubmitTask> {
         const Text('Previous Submissions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), SizedBox(height: 3.h), if (submissions.isEmpty) const Text('No submissions yet') else Column(children: submissions.map((submission) {
           final submittedAt = DateTime.tryParse((submission['submitted_at'] ?? '').toString());
           final date = submittedAt != null ? '${submittedAt.year}-${submittedAt.month.toString().padLeft(2, '0')}-${submittedAt.day.toString().padLeft(2, '0')}' : '';
-          final status = (submission['status'] ?? 'pending').toString(); final proofUrls = (submission['proof_urls'] as List?) ?? []; final photoUrl = proofUrls.isNotEmpty ? proofUrls.first.toString() : '';
+          final status = (submission['status'] ?? 'pending').toString(); final photoUrl = (submission['preview_url'] ?? '').toString();
           final comment = status == 'rejected' ? (submission['rejection_reason'] ?? 'Rejected').toString() : '₦${submission['pay_ngn'] ?? 0}';
           return Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: _buildSubmissionItem(title: (submission['task_title'] ?? '').toString(), photoUrl: photoUrl, date: date, comment: comment, status: status.isEmpty ? 'Pending' : '${status[0].toUpperCase()}${status.substring(1)}', statusColor: status == 'approved' ? Colors.green : status == 'rejected' ? Colors.red : Colors.orange));
         }).toList())
