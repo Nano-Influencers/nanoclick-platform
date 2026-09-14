@@ -138,7 +138,7 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
         raise HTTPException(status_code=400, detail="Click points cannot be negative")
 
     campaign = None
-    if client_charge_kobo is None and reference:
+    if reference:
         try:
             submission_id = uuid.UUID(reference)
         except ValueError:
@@ -154,7 +154,11 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
                         select(Campaign).where(Campaign.id == task.campaign_id).with_for_update()
                     )).scalar_one_or_none()
                     if campaign:
-                        client_charge_kobo = campaign.client_price_per_action_kobo
+                        expected_charge = campaign.client_price_per_action_kobo
+                        if client_charge_kobo is None:
+                            client_charge_kobo = expected_charge
+                        elif client_charge_kobo != expected_charge:
+                            raise HTTPException(status_code=409, detail="Client charge does not match campaign price")
                         if campaign.escrow_kobo < client_charge_kobo:
                             raise HTTPException(status_code=409, detail="Campaign escrow insufficient")
 
