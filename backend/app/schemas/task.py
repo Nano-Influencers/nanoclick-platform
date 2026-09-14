@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from urllib.parse import urlparse
 
 
@@ -35,7 +35,7 @@ class AcceptTaskResponse(BaseModel):
 class SubmissionCreate(BaseModel):
     # Despite the legacy field name, these are opaque private-storage keys,
     # never HTTP URLs. The API deliberately keeps the name for client compatibility.
-    proof_urls: list[str] = Field(min_length=1, max_length=5)
+    proof_urls: list[str] = Field(default_factory=list, max_length=5)
     proof_link: str | None = Field(default=None, max_length=2048)
 
     @field_validator("proof_urls")
@@ -61,6 +61,12 @@ class SubmissionCreate(BaseModel):
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("Proof link must be a valid HTTP(S) URL")
         return value.strip()
+
+    @model_validator(mode="after")
+    def require_proof(self):
+        if not self.proof_urls and not self.proof_link:
+            raise ValueError("Provide at least one uploaded proof or a proof link")
+        return self
 
 
 class SubmissionResponse(BaseModel):
