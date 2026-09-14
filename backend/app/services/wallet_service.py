@@ -261,15 +261,15 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
 
 async def refund_escrow(db: AsyncSession, advertiser_id: uuid.UUID, amount_kobo: int,
                         reference: str | None = None, description: str = "Escrow refunded") -> Transaction:
-    """Refund campaign escrow and keep campaign/wallet escrow in sync."""
+    """Refund campaign escrow and keep campaign/wallet escrow in sync.
+
+    Campaign-backed refunds acquire the campaign lock before the advertiser
+    wallet lock, matching release_escrow_to_worker. This prevents a settlement
+    and a cancellation/rejection/completion refund from holding those two
+    resources in opposite order and deadlocking.
+    """
     if amount_kobo <= 0:
         raise HTTPException(status_code=400, detail="Refund amount must be positive")
-
-    wallet = await _lock_wallet(db, advertiser_id)
-    if reference:
-        existing = await _existing_transaction(db, wallet.id, "escrow_release", reference, amount_kobo)
-        if existing:
-            return existing
 
     campaign = None
     if reference:
@@ -283,11 +283,16 @@ async def refund_escrow(db: AsyncSession, advertiser_id: uuid.UUID, amount_kobo:
             campaign = (await db.execute(
                 select(Campaign).where(Campaign.id == campaign_id).with_for_update()
             )).scalar_one_or_none()
-            if campaign:
-                if campaign.owner_id != advertiser_id:
-                    raise HTTPException(status_code=403, detail="Campaign owner mismatch")
-                if campaign.escrow_kobo != amount_kobo:
-                    raise HTTPException(status_code=409, detail="Campaign and refund escrow amounts diverge")
+            if campaign and campaign.owner_id != advertiser_id:
+                raise HTTPException(status_code=403, detail="Campaign owner mismatch")
+            if campaign and campaign.escrow_kobo != amount_kobo:
+                raise HTTPException(status_code=409, detail="Campaign and refund escrow amounts diverge")
+
+    wallet = await _lock_wallet(db, advertiser_id)
+    if reference:
+        existing = await _existing_transaction(db, wallet.id, "escrow_release", reference, amount_kobo)
+        if existing:
+            return existing
 
     if wallet.escrow_kobo < amount_kobo:
         raise HTTPException(status_code=409, detail="Escrow balance insufficient for requested refund")
