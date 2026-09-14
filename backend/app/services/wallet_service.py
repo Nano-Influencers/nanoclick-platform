@@ -12,13 +12,13 @@ from app.models.platform_wallet import PlatformWallet
 from app.models.platform_wallet_transaction import PlatformWalletTransaction
 
 _CATEGORY_FIELD_MAP = {
-    "one_off_single":    ("daily_one_off_single_kobo",    "total_one_off_single_kobo",    "daily_one_off_single_cps"),
-    "one_off_grouped":   ("daily_one_off_grouped_kobo",   "total_one_off_grouped_kobo",   "daily_one_off_grouped_cps"),
-    "repeating_single":  ("daily_repeating_single_kobo",  "total_repeating_single_kobo",  "daily_repeating_single_cps"),
+    "one_off_single": ("daily_one_off_single_kobo", "total_one_off_single_kobo", "daily_one_off_single_cps"),
+    "one_off_grouped": ("daily_one_off_grouped_kobo", "total_one_off_grouped_kobo", "daily_one_off_grouped_cps"),
+    "repeating_single": ("daily_repeating_single_kobo", "total_repeating_single_kobo", "daily_repeating_single_cps"),
     "repeating_grouped": ("daily_repeating_grouped_kobo", "total_repeating_grouped_kobo", "daily_repeating_grouped_cps"),
-    "trend_push":        ("daily_trend_push_kobo",        "total_trend_push_kobo",        "daily_trend_push_cps"),
-    "skill_based":       ("daily_skill_based_kobo",       "total_skill_based_kobo",       "daily_skill_based_cps"),
-    "unpaid":            ("daily_unpaid_kobo",             "total_unpaid_kobo",            "daily_unpaid_cps"),
+    "trend_push": ("daily_trend_push_kobo", "total_trend_push_kobo", "daily_trend_push_cps"),
+    "skill_based": ("daily_skill_based_kobo", "total_skill_based_kobo", "daily_skill_based_cps"),
+    "unpaid": ("daily_unpaid_kobo", "total_unpaid_kobo", "daily_unpaid_cps"),
 }
 PLATFORM_REVENUE_WALLET_KEY = "platform_revenue"
 
@@ -60,6 +60,11 @@ async def _existing_transaction(db: AsyncSession, wallet_id: uuid.UUID, tx_type:
 
 async def credit(db: AsyncSession, user_id: uuid.UUID, amount_kobo: int, tx_type: str,
                  description: str = "", reference: str | None = None, click_points: int = 0) -> Transaction:
+    if amount_kobo < 0:
+        raise HTTPException(status_code=400, detail="Credit amount cannot be negative")
+    if click_points < 0:
+        raise HTTPException(status_code=400, detail="Click points cannot be negative")
+
     wallet = await _lock_wallet(db, user_id)
     if reference:
         existing = await _existing_transaction(db, wallet.id, tx_type, reference, amount_kobo, click_points)
@@ -76,6 +81,9 @@ async def credit(db: AsyncSession, user_id: uuid.UUID, amount_kobo: int, tx_type
 
 async def debit(db: AsyncSession, user_id: uuid.UUID, amount_kobo: int, tx_type: str,
                 description: str = "", reference: str | None = None) -> Transaction:
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Debit amount must be greater than zero")
+
     wallet = await _lock_wallet(db, user_id)
     if reference:
         existing = await _existing_transaction(db, wallet.id, tx_type, reference, amount_kobo)
@@ -95,6 +103,9 @@ async def debit(db: AsyncSession, user_id: uuid.UUID, amount_kobo: int, tx_type:
 async def lock_escrow(db: AsyncSession, user_id: uuid.UUID, amount_kobo: int,
                       reference: str | None = None) -> Transaction:
     """Lock campaign budget into escrow at campaign launch."""
+    if amount_kobo <= 0:
+        raise HTTPException(status_code=400, detail="Escrow amount must be greater than zero")
+
     wallet = await _lock_wallet(db, user_id)
     if reference:
         existing = await _existing_transaction(db, wallet.id, "escrow_lock", reference, amount_kobo)
@@ -123,6 +134,8 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
     """
     if amount_kobo <= 0:
         raise HTTPException(status_code=400, detail="Worker payout must be positive")
+    if click_points < 0:
+        raise HTTPException(status_code=400, detail="Click points cannot be negative")
 
     campaign = None
     if client_charge_kobo is None and reference:
