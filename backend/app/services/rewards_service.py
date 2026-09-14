@@ -308,6 +308,10 @@ async def distribute_reward_pool(
 
 async def spin(db: AsyncSession, user_id: uuid.UUID) -> dict:
     """Award a spin result through the centralized wallet ledger."""
+    # Cash-funded rewards lock pool -> user wallet. Keep spin on the same
+    # ordering even though click-point outcomes do not need the pool, avoiding
+    # an inverse lock order against reward-pool distribution.
+    await _lock_reward_pool(db)
     result = await db.execute(select(Wallet).where(Wallet.user_id == user_id).with_for_update())
     wallet = result.scalar_one_or_none()
     if not wallet:
@@ -347,6 +351,9 @@ async def spin(db: AsyncSession, user_id: uuid.UUID) -> dict:
 
 async def checkin(db: AsyncSession, user_id: uuid.UUID) -> dict:
     """Award the daily check-in reward through the centralized wallet ledger."""
+    # Check-in is always cash-funded, so acquire the reward-pool lock before
+    # the recipient wallet lock to match _funded_cash_credit/distribution.
+    await _lock_reward_pool(db)
     result = await db.execute(select(Wallet).where(Wallet.user_id == user_id).with_for_update())
     wallet = result.scalar_one_or_none()
     if not wallet:
