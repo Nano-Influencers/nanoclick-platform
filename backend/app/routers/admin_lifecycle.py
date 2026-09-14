@@ -95,12 +95,9 @@ async def approve_submission_lifecycle(submission_id: uuid.UUID, client_rating: 
         task_category=task.cw_task_category, reference=str(sub.id),
         client_charge_kobo=client_charge)
 
-    # release_escrow_to_worker updates the advertiser wallet escrow and records
-    # the platform margin. Campaign.escrow_kobo is the campaign-level mirror,
-    # so keep it synchronized in the same transaction.
-    campaign.escrow_kobo -= client_charge
-    if campaign.escrow_kobo < 0:
-        raise HTTPException(409, "Campaign escrow would become negative")
+    # release_escrow_to_worker is the single owner of the campaign escrow mirror
+    # when settling by submission reference. It also updates the advertiser
+    # wallet escrow and records the platform margin in the same transaction.
 
     sub.status = "approved"
     sub.reviewed_at = datetime.utcnow()
