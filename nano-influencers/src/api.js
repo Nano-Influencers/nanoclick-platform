@@ -1,6 +1,7 @@
 // Thin fetch wrapper around the NanoClick backend.
 // Browser refresh sessions use an HttpOnly cookie; access tokens stay in memory.
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const REQUEST_TIMEOUT_MS = 20000;
 let accessToken = null;
 let refreshInFlight = null;
 
@@ -15,9 +16,15 @@ class ApiError extends Error {
 async function parseError(res) {
   try {
     const body = await res.json();
-    if (Array.isArray(body.detail)) return body.detail.map((d) => d.msg).join("; ");
-    return body.detail || res.statusText;
-  } catch { return res.statusText; }
+    if (Array.isArray(body.detail)) return body.detail.map((d) => d?.msg || String(d)).join("; ");
+    if (typeof body.detail === "string") return body.detail;
+    return res.statusText || `Request failed (${res.status})`;
+  } catch { return res.statusText || `Request failed (${res.status})`; }
+}
+
+function requestId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `nano-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function idempotencyKey() {
@@ -25,10 +32,29 @@ function idempotencyKey() {
   return `nano-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }
 
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new ApiError("The request timed out. Please try again.", 408);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function request(path, { method = "GET", body, auth = true, headers: extraHeaders = {}, _retried = false } = {}) {
-  const headers = { "Content-Type": "application/json", ...extraHeaders };
+  const headers = { "Content-Type": "application/json", "X-Request-ID": requestId(), ...extraHeaders };
   if (auth && accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-  const res = await fetch(`${API_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" });
+  let res;
+  try {
+    res = await fetchWithTimeout(`${API_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" });
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError("Unable to reach the server. Check your connection and try again.", 0);
+  }
   if (res.status === 401 && auth && !_retried) {
     const refreshed = await tryRefresh();
     if (refreshed) return request(path, { method, body, auth, headers: extraHeaders, _retried: true });
@@ -46,7 +72,11 @@ async function tryRefresh() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${API_URL}/auth/refresh?platform=web`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include" });
+      const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Request-ID": requestId() },
+        credentials: "include",
+      });
       if (!res.ok) return false;
       const data = await res.json();
       if (!data.access_token) return false;
