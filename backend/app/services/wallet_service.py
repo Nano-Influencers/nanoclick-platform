@@ -175,11 +175,16 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
         if adv_tx:
             if adv_tx.amount_kobo != client_charge:
                 raise HTTPException(status_code=409, detail="Conflicting escrow release reference")
-            worker_result = await db.execute(select(Transaction).where(
+            worker_result = await db.execute(select(Wallet).where(Wallet.user_id == worker_id))
+            worker_wallet = worker_result.scalar_one_or_none()
+            if not worker_wallet:
+                raise HTTPException(status_code=404, detail="Wallet not found")
+            worker_tx_result = await db.execute(select(Transaction).where(
+                Transaction.wallet_id == worker_wallet.id,
                 Transaction.reference == reference,
                 Transaction.type == "task_earning",
             ).with_for_update())
-            wrk_tx = worker_result.scalar_one_or_none()
+            wrk_tx = worker_tx_result.scalar_one_or_none()
             if wrk_tx:
                 if wrk_tx.amount_kobo != amount_kobo or wrk_tx.click_points_awarded != click_points:
                     raise HTTPException(status_code=409, detail="Conflicting task earning reference")
