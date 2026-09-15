@@ -25,6 +25,7 @@ class ApiClient {
   String? _accessToken;
   String? _refreshToken;
   bool _initialized = false;
+  Future<void>? _initializeInFlight;
   Future<bool>? _refreshInFlight;
   int _sessionGeneration = 0;
   static int _requestSequence = 0;
@@ -32,21 +33,41 @@ class ApiClient {
   bool get isLoggedIn => _accessToken != null;
   String get _authPlatform => storage.isWeb ? 'web' : 'app';
 
-  Future<void> initialize() async {
-    if (_initialized) return;
-    final tokens = await storage.readTokens();
-    _accessToken = tokens['access'];
-    _refreshToken = tokens['refresh'];
-    _initialized = true;
-    if (_accessToken == null) {
-      final restored = await storage.restoreSession(baseUrl);
-      _accessToken = restored['access'];
-      _refreshToken = restored['refresh'];
+  Future<void> initialize() {
+    if (_initialized) return Future.value();
+    final inFlight = _initializeInFlight;
+    if (inFlight != null) return inFlight;
+    final future = _performInitialize();
+    _initializeInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_initializeInFlight, future)) _initializeInFlight = null;
+    });
+  }
+
+  Future<void> _performInitialize() async {
+    final generation = _sessionGeneration;
+    try {
+      final tokens = await storage.readTokens();
+      if (generation != _sessionGeneration) return;
+      _accessToken = tokens['access'];
+      _refreshToken = tokens['refresh'];
+      if (_accessToken == null) {
+        final restored = await storage.restoreSession(baseUrl);
+        if (generation != _sessionGeneration) return;
+        _accessToken = restored['access'];
+        _refreshToken = restored['refresh'];
+      }
+      if (generation == _sessionGeneration) _initialized = true;
+    } catch (_) {
+      // Leave initialization retryable after transient storage/session errors.
+      if (generation == _sessionGeneration) _initialized = false;
+      rethrow;
     }
   }
 
   Future<void> setTokens({required String access, String? refresh}) async {
     _sessionGeneration++;
+    _initialized = true;
     await _storeTokens(access: access, refresh: refresh);
   }
 
@@ -59,6 +80,7 @@ class ApiClient {
 
   Future<void> clearTokens() async {
     _sessionGeneration++;
+    _initialized = true;
     _accessToken = null;
     _refreshToken = null;
     _refreshInFlight = null;
@@ -192,17 +214,9 @@ class ApiClient {
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
   Future<void> logout() async {
     final refresh = _refreshToken;
-    final wasWeb = storage.isWeb;
-    // Invalidate the local session before the network call so an in-flight
-    // refresh cannot rotate a token after the user has logged out.
     await clearTokens();
     try {
-      await _request(
-        'POST',
-        '/auth/logout?platform=$_authPlatform',
-        auth: false,
-        body: wasWeb || refresh == null ? null : {'refresh_token': refresh},
-      );
+      await _request('POST', '/auth/logout?platform=$_authPlatform', auth: false, body: refresh == null ? null : {'refresh_token': refresh});
     } catch (_) {}
   }
   Future<void> changePassword(String currentPassword, String newPassword) async => await _request('POST', '/auth/change-password', body: {'current_password': currentPassword, 'new_password': newPassword});
