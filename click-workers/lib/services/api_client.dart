@@ -193,7 +193,7 @@ class ApiClient {
   Future<Map<String, dynamic>> initiateDeposit(double amountNgn, {String? idempotencyKey}) async => await _request('POST', '/wallet/deposit/initialize', body: {'amount_ngn': amountNgn}, extraHeaders: {'Idempotency-Key': _validatedIdempotencyKey(idempotencyKey)}) as Map<String, dynamic>;
   Future<Map<String, dynamic>> resolveAccount(String bankCode, String accountNumber) async => await _request('GET', '/wallet/resolve-account?bank_code=${Uri.encodeQueryComponent(bankCode)}&account_number=${Uri.encodeQueryComponent(accountNumber)}') as Map<String, dynamic>;
   Future<Map<String, dynamic>> withdraw({required double amountNgn, required String bankCode, required String accountNumber, String? idempotencyKey}) async => await _request('POST', '/wallet/withdraw', body: {'amount_ngn': amountNgn, 'bank_code': bankCode, 'account_number': accountNumber}, extraHeaders: {'Idempotency-Key': _validatedIdempotencyKey(idempotencyKey)}) as Map<String, dynamic>;
-  Future<List<dynamic>> getWithdrawals() async => await _request('GET', '/wallet/withdrawals') as List<dynamic>;
+  Future<List<dynamic>> getWithdrawals({int limit = 50, int offset = 0}) async { final query = Uri(queryParameters: {'limit': '$limit', 'offset': '$offset'}).query; return await _request('GET', '/wallet/withdrawals?$query') as List<dynamic>; }
   Future<Map<String, dynamic>> spin() async => await _request('POST', '/wallet/spin') as Map<String, dynamic>;
   Future<Map<String, dynamic>> checkin() async => await _request('POST', '/wallet/checkin') as Map<String, dynamic>;
   Future<List<dynamic>> listTasks({String? category, String? difficulty, bool? isHighEarning, bool? isUrgent, String? platform, int limit = 50, int offset = 0}) async {
