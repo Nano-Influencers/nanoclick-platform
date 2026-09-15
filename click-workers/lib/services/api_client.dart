@@ -26,6 +26,7 @@ class ApiClient {
   String? _refreshToken;
   bool _initialized = false;
   Future<bool>? _refreshInFlight;
+  int _sessionGeneration = 0;
   static int _requestSequence = 0;
 
   bool get isLoggedIn => _accessToken != null;
@@ -45,12 +46,19 @@ class ApiClient {
   }
 
   Future<void> setTokens({required String access, String? refresh}) async {
+    _sessionGeneration++;
+    await _storeTokens(access: access, refresh: refresh);
+  }
+
+  Future<void> _storeTokens({required String access, String? refresh, int? expectedGeneration}) async {
+    if (expectedGeneration != null && expectedGeneration != _sessionGeneration) return;
     _accessToken = access;
     _refreshToken = refresh;
     await storage.writeTokens(access: access, refresh: refresh);
   }
 
   Future<void> clearTokens() async {
+    _sessionGeneration++;
     _accessToken = null;
     _refreshToken = null;
     _refreshInFlight = null;
@@ -130,34 +138,36 @@ class ApiClient {
   Future<bool> _tryRefresh() {
     final inFlight = _refreshInFlight;
     if (inFlight != null) return inFlight;
-    final future = _performRefresh(_refreshToken);
+    final generation = _sessionGeneration;
+    final future = _performRefresh(_refreshToken, generation);
     _refreshInFlight = future;
     return future.whenComplete(() {
       if (identical(_refreshInFlight, future)) _refreshInFlight = null;
     });
   }
 
-  Future<bool> _performRefresh(String? refresh) async {
+  Future<bool> _performRefresh(String? refresh, int generation) async {
     try {
       if (storage.isWeb) {
         final res = await _send(_client.post(
           _uri('/auth/refresh?platform=web'),
           headers: {'Content-Type': 'application/json', 'X-Request-ID': _requestId()},
         ));
-        if (res.statusCode != 200) return false;
+        if (res.statusCode != 200 || generation != _sessionGeneration) return false;
         final data = jsonDecode(res.body);
         final access = data is Map ? data['access_token'] : null;
-        if (access is! String || access.isEmpty) return false;
-        await setTokens(access: access, refresh: null);
-        return true;
+        if (access is! String || access.isEmpty || generation != _sessionGeneration) return false;
+        await _storeTokens(access: access, refresh: null, expectedGeneration: generation);
+        return generation == _sessionGeneration && _accessToken == access;
       }
 
       if (refresh == null || refresh.isEmpty) {
         final restored = await storage.restoreSession(baseUrl);
+        if (generation != _sessionGeneration) return false;
         final access = restored['access'];
         if (access is! String || access.isEmpty) return false;
-        await setTokens(access: access, refresh: restored['refresh']);
-        return true;
+        await _storeTokens(access: access, refresh: restored['refresh'], expectedGeneration: generation);
+        return generation == _sessionGeneration && _accessToken == access;
       }
 
       final res = await _send(_client.post(
@@ -165,13 +175,13 @@ class ApiClient {
         headers: {'Content-Type': 'application/json', 'X-Request-ID': _requestId()},
         body: jsonEncode({'refresh_token': refresh}),
       ));
-      if (res.statusCode != 200) return false;
+      if (res.statusCode != 200 || generation != _sessionGeneration) return false;
       final data = jsonDecode(res.body);
       final access = data['access_token'];
       final nextRefresh = data['refresh_token'];
-      if (access is! String || nextRefresh is! String || access.isEmpty || nextRefresh.isEmpty) return false;
-      await setTokens(access: access, refresh: nextRefresh);
-      return true;
+      if (access is! String || nextRefresh is! String || access.isEmpty || nextRefresh.isEmpty || generation != _sessionGeneration) return false;
+      await _storeTokens(access: access, refresh: nextRefresh, expectedGeneration: generation);
+      return generation == _sessionGeneration && _accessToken == access;
     } catch (_) {
       return false;
     }
