@@ -71,6 +71,17 @@ class ApiClient {
     return 'nano-${DateTime.now().microsecondsSinceEpoch}-$_requestSequence';
   }
 
+  /// Creates a key that callers can retain for one logical financial action.
+  /// Reuse the same key when retrying the same deposit or withdrawal.
+  String createIdempotencyKey() => _idempotencyKey();
+
+  String _validatedIdempotencyKey(String? key) {
+    final value = key?.trim();
+    if (value == null || value.isEmpty) return _idempotencyKey();
+    if (value.length > 100) throw ApiException('Idempotency key must be 100 characters or fewer.', 400);
+    return value;
+  }
+
   String _extractError(http.Response res) {
     try {
       final body = jsonDecode(res.body);
@@ -169,9 +180,9 @@ class ApiClient {
   Future<Map<String, dynamic>> getWalletBalance() async => await _request('GET', '/wallet/balance') as Map<String, dynamic>;
   Future<Map<String, dynamic>> referralStats() async => await _request('GET', '/wallet/referral-stats') as Map<String, dynamic>;
   Future<List<dynamic>> getTransactions() async => await _request('GET', '/wallet/transactions') as List<dynamic>;
-  Future<Map<String, dynamic>> initiateDeposit(double amountNgn) async => await _request('POST', '/wallet/deposit/initialize', body: {'amount_ngn': amountNgn}, extraHeaders: {'Idempotency-Key': _idempotencyKey()}) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> initiateDeposit(double amountNgn, {String? idempotencyKey}) async => await _request('POST', '/wallet/deposit/initialize', body: {'amount_ngn': amountNgn}, extraHeaders: {'Idempotency-Key': _validatedIdempotencyKey(idempotencyKey)}) as Map<String, dynamic>;
   Future<Map<String, dynamic>> resolveAccount(String bankCode, String accountNumber) async => await _request('GET', '/wallet/resolve-account?bank_code=${Uri.encodeQueryComponent(bankCode)}&account_number=${Uri.encodeQueryComponent(accountNumber)}') as Map<String, dynamic>;
-  Future<Map<String, dynamic>> withdraw({required double amountNgn, required String bankCode, required String accountNumber}) async => await _request('POST', '/wallet/withdraw', body: {'amount_ngn': amountNgn, 'bank_code': bankCode, 'account_number': accountNumber}, extraHeaders: {'Idempotency-Key': _idempotencyKey()}) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> withdraw({required double amountNgn, required String bankCode, required String accountNumber, String? idempotencyKey}) async => await _request('POST', '/wallet/withdraw', body: {'amount_ngn': amountNgn, 'bank_code': bankCode, 'account_number': accountNumber}, extraHeaders: {'Idempotency-Key': _validatedIdempotencyKey(idempotencyKey)}) as Map<String, dynamic>;
   Future<List<dynamic>> getWithdrawals() async => await _request('GET', '/wallet/withdrawals') as List<dynamic>;
   Future<Map<String, dynamic>> spin() async => await _request('POST', '/wallet/spin') as Map<String, dynamic>;
   Future<Map<String, dynamic>> checkin() async => await _request('POST', '/wallet/checkin') as Map<String, dynamic>;
