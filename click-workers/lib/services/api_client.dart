@@ -15,8 +15,6 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-/// Backend API client for Click Workers.
-/// Web refresh sessions use an HttpOnly cookie; native builds use secure storage.
 class ApiClient {
   ApiClient._();
   static final ApiClient instance = ApiClient._();
@@ -71,8 +69,6 @@ class ApiClient {
     return 'nano-${DateTime.now().microsecondsSinceEpoch}-$_requestSequence';
   }
 
-  /// Creates a key that callers can retain for one logical financial action.
-  /// Reuse the same key when retrying the same deposit or withdrawal.
   String createIdempotencyKey() => _idempotencyKey();
 
   String _validatedIdempotencyKey(String? key) {
@@ -143,13 +139,29 @@ class ApiClient {
 
   Future<bool> _performRefresh(String? refresh) async {
     try {
-      if (refresh == null) {
+      if (storage.isWeb) {
+        // BrowserClient carries the HttpOnly refresh cookie via withCredentials.
+        // Never send or expect a native refresh token in the web build.
+        final res = await _send(_client.post(
+          _uri('/auth/refresh?platform=web'),
+          headers: {'Content-Type': 'application/json', 'X-Request-ID': _requestId()},
+        ));
+        if (res.statusCode != 200) return false;
+        final data = jsonDecode(res.body);
+        final access = data is Map ? data['access_token'] : null;
+        if (access is! String || access.isEmpty) return false;
+        await setTokens(access: access, refresh: null);
+        return true;
+      }
+
+      if (refresh == null || refresh.isEmpty) {
         final restored = await storage.restoreSession(baseUrl);
         final access = restored['access'];
         if (access is! String || access.isEmpty) return false;
         await setTokens(access: access, refresh: restored['refresh']);
         return true;
       }
+
       final res = await _send(_client.post(
         _uri('/auth/refresh?platform=app'),
         headers: {'Content-Type': 'application/json', 'X-Request-ID': _requestId()},
@@ -162,7 +174,9 @@ class ApiClient {
       if (access is! String || nextRefresh is! String || access.isEmpty || nextRefresh.isEmpty) return false;
       await setTokens(access: access, refresh: nextRefresh);
       return true;
-    } catch (_) { return false; }
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> register({required String email, required String password, required String fullName, String? referralCode}) async => await _request('POST', '/auth/register', auth: false, body: {'email': email, 'password': password, 'full_name': fullName, 'role': 'worker', 'referral_code': referralCode});
@@ -173,66 +187,34 @@ class ApiClient {
   Future<void> forgotPassword(String email) async => await _request('POST', '/auth/forgot-password', auth: false, body: {'email': email});
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
   Future<void> deleteAccount() async => await _request('DELETE', '/auth/me');
-
   String oauthUrl(String provider, {String platform = 'web'}) { if (platform == 'app') return '$baseUrl/auth/$provider/login?role=worker&platform=app'; final origin = storage.currentOrigin(); final redirectUri = Uri.encodeComponent('$origin/'); return '$baseUrl/auth/$provider/login?role=worker&platform=web&redirect_uri=$redirectUri'; }
   Future<void> exchangeOAuthCode(String code, {String? platform}) async { final target = platform ?? _authPlatform; final data = await _request('POST', '/auth/oauth/exchange?code=${Uri.encodeQueryComponent(code)}&platform=$target', auth: false); await setTokens(access: data['access_token'], refresh: data['refresh_token']); }
-
   Future<Map<String, dynamic>> getWalletBalance() async => await _request('GET', '/wallet/balance') as Map<String, dynamic>;
   Future<Map<String, dynamic>> referralStats() async => await _request('GET', '/wallet/referral-stats') as Map<String, dynamic>;
-  Future<List<dynamic>> getTransactions({int limit = 50, int offset = 0}) async {
-    final query = Uri(queryParameters: {'limit': '$limit', 'offset': '$offset'}).query;
-    return await _request('GET', '/wallet/transactions?$query') as List<dynamic>;
-  }
+  Future<List<dynamic>> getTransactions({int limit = 50, int offset = 0}) async { final query = Uri(queryParameters: {'limit': '$limit', 'offset': '$offset'}).query; return await _request('GET', '/wallet/transactions?$query') as List<dynamic>; }
   Future<Map<String, dynamic>> initiateDeposit(double amountNgn, {String? idempotencyKey}) async => await _request('POST', '/wallet/deposit/initialize', body: {'amount_ngn': amountNgn}, extraHeaders: {'Idempotency-Key': _validatedIdempotencyKey(idempotencyKey)}) as Map<String, dynamic>;
   Future<Map<String, dynamic>> resolveAccount(String bankCode, String accountNumber) async => await _request('GET', '/wallet/resolve-account?bank_code=${Uri.encodeQueryComponent(bankCode)}&account_number=${Uri.encodeQueryComponent(accountNumber)}') as Map<String, dynamic>;
   Future<Map<String, dynamic>> withdraw({required double amountNgn, required String bankCode, required String accountNumber, String? idempotencyKey}) async => await _request('POST', '/wallet/withdraw', body: {'amount_ngn': amountNgn, 'bank_code': bankCode, 'account_number': accountNumber}, extraHeaders: {'Idempotency-Key': _validatedIdempotencyKey(idempotencyKey)}) as Map<String, dynamic>;
   Future<List<dynamic>> getWithdrawals() async => await _request('GET', '/wallet/withdrawals') as List<dynamic>;
   Future<Map<String, dynamic>> spin() async => await _request('POST', '/wallet/spin') as Map<String, dynamic>;
   Future<Map<String, dynamic>> checkin() async => await _request('POST', '/wallet/checkin') as Map<String, dynamic>;
-  Future<List<dynamic>> listTasks({int limit = 50, int offset = 0}) async {
-    final query = Uri(queryParameters: {'limit': '$limit', 'offset': '$offset'}).query;
-    return await _request('GET', '/tasks?$query') as List<dynamic>;
-  }
+  Future<List<dynamic>> listTasks({int limit = 50, int offset = 0}) async { final query = Uri(queryParameters: {'limit': '$limit', 'offset': '$offset'}).query; return await _request('GET', '/tasks?$query') as List<dynamic>; }
   Future<Map<String, dynamic>> getTask(String taskId) async => await _request('GET', '/tasks/$taskId') as Map<String, dynamic>;
   Future<Map<String, dynamic>> acceptTask(String taskId) async => await _request('POST', '/tasks/$taskId/accept') as Map<String, dynamic>;
   Future<void> cancelAcceptance(String taskId) async => await _request('POST', '/tasks/$taskId/cancel');
   Future<Map<String, dynamic>> submitTask(String taskId, List<String> proofUrls, {String? proofLink}) async => await _request('POST', '/tasks/$taskId/submit', body: {'proof_urls': proofUrls, 'proof_link': proofLink}) as Map<String, dynamic>;
   Future<void> reportTask(String taskId, String reason) async => await _request('POST', '/tasks/$taskId/report', body: {'reason': reason});
-  Future<List<dynamic>> mySubmissions({String? status, int limit = 50, int offset = 0}) async {
-    final queryParameters = <String, String>{'limit': '$limit', 'offset': '$offset'};
-    if (status != null) queryParameters['status'] = status;
-    final query = Uri(queryParameters: queryParameters).query;
-    return await _request('GET', '/tasks/my-submissions?$query') as List<dynamic>;
-  }
+  Future<List<dynamic>> mySubmissions({String? status, int limit = 50, int offset = 0}) async { final queryParameters = <String, String>{'limit': '$limit', 'offset': '$offset'}; if (status != null) queryParameters['status'] = status; final query = Uri(queryParameters: queryParameters).query; return await _request('GET', '/tasks/my-submissions?$query') as List<dynamic>; }
   Future<List<dynamic>> leaderboard(String period) async => await _request('GET', '/tasks/leaderboard/${Uri.encodeComponent(period)}') as List<dynamic>;
   Future<Map<String, dynamic>> myTaskStats() async => await _request('GET', '/tasks/my-stats') as Map<String, dynamic>;
   Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async => await _request('POST', '/tasks/upload-url', body: {'file_extension': fileExtension}) as Map<String, dynamic>;
-
-  Future<String> proofDownloadUrl(String fileKey) async {
-    final encodedKey = Uri.encodeQueryComponent(fileKey);
-    final data = await _request('GET', '/tasks/proof-url?file_key=$encodedKey') as Map<String, dynamic>;
-    return data['download_url'] as String;
-  }
-
-  /// Upload to a presigned PUT URL. The content type must match the value
-  /// used when the backend signed the URL, otherwise S3/R2 rejects the request.
-  Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes, {required String contentType}) async {
-    final res = await _send(_client.put(Uri.parse(uploadUrl), headers: {'Content-Type': contentType, 'X-Request-ID': _requestId()}, body: bytes));
-    if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException('File upload failed (${res.statusCode})', res.statusCode);
-  }
-
+  Future<String> proofDownloadUrl(String fileKey) async { final encodedKey = Uri.encodeQueryComponent(fileKey); final data = await _request('GET', '/tasks/proof-url?file_key=$encodedKey') as Map<String, dynamic>; return data['download_url'] as String; }
+  Future<void> uploadToPresignedUrl(String uploadUrl, List<int> bytes, {required String contentType}) async { final res = await _send(_client.put(Uri.parse(uploadUrl), headers: {'Content-Type': contentType, 'X-Request-ID': _requestId()}, body: bytes)); if (res.statusCode < 200 || res.statusCode >= 300) throw ApiException('File upload failed (${res.statusCode})', res.statusCode); }
   Future<Map<String, dynamic>> requestKycUploadUrl(String fileExtension) async => await _request('POST', '/kyc/upload-url?file_extension=${Uri.encodeQueryComponent(fileExtension)}') as Map<String, dynamic>;
   Future<void> submitKyc(Map<String, dynamic> fields) async => await _request('POST', '/kyc/submit', body: fields);
   Future<String> kycStatus() async => (await _request('GET', '/kyc/status') as Map<String, dynamic>)['status'] as String;
   Future<Map<String, dynamic>> rewardsProgress() async => await _request('GET', '/rewards/progress') as Map<String, dynamic>;
-  Future<List<dynamic>> listNotifications({bool unreadOnly = false, int limit = 50, int offset = 0}) async {
-    final query = Uri(queryParameters: {
-      'unread_only': '$unreadOnly',
-      'limit': '$limit',
-      'offset': '$offset',
-    }).query;
-    return await _request('GET', '/notifications?$query') as List<dynamic>;
-  }
+  Future<List<dynamic>> listNotifications({bool unreadOnly = false, int limit = 50, int offset = 0}) async { final query = Uri(queryParameters: {'unread_only': '$unreadOnly', 'limit': '$limit', 'offset': '$offset'}).query; return await _request('GET', '/notifications?$query') as List<dynamic>; }
   Future<int> unreadNotificationCount() async => (await _request('GET', '/notifications/unread-count') as Map<String, dynamic>)['count'] as int;
   Future<void> markNotificationRead(String id) async => await _request('POST', '/notifications/$id/read');
   Future<void> markAllNotificationsRead() async => await _request('POST', '/notifications/read-all');
