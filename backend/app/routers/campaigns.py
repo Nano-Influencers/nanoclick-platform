@@ -1,6 +1,7 @@
 import uuid, math
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from decimal import Decimal
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,19 +46,24 @@ def _allocation_slots(slots_total: int, groups) -> list[int]:
     return slots
 
 
+def _ngn_to_kobo(amount: Decimal) -> int:
+    """Convert a two-decimal NGN amount to integer kobo without float rounding."""
+    return int(amount * Decimal("100"))
+
+
 @router.post("", response_model=CampaignResponse, status_code=201)
 async def create_campaign(body: CampaignCreate, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
     if body.tni_service_type not in TNI_TO_CW_CATEGORY:
         raise HTTPException(400, f"Unknown tni_service_type: {body.tni_service_type}")
     cw_category = TNI_TO_CW_CATEGORY[body.tni_service_type]
-    client_price_kobo = int(body.client_price_per_action_ngn * 100)
-    client_budget_kobo = int(body.client_budget_ngn * 100)
+    client_price_kobo = _ngn_to_kobo(body.client_price_per_action_ngn)
+    client_budget_kobo = _ngn_to_kobo(body.client_budget_ngn)
     has_targeting = _has_targeting(body.targeting)
     if has_targeting:
-        client_budget_kobo = int(client_budget_kobo * 1.5)
-        client_price_kobo = int(client_price_kobo * 1.5)
+        client_budget_kobo = int(Decimal(client_budget_kobo) * Decimal("1.5"))
+        client_price_kobo = int(Decimal(client_price_kobo) * Decimal("1.5"))
     if body.has_instructions and body.instructions:
-        client_budget_kobo = int(client_budget_kobo * 1.2)
+        client_budget_kobo = int(Decimal(client_budget_kobo) * Decimal("1.2"))
     if client_price_kobo <= 0:
         raise HTTPException(400, "Price per action must be > 0")
     worker_pay_kobo = calculate_worker_pay_kobo(
@@ -133,8 +139,20 @@ async def create_campaign(body: CampaignCreate, current_user: User = Depends(req
 
 
 @router.get("", response_model=list[CampaignResponse])
-async def list_campaigns(current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(Campaign).where(Campaign.owner_id == current_user.id).order_by(Campaign.created_at.desc()))
+async def list_campaigns(
+    current_user: User = Depends(require_advertiser),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Return a bounded, stable page while keeping the existing list response shape."""
+    r = await db.execute(
+        select(Campaign)
+        .where(Campaign.owner_id == current_user.id)
+        .order_by(Campaign.created_at.desc(), Campaign.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return r.scalars().all()
 
 
@@ -159,6 +177,8 @@ async def update_status(campaign_id: uuid.UUID, new_status: str, current_user: U
         raise HTTPException(400, f"Cannot change a {campaign.status} campaign")
     if new_status == "active" and campaign.status != "paused":
         raise HTTPException(400, "Only a paused campaign can be resumed")
+    if new_status == "paused" and campaign.status not in ("active", "awaiting_workers"):
+        raise HTTPException(400, "Only an active campaign can be paused")
     tasks_r = await db.execute(select(Task).where(Task.campaign_id == campaign.id).with_for_update())
     tasks = tasks_r.scalars().all()
     if new_status == "cancelled":

@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,19 +53,39 @@ async def get_balance(current_user: User = Depends(get_current_user), db: AsyncS
 
 
 @router.get("/transactions", response_model=list[TransactionResponse])
-async def get_transactions(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_transactions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     rw = await db.execute(select(Wallet).where(Wallet.user_id == current_user.id))
     w = rw.scalar_one_or_none()
     if not w:
         raise HTTPException(404, "Wallet not found")
-    rt = await db.execute(select(Transaction).where(Transaction.wallet_id == w.id).order_by(Transaction.created_at.desc()).limit(100))
+    rt = await db.execute(
+        select(Transaction)
+        .where(Transaction.wallet_id == w.id)
+        .order_by(Transaction.created_at.desc(), Transaction.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return [{**{c.name: getattr(tx, c.name) for c in tx.__table__.columns}, "id": str(tx.id), "amount_ngn": tx.amount_kobo / 100} for tx in rt.scalars()]
 
 
 @router.get("/withdrawals")
-async def get_withdrawals(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+async def get_withdrawals(
+    current_user: User = Depends(require_worker),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     result = await db.execute(
-        select(Withdrawal).where(Withdrawal.user_id == current_user.id).order_by(Withdrawal.created_at.desc()).limit(100)
+        select(Withdrawal)
+        .where(Withdrawal.user_id == current_user.id)
+        .order_by(Withdrawal.created_at.desc(), Withdrawal.id.desc())
+        .offset(offset)
+        .limit(limit)
     )
     return [
         {
@@ -162,6 +182,96 @@ async def initiate_deposit(
     deposit.authorization_url = data["authorization_url"]
     await db.commit()
     return InitiateDepositResponse(authorization_url=data["authorization_url"], reference=reference)
+
+
+@router.get("/deposits/{reference}")
+async def get_deposit_status(
+    reference: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return and, when possible, reconcile the caller's own Paystack deposit.
+
+    The payment-return page cannot safely assume that Paystack's webhook has
+    already arrived. Pending deposits are therefore verified directly with
+    Paystack, outside the database lock, and credited through the same
+    idempotent wallet transaction used by the webhook. Provider verification
+    failures leave the deposit pending so a later retry can safely reconcile it.
+    """
+    result = await db.execute(select(Deposit).where(
+        Deposit.reference == reference,
+        Deposit.user_id == current_user.id,
+    ))
+    deposit = result.scalar_one_or_none()
+    if not deposit:
+        raise HTTPException(404, "Deposit not found")
+
+    if deposit.status == "pending":
+        try:
+            verified = await paystack.verify_transaction(reference)
+        except Exception:
+            verified = None
+
+        if verified:
+            provider_status = str(verified.get("status") or "").lower()
+            provider_amount = int(verified.get("amount") or 0)
+            provider_currency = verified.get("currency")
+
+            if provider_status in ("failed", "abandoned"):
+                if provider_amount and provider_amount != deposit.amount_kobo:
+                    raise HTTPException(409, "Payment amount does not match deposit")
+                if provider_currency and provider_currency != "NGN":
+                    raise HTTPException(409, "Payment currency does not match deposit")
+                locked_result = await db.execute(select(Deposit).where(
+                    Deposit.reference == reference,
+                    Deposit.user_id == current_user.id,
+                ).with_for_update())
+                locked = locked_result.scalar_one_or_none()
+                if locked and locked.status == "pending":
+                    locked.status = "failed"
+                    await db.commit()
+                deposit = locked or deposit
+
+            elif provider_status == "success":
+                if provider_amount != deposit.amount_kobo or provider_currency != "NGN":
+                    raise HTTPException(409, "Payment amount or currency does not match deposit")
+
+                locked_result = await db.execute(select(Deposit).where(
+                    Deposit.reference == reference,
+                    Deposit.user_id == current_user.id,
+                ).with_for_update())
+                locked = locked_result.scalar_one_or_none()
+                if not locked:
+                    raise HTTPException(404, "Deposit not found")
+                if locked.status == "pending":
+                    await wallet_service.credit(
+                        db,
+                        locked.user_id,
+                        locked.amount_kobo,
+                        "deposit",
+                        description="Wallet top-up via Paystack",
+                        reference=locked.reference,
+                    )
+                    locked.status = "completed"
+                    locked.completed_at = datetime.utcnow()
+                    from app.services.notification_service import notify
+                    await notify(
+                        db,
+                        locked.user_id,
+                        "deposit_success",
+                        "Wallet funded",
+                        f"₦{locked.amount_kobo/100:,.2f} was added to your wallet.",
+                    )
+                    await db.commit()
+                deposit = locked
+
+    return {
+        "reference": deposit.reference,
+        "status": deposit.status,
+        "amount_ngn": deposit.amount_kobo / 100,
+        "created_at": deposit.created_at.isoformat(),
+        "completed_at": deposit.completed_at.isoformat() if deposit.completed_at else None,
+    }
 
 
 @router.get("/resolve-account", response_model=ResolveAccountResponse)

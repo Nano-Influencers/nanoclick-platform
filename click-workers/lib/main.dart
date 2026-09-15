@@ -22,11 +22,15 @@ Future<void> main() async {
   final oauthCode = uri.queryParameters['oauth_code'];
   if (oauthCode != null && oauthCode.isNotEmpty) {
     try {
-      await ApiClient.instance.exchangeOAuthCode(oauthCode);
-      storage.replaceBrowserUrl('/');
+      await ApiClient.instance.exchangeOAuthCode(oauthCode, platform: 'web');
       await authProvider.refreshSessionSilently();
     } catch (_) {
       // Invalid/expired codes fall through to the normal sign-in screen.
+    } finally {
+      // OAuth codes are short-lived bearer credentials. Remove them from the
+      // browser URL even when exchange fails to avoid retaining them in
+      // history, copied URLs, or referrer data.
+      storage.replaceBrowserUrl('/');
     }
   }
 

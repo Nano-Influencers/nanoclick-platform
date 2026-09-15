@@ -104,9 +104,15 @@ async def approve_submission_lifecycle(submission_id: uuid.UUID, client_rating: 
     sub.client_rating = max(0.0, min(5.0, client_rating))
     task.slots_filled += 1
     task.status = "completed" if task.slots_filled >= task.slots_total else "available"
-    campaign.slots_filled += 1
+    campaign.slots_filled = min(campaign.slots_total, campaign.slots_filled + 1)
     if campaign.slots_filled >= campaign.slots_total:
         campaign.slots_filled = campaign.slots_total
+        if campaign.escrow_kobo > 0:
+            await wallet_service.refund_escrow(
+                db, campaign.owner_id, campaign.escrow_kobo,
+                reference=f"{campaign.id}:completion",
+                description="Campaign completed — unused budget remainder refunded",
+            )
         campaign.status = "completed"
     from app.services import rewards_service
     from app.services.notification_service import notify

@@ -56,9 +56,15 @@ async def _auto_approve():
             if task.slots_filled >= task.slots_total:
                 continue
 
-            camp_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id))
+            # Lock the campaign in the same transaction so campaign counters and
+            # final escrow reconciliation are serialized with settlement.
+            camp_r = await db.execute(
+                select(Campaign).where(Campaign.id == task.campaign_id).with_for_update()
+            )
             campaign = camp_r.scalar_one_or_none()
-            if not campaign:
+            if not campaign or campaign.status != "active":
+                continue
+            if campaign.slots_filled >= campaign.slots_total:
                 continue
 
             cps = calculate_click_points(task.cw_task_category, task.pay_kobo, task.is_urgent, sub.submitted_at)
@@ -71,11 +77,21 @@ async def _auto_approve():
             sub.was_auto_approved = True
             sub.reviewed_at = datetime.utcnow()
             task.slots_filled += 1
+            campaign.slots_filled = min(campaign.slots_total, campaign.slots_filled + 1)
             if task.slots_filled >= task.slots_total:
                 task.status = "completed"
+            if campaign.slots_filled >= campaign.slots_total:
+                campaign.slots_filled = campaign.slots_total
+                if campaign.escrow_kobo > 0:
+                    await wallet_service.refund_escrow(
+                        db, campaign.owner_id, campaign.escrow_kobo,
+                        reference=f"{campaign.id}:completion",
+                        description="Campaign completed — unused budget remainder refunded",
+                    )
+                campaign.status = "completed"
             await rewards_service.award_referral_bonus_if_first_approval(db, sub.worker_id)
             await notify(db, sub.worker_id, "task_approved", "Task auto-approved",
-                         f"\"{task.title}\" was automatically approved after {settings.AUTO_APPROVE_HOURS}h — you earned ₦{task.pay_kobo/100:,.2f}.")
+                         f'"{task.title}" was automatically approved after {settings.AUTO_APPROVE_HOURS}h — you earned ₦{task.pay_kobo/100:,.2f}.')
         await db.commit()
 
 @celery_app.task(name="app.workers.submission_tasks.expire_stale_acceptances")
