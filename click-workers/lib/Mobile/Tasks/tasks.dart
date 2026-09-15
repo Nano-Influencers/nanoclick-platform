@@ -5,8 +5,9 @@ import 'package:click_workers/Mobile/Tasks/task_details.dart';
 
 /// Worker task list backed by the FastAPI /tasks endpoint.
 ///
-/// The API performs worker-specific targeting eligibility before pagination,
-/// so this screen only needs to paginate/filter the returned eligible stream.
+/// The API performs worker-specific targeting eligibility before pagination.
+/// This screen keeps pagination server-side and uses local filtering only for
+/// composite tabs such as Repeating and Non Repeating.
 class Tasks extends StatefulWidget {
   const Tasks({
     super.key,
@@ -26,60 +27,135 @@ class Tasks extends StatefulWidget {
 }
 
 class _TasksState extends State<Tasks> {
+  static const int _pageSize = 50;
+
   late String isSelected;
   bool isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
   String? error;
   List<dynamic> _allTasks = [];
   final Set<String> _acceptingTaskIds = <String>{};
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     isSelected = widget.isSelected;
-    _load();
+    _scrollController.addListener(_onScroll);
+    _load(reset: true);
   }
 
-  Future<void> _load() async {
+  @override
+  void didUpdateWidget(covariant Tasks oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isSelected != widget.isSelected) {
+      _selectTab(widget.isSelected);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients || _isLoadingMore || !_hasMore || isLoading) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 500) {
+      _loadMore();
+    }
+  }
+
+  Map<String, dynamic> _serverFilters() {
+    switch (isSelected) {
+      case 'High-Earning':
+      case 'High-Points':
+        return {'isHighEarning': true};
+      case 'Simple':
+        return {'difficulty': 'simple'};
+      case 'Unpaid':
+        return {'category': 'unpaid'};
+      default:
+        // Repeating/Non Repeating are composite views and therefore remain
+        // locally filtered across the accumulated server pages.
+        return {};
+    }
+  }
+
+  Future<void> _load({required bool reset}) async {
+    if (_isLoadingMore && !reset) return;
+
     if (mounted) {
       setState(() {
-        isLoading = true;
+        if (reset) {
+          isLoading = true;
+          _isLoadingMore = false;
+          _hasMore = true;
+          _allTasks = [];
+        } else {
+          _isLoadingMore = true;
+        }
         error = null;
       });
     }
+
     try {
-      final tasks = await ApiClient.instance.listTasks();
-      if (mounted) {
-        setState(() {
+      final filters = _serverFilters();
+      final tasks = await ApiClient.instance.listTasks(
+        category: filters['category'] as String?,
+        difficulty: filters['difficulty'] as String?,
+        isHighEarning: filters['isHighEarning'] as bool?,
+        limit: _pageSize,
+        offset: reset ? 0 : _allTasks.length,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        if (reset) {
           _allTasks = tasks;
           isLoading = false;
-        });
-      }
+        } else {
+          _allTasks = [..._allTasks, ...tasks];
+          _isLoadingMore = false;
+        }
+        _hasMore = tasks.length == _pageSize;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          error = e.toString();
+      if (!mounted) return;
+      setState(() {
+        error = e.toString();
+        if (reset) {
           isLoading = false;
-        });
-      }
+        } else {
+          _isLoadingMore = false;
+        }
+      });
     }
+  }
+
+  Future<void> _loadMore() => _load(reset: false);
+
+  Future<void> _refresh() async {
+    await _load(reset: true);
+  }
+
+  void _selectTab(String label) {
+    if (label == isSelected && _allTasks.isNotEmpty) return;
+    setState(() => isSelected = label);
+    _load(reset: true);
   }
 
   List<dynamic> get _filtered {
     switch (isSelected) {
-      case "Repeating":
+      case 'Repeating':
         return _allTasks.where((t) =>
             (t['cw_task_category'] as String? ?? '').startsWith('repeating')).toList();
-      case "Non Repeating":
+      case 'Non Repeating':
         return _allTasks.where((t) =>
             !(t['cw_task_category'] as String? ?? '').startsWith('repeating') &&
             (t['cw_task_category'] as String? ?? '') != 'unpaid').toList();
-      case "High-Earning":
-      case "High-Points":
-        return _allTasks.where((t) => t['is_high_earning'] == true).toList();
-      case "Simple":
-        return _allTasks.where((t) => t['difficulty'] == 'simple').toList();
-      case "Unpaid":
-        return _allTasks.where((t) => t['cw_task_category'] == 'unpaid').toList();
       default:
         return _allTasks;
     }
@@ -89,7 +165,7 @@ class _TasksState extends State<Tasks> {
     return SizedBox(
       width: width.w,
       child: ElevatedButton(
-        onPressed: () => setState(() => isSelected = label),
+        onPressed: () => _selectTab(label),
         style: ElevatedButton.styleFrom(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           backgroundColor: isSelected == label ? Colors.black : Colors.white,
@@ -160,11 +236,15 @@ class _TasksState extends State<Tasks> {
 
   @override
   Widget build(BuildContext context) {
+    final filtered = _filtered;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: _refresh,
         child: ListView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
             Container(
               padding: const EdgeInsets.fromLTRB(12, 20, 12, 20),
@@ -173,19 +253,19 @@ class _TasksState extends State<Tasks> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _tabButton("All Tasks"),
+                    _tabButton('All Tasks'),
                     SizedBox(width: 6.w),
-                    _tabButton("Repeating"),
+                    _tabButton('Repeating'),
                     SizedBox(width: 6.w),
-                    _tabButton("High-Earning", fontSize: 10),
+                    _tabButton('High-Earning', fontSize: 10),
                     SizedBox(width: 4.w),
-                    _tabButton("Non Repeating", fontSize: 10),
+                    _tabButton('Non Repeating', fontSize: 10),
                     SizedBox(width: 4.w),
-                    _tabButton("High-Points", fontSize: 10),
+                    _tabButton('High-Points', fontSize: 10),
                     SizedBox(width: 4.w),
-                    _tabButton("Simple", fontSize: 10),
+                    _tabButton('Simple', fontSize: 10),
                     SizedBox(width: 4.w),
-                    _tabButton("Unpaid", fontSize: 10),
+                    _tabButton('Unpaid', fontSize: 10),
                   ],
                 ),
               ),
@@ -200,18 +280,43 @@ class _TasksState extends State<Tasks> {
                 padding: const EdgeInsets.all(40),
                 child: Center(child: Text('Error: $error')),
               )
-            else if (_filtered.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(40),
-                child: Center(child: Text('No tasks in this category right now.')),
+            else if (filtered.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(40),
+                child: Column(
+                  children: [
+                    const Text('No tasks in this category right now.'),
+                    if (_hasMore) ...[
+                      const SizedBox(height: 16),
+                      OutlinedButton(
+                        onPressed: _isLoadingMore ? null : _loadMore,
+                        child: _isLoadingMore
+                            ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Text('Load more'),
+                      ),
+                    ],
+                  ],
+                ),
               )
             else
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
                 child: Column(
-                  children: _filtered
+                  children: filtered
                       .map((data) => _taskCard(context, data as Map<String, dynamic>))
                       .toList(),
+                ),
+              ),
+            if (!isLoading && error == null && filtered.isNotEmpty && _hasMore)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+                child: Center(
+                  child: OutlinedButton(
+                    onPressed: _isLoadingMore ? null : _loadMore,
+                    child: _isLoadingMore
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Load more tasks'),
+                  ),
                 ),
               ),
           ],
@@ -283,7 +388,7 @@ class _TasksState extends State<Tasks> {
                 children: [
                   RichText(
                     text: TextSpan(
-                      text: "₦$pay ",
+                      text: '₦$pay ',
                       style: const TextStyle(fontSize: 12, color: Color(0xff22c55e)),
                       children: [
                         TextSpan(
@@ -302,7 +407,7 @@ class _TasksState extends State<Tasks> {
                     ),
                     child: accepting
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text("Accept", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        : const Text('Accept', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
