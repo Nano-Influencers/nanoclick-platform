@@ -196,7 +196,16 @@ class ApiClient {
   Future<List<dynamic>> getWithdrawals() async => await _request('GET', '/wallet/withdrawals') as List<dynamic>;
   Future<Map<String, dynamic>> spin() async => await _request('POST', '/wallet/spin') as Map<String, dynamic>;
   Future<Map<String, dynamic>> checkin() async => await _request('POST', '/wallet/checkin') as Map<String, dynamic>;
-  Future<List<dynamic>> listTasks({int limit = 50, int offset = 0}) async { final query = Uri(queryParameters: {'limit': '$limit', 'offset': '$offset'}).query; return await _request('GET', '/tasks?$query') as List<dynamic>; }
+  Future<List<dynamic>> listTasks({String? category, String? difficulty, bool? isHighEarning, bool? isUrgent, String? platform, int limit = 50, int offset = 0}) async {
+    final queryParameters = <String, String>{'limit': '$limit', 'offset': '$offset'};
+    if (category != null && category.isNotEmpty) queryParameters['category'] = category;
+    if (difficulty != null && difficulty.isNotEmpty) queryParameters['difficulty'] = difficulty;
+    if (isHighEarning != null) queryParameters['is_high_earning'] = '$isHighEarning';
+    if (isUrgent != null) queryParameters['is_urgent'] = '$isUrgent';
+    if (platform != null && platform.isNotEmpty) queryParameters['platform'] = platform;
+    final query = Uri(queryParameters: queryParameters).query;
+    return await _request('GET', '/tasks?$query') as List<dynamic>;
+  }
   Future<Map<String, dynamic>> getTask(String taskId) async => await _request('GET', '/tasks/$taskId') as Map<String, dynamic>;
   Future<Map<String, dynamic>> acceptTask(String taskId) async => await _request('POST', '/tasks/$taskId/accept') as Map<String, dynamic>;
   Future<void> cancelAcceptance(String taskId) async => await _request('POST', '/tasks/$taskId/cancel');
