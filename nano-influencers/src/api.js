@@ -105,7 +105,7 @@ export const api = {
   async getTransactions() { return request("/wallet/transactions"); },
   async getDepositStatus(reference) { return request(`/wallet/deposits/${encodeURIComponent(reference)}`); },
   async initiateDeposit(amount_ngn, options = {}) { return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn }, headers: { "Idempotency-Key": options.idempotencyKey || idempotencyKey() } }); },
-  async listCampaigns() { return request("/campaigns"); },
+  async listCampaigns({ limit = 50, offset = 0 } = {}) { return request(`/campaigns?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`); },
   async getCampaign(id) { return request(`/campaigns/${id}`); },
   async getCampaignReport(id) { return request(`/campaigns/${id}/report`); },
   async createCampaign(payload) { return request("/campaigns", { method: "POST", body: payload }); },
