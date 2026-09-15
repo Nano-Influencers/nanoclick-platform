@@ -26,14 +26,17 @@ async def _enforce_task_visibility(task_id: uuid.UUID, current_user: User, db: A
         raise HTTPException(403, "KYC verification required to access targeted tasks")
 
 async def _require_active_campaign(task: Task, db: AsyncSession) -> Campaign:
-    campaign_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id))
+    campaign_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id).with_for_update())
     campaign = campaign_r.scalar_one_or_none()
     if not campaign:
         raise HTTPException(404, "Campaign not found")
+    now = datetime.utcnow()
     if campaign.status != "active":
         raise HTTPException(409, f"Campaign is {campaign.status} and is not accepting task activity")
-    if campaign.expires_at and campaign.expires_at <= datetime.utcnow():
+    if campaign.expires_at and campaign.expires_at <= now:
         raise HTTPException(409, "Campaign has expired")
+    if task.expires_at and task.expires_at <= now:
+        raise HTTPException(409, "Task has expired")
     return campaign
 
 async def _validate_proofs(proof_keys: list[str], worker_id: uuid.UUID) -> None:
@@ -140,16 +143,17 @@ async def submit_task(task_id: uuid.UUID, body: SubmissionCreate, current_user: 
     acc_r = await db.execute(select(TaskAcceptance).where(TaskAcceptance.task_id == task_id, TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status == "active").with_for_update())
     acceptance = acc_r.scalar_one_or_none()
     if not acceptance: raise HTTPException(400, "No active acceptance for this task")
-    if acceptance.expires_at < datetime.utcnow():
+    now = datetime.utcnow()
+    if acceptance.expires_at <= now:
         acceptance.status = "expired"
         raise HTTPException(400, "Acceptance window expired")
-    task_r = await db.execute(select(Task).where(Task.id == task_id))
+    task_r = await db.execute(select(Task).where(Task.id == task_id).with_for_update())
     task = task_r.scalar_one_or_none()
     if not task: raise HTTPException(404, "Task not found")
     await _require_active_campaign(task, db)
     await _enforce_task_visibility(task_id, current_user, db)
     await _validate_proofs(body.proof_urls, current_user.id)
-    speed_minutes = (datetime.utcnow() - acceptance.accepted_at).total_seconds() / 60
+    speed_minutes = (now - acceptance.accepted_at).total_seconds() / 60
     flagged = speed_minutes < 2.0
     image_hash = await compute_image_hash(body.proof_urls[0]) if body.proof_urls else None
     sub = Submission(task_id=task_id, worker_id=current_user.id, acceptance_id=acceptance.id, status="under_review" if flagged else "pending", proof_urls=body.proof_urls, proof_link=body.proof_link, proof_image_hash=image_hash, task_speed_minutes=speed_minutes)
