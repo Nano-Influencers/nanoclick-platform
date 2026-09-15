@@ -7,28 +7,11 @@ import 'package:click_workers/services/app_user.dart';
 /// Replaces Firebase Auth + the Firestore user/wallet/leaderboard
 /// bootstrapping this class used to do on every sign-up. The backend's
 /// POST /auth/register already creates the user + wallet atomically in one
-/// request (see app/routers/auth.py), so none of that client-side
-/// bootstrapping is needed anymore — registerWithEmailAndPassword is the
-/// entire signup now, not the first of five separate calls.
+/// request, so none of that client-side bootstrapping is needed anymore.
 ///
-/// Method names and return-value conventions are kept identical to the old
-/// Firebase-backed version wherever call sites elsewhere depend on them
-/// (signInWithEmailAndPassword returning null on success / a message on
-/// failure, registerWithEmailAndPassword returning a UserId on success,
-/// etc.) — see docs/architecture.md for the full inventory of what calls
-/// what. This kept the vast majority of the sign-in/sign-up/verify/
-/// forgot-password UI files unchanged.
-///
-/// IMPORTANT: every screen constructs its own `AuthProvider()` directly
-/// (`final _auth = AuthProvider();`), exactly like the old code did with
-/// FirebaseAuth — so the "who's logged in" state and its change stream
-/// have to live at the *class* level (static), not per-instance. With
-/// Firebase this was invisible: every AuthProvider instance just
-/// delegated to the single global FirebaseAuth.instance under the hood.
-/// A naive port that stored _cachedUser/the stream controller as instance
-/// fields would silently break that — a login from sign_in.dart's
-/// AuthProvider instance would never reach the *different* AuthProvider
-/// instance the app root's StreamProvider is listening to.
+/// AuthProvider instances share one app-wide auth stream and cached user,
+/// matching the old Firebase-backed behavior where FirebaseAuth.instance was
+/// globally shared.
 class AuthProvider with ChangeNotifier {
   final ApiClient _api = ApiClient.instance;
 
@@ -37,13 +20,11 @@ class AuthProvider with ChangeNotifier {
 
   bool refreshFav = false;
 
-  // Replaces Firebase's `authStateChanges()`. Static + broadcast so every
-  // AuthProvider() instance anywhere in the app shares the exact same
-  // stream, the same way every FirebaseAuth.instance access used to.
   static final StreamController<AppUser?> _userController = StreamController<AppUser?>.broadcast();
   Stream<AppUser?> get user_ => _userController.stream;
 
   static bool _sessionRestored = false;
+  static Future<void>? _restoreInFlight;
 
   AuthProvider() {
     if (!_sessionRestored) {
@@ -52,14 +33,34 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Re-checks auth state against whatever tokens are currently stored.
-  /// Used by main.dart right after a web OAuth login stores fresh tokens,
-  /// so the StreamProvider picks up the now-logged-in user without the
-  /// person needing to manually refresh the page.
-  Future<void> refreshSessionSilently() => _restoreSession();
+  /// Re-checks auth state after login/OAuth. If an older startup restore is
+  /// already running, wait for it first and then perform a fresh read so the
+  /// old result cannot overwrite the newly authenticated session.
+  Future<void> refreshSessionSilently() => _restoreSession(force: true);
 
-  Future<void> _restoreSession() async {
+  Future<void> _restoreSession({bool force = false}) async {
+    final inFlight = _restoreInFlight;
+    if (inFlight != null) {
+      if (!force) return inFlight;
+      try {
+        await inFlight;
+      } catch (_) {
+        // A failed startup restore must not prevent a fresh post-login check.
+      }
+    }
+
+    final next = _performRestoreSession();
+    _restoreInFlight = next;
+    try {
+      await next;
+    } finally {
+      if (identical(_restoreInFlight, next)) _restoreInFlight = null;
+    }
+  }
+
+  Future<void> _performRestoreSession() async {
     if (!_api.isLoggedIn) {
+      _cachedUser = null;
       _userController.add(null);
       return;
     }
@@ -81,8 +82,6 @@ class AuthProvider with ChangeNotifier {
 
   // ---- password reset ----------------------------------------------------
 
-  /// Returns null on success, an error message on failure — same
-  /// convention as the old Firebase-backed version.
   Future<String?> forgotPassword(String email) async {
     try {
       await _api.forgotPassword(email);
@@ -94,35 +93,9 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// `oobCode` is Firebase's name for the reset token that used to arrive
-  /// via its emailed action link; the backend's equivalent (a plain opaque
-  /// token from POST /auth/forgot-password) plays the same role here, so
-  /// the parameter name is kept for the one caller (new_password.dart)
-  /// that already threads a token through this exact signature.
   Future<String?> confirmPasswordReset(String oobCode, String newPassword) async {
     try {
       await _api.resetPassword(oobCode, newPassword);
-      return null; // success
-    } on ApiException catch (e) {
-      return e.message;
-    } catch (_) {
-      return "Something went wrong";
-    }
-  }
-
-  /// No-op now: AppUser has no verification flag to refresh (see its
-  /// emailVerified getter). Kept so verify.dart's existing `await
-  /// _auth.reload()` call doesn't need touching.
-  Future<void> reload() async {}
-
-  // ---- sign in / sign up --------------------------------------------------
-
-  /// Returns null on success, an error message on failure.
-  Future<String?> signInWithEmailAndPassword(String email, String password) async {
-    try {
-      await _api.login(email, password);
-      _cachedUser = await _api.me();
-      _userController.add(_cachedUser);
       return null;
     } on ApiException catch (e) {
       return e.message;
@@ -131,15 +104,27 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Returns a UserId on success (so `result.toString() == "Instance of
-  /// 'UserId'"` keeps matching in sign_up.dart's existing check), or a
-  /// String error message on failure.
+  Future<void> reload() async {}
+
+  // ---- sign in / sign up --------------------------------------------------
+
+  Future<String?> signInWithEmailAndPassword(String email, String password) async {
+    try {
+      await _api.login(email, password);
+      await _restoreSession(force: true);
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    } catch (_) {
+      return "Something went wrong";
+    }
+  }
+
   Future<dynamic> registerWithEmailAndPassword(String email, String password, String fullName) async {
     try {
       await _api.register(email: email, password: password, fullName: fullName);
       await _api.login(email, password);
-      _cachedUser = await _api.me();
-      _userController.add(_cachedUser);
+      await _restoreSession(force: true);
       return UserId();
     } on ApiException catch (e) {
       return e.message;
@@ -156,9 +141,6 @@ class AuthProvider with ChangeNotifier {
     _userController.add(null);
   }
 
-  /// Returns "" on success, an error/warning message on failure — same
-  /// convention as the old Firebase-backed version (change_password.dart
-  /// checks for an *empty* string, not null, on success).
   Future<String?> attemptPasswordChange({
     required String currentPassword,
     required String newPassword,
@@ -186,8 +168,5 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  // Deliberately does NOT close _userController: it's a static, app-wide
-  // singleton stream shared by every AuthProvider() instance, so it must
-  // outlive any single instance's dispose() — closing it here would break
-  // every other screen's AuthProvider the next time it's constructed.
+  // Deliberately does NOT close _userController: it is an app-wide stream.
 }
