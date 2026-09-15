@@ -91,8 +91,8 @@ async def accept_task(task_id: uuid.UUID, current_user: User = Depends(require_w
     if task.slots_filled >= task.slots_total: raise HTTPException(409, "Task fully claimed")
     reserved_r = await db.execute(select(func.count(TaskAcceptance.id)).where(TaskAcceptance.task_id == task_id, TaskAcceptance.status.in_(["active", "submitted"])))
     if task.slots_filled + (reserved_r.scalar() or 0) >= task.slots_total: raise HTTPException(409, "All task slots are currently reserved")
-    ex = await db.execute(select(TaskAcceptance).where(TaskAcceptance.task_id == task_id, TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status == "active"))
-    if ex.scalar_one_or_none(): raise HTTPException(409, "Already accepted this task")
+    ex = await db.execute(select(TaskAcceptance).where(TaskAcceptance.task_id == task_id, TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status.in_(["active", "submitted"])))
+    if ex.scalar_one_or_none(): raise HTTPException(409, "Already accepted or submitted this task")
     expires_at = datetime.utcnow() + timedelta(minutes=task.accept_timeout_minutes)
     acceptance = TaskAcceptance(task_id=task_id, worker_id=current_user.id, expires_at=expires_at)
     db.add(acceptance)
@@ -146,10 +146,8 @@ async def cancel_acceptance(task_id: uuid.UUID, current_user: User = Depends(req
 async def get_upload_url(body: PresignedUrlRequest, current_user: User = Depends(require_worker)):
     try:
         return generate_presigned_upload_url(body.file_extension, folder=f"proofs/{current_user.id}")
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(503, str(exc)) from exc
+    except ValueError as exc: raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc: raise HTTPException(503, str(exc)) from exc
 
 @router.get("/leaderboard/{period}", response_model=list[LeaderboardEntryResponse])
 async def get_leaderboard(period: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
