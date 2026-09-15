@@ -190,7 +190,21 @@ class ApiClient {
   Future<void> register({required String email, required String password, required String fullName, String? referralCode}) async => await _request('POST', '/auth/register', auth: false, body: {'email': email, 'password': password, 'full_name': fullName, 'role': 'worker', 'referral_code': referralCode});
   Future<void> login(String email, String password) async { final data = await _request('POST', '/auth/login?platform=$_authPlatform', auth: false, body: {'email': email, 'password': password}); await setTokens(access: data['access_token'], refresh: data['refresh_token']); }
   Future<AppUser> me() async => AppUser.fromJson(await _request('GET', '/auth/me') as Map<String, dynamic>);
-  Future<void> logout() async { try { await _request('POST', '/auth/logout?platform=$_authPlatform', auth: false); } catch (_) {} await clearTokens(); }
+  Future<void> logout() async {
+    final refresh = _refreshToken;
+    final wasWeb = storage.isWeb;
+    // Invalidate the local session before the network call so an in-flight
+    // refresh cannot rotate a token after the user has logged out.
+    await clearTokens();
+    try {
+      await _request(
+        'POST',
+        '/auth/logout?platform=$_authPlatform',
+        auth: false,
+        body: wasWeb || refresh == null ? null : {'refresh_token': refresh},
+      );
+    } catch (_) {}
+  }
   Future<void> changePassword(String currentPassword, String newPassword) async => await _request('POST', '/auth/change-password', body: {'current_password': currentPassword, 'new_password': newPassword});
   Future<void> forgotPassword(String email) async => await _request('POST', '/auth/forgot-password', auth: false, body: {'email': email});
   Future<void> resetPassword(String token, String newPassword) async => await _request('POST', '/auth/reset-password', auth: false, body: {'token': token, 'new_password': newPassword});
