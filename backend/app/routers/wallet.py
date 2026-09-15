@@ -184,6 +184,96 @@ async def initiate_deposit(
     return InitiateDepositResponse(authorization_url=data["authorization_url"], reference=reference)
 
 
+@router.get("/deposits/{reference}")
+async def get_deposit_status(
+    reference: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return and, when possible, reconcile the caller's own Paystack deposit.
+
+    The payment-return page cannot safely assume that Paystack's webhook has
+    already arrived. Pending deposits are therefore verified directly with
+    Paystack, outside the database lock, and credited through the same
+    idempotent wallet transaction used by the webhook. Provider verification
+    failures leave the deposit pending so a later retry can safely reconcile it.
+    """
+    result = await db.execute(select(Deposit).where(
+        Deposit.reference == reference,
+        Deposit.user_id == current_user.id,
+    ))
+    deposit = result.scalar_one_or_none()
+    if not deposit:
+        raise HTTPException(404, "Deposit not found")
+
+    if deposit.status == "pending":
+        try:
+            verified = await paystack.verify_transaction(reference)
+        except Exception:
+            verified = None
+
+        if verified:
+            provider_status = str(verified.get("status") or "").lower()
+            provider_amount = int(verified.get("amount") or 0)
+            provider_currency = verified.get("currency")
+
+            if provider_status in ("failed", "abandoned"):
+                if provider_amount and provider_amount != deposit.amount_kobo:
+                    raise HTTPException(409, "Payment amount does not match deposit")
+                if provider_currency and provider_currency != "NGN":
+                    raise HTTPException(409, "Payment currency does not match deposit")
+                locked_result = await db.execute(select(Deposit).where(
+                    Deposit.reference == reference,
+                    Deposit.user_id == current_user.id,
+                ).with_for_update())
+                locked = locked_result.scalar_one_or_none()
+                if locked and locked.status == "pending":
+                    locked.status = "failed"
+                    await db.commit()
+                deposit = locked or deposit
+
+            elif provider_status == "success":
+                if provider_amount != deposit.amount_kobo or provider_currency != "NGN":
+                    raise HTTPException(409, "Payment amount or currency does not match deposit")
+
+                locked_result = await db.execute(select(Deposit).where(
+                    Deposit.reference == reference,
+                    Deposit.user_id == current_user.id,
+                ).with_for_update())
+                locked = locked_result.scalar_one_or_none()
+                if not locked:
+                    raise HTTPException(404, "Deposit not found")
+                if locked.status == "pending":
+                    await wallet_service.credit(
+                        db,
+                        locked.user_id,
+                        locked.amount_kobo,
+                        "deposit",
+                        description="Wallet top-up via Paystack",
+                        reference=locked.reference,
+                    )
+                    locked.status = "completed"
+                    locked.completed_at = datetime.utcnow()
+                    from app.services.notification_service import notify
+                    await notify(
+                        db,
+                        locked.user_id,
+                        "deposit_success",
+                        "Wallet funded",
+                        f"₦{locked.amount_kobo/100:,.2f} was added to your wallet.",
+                    )
+                    await db.commit()
+                deposit = locked
+
+    return {
+        "reference": deposit.reference,
+        "status": deposit.status,
+        "amount_ngn": deposit.amount_kobo / 100,
+        "created_at": deposit.created_at.isoformat(),
+        "completed_at": deposit.completed_at.isoformat() if deposit.completed_at else None,
+    }
+
+
 @router.get("/resolve-account", response_model=ResolveAccountResponse)
 async def resolve_account(bank_code: str, account_number: str, current_user: User = Depends(require_worker)):
     try:
