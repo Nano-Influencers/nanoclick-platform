@@ -1,7 +1,7 @@
 import uuid, math
 from datetime import datetime
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -139,8 +139,20 @@ async def create_campaign(body: CampaignCreate, current_user: User = Depends(req
 
 
 @router.get("", response_model=list[CampaignResponse])
-async def list_campaigns(current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(Campaign).where(Campaign.owner_id == current_user.id).order_by(Campaign.created_at.desc()))
+async def list_campaigns(
+    current_user: User = Depends(require_advertiser),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Return a bounded, stable page while keeping the existing list response shape."""
+    r = await db.execute(
+        select(Campaign)
+        .where(Campaign.owner_id == current_user.id)
+        .order_by(Campaign.created_at.desc(), Campaign.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return r.scalars().all()
 
 
