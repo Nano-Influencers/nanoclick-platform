@@ -140,8 +140,6 @@ class ApiClient {
   Future<bool> _performRefresh(String? refresh) async {
     try {
       if (storage.isWeb) {
-        // BrowserClient carries the HttpOnly refresh cookie via withCredentials.
-        // Never send or expect a native refresh token in the web build.
         final res = await _send(_client.post(
           _uri('/auth/refresh?platform=web'),
           headers: {'Content-Type': 'application/json', 'X-Request-ID': _requestId()},
@@ -204,7 +202,7 @@ class ApiClient {
   Future<void> cancelAcceptance(String taskId) async => await _request('POST', '/tasks/$taskId/cancel');
   Future<Map<String, dynamic>> submitTask(String taskId, List<String> proofUrls, {String? proofLink}) async => await _request('POST', '/tasks/$taskId/submit', body: {'proof_urls': proofUrls, 'proof_link': proofLink}) as Map<String, dynamic>;
   Future<void> reportTask(String taskId, String reason) async => await _request('POST', '/tasks/$taskId/report', body: {'reason': reason});
-  Future<List<dynamic>> mySubmissions({String? status, int limit = 50, int offset = 0}) async { final queryParameters = <String, String>{'limit': '$limit', 'offset': '$offset'}; if (status != null) queryParameters['status'] = status; final query = Uri(queryParameters: queryParameters).query; return await _request('GET', '/tasks/my-submissions?$query') as List<dynamic>; }
+  Future<List<dynamic>> mySubmissions({String? taskId, String? status, int limit = 50, int offset = 0}) async { final queryParameters = <String, String>{'limit': '$limit', 'offset': '$offset'}; if (taskId != null) queryParameters['task_id'] = taskId; if (status != null) queryParameters['status'] = status; final query = Uri(queryParameters: queryParameters).query; return await _request('GET', '/tasks/my-submissions?$query') as List<dynamic>; }
   Future<List<dynamic>> leaderboard(String period) async => await _request('GET', '/tasks/leaderboard/${Uri.encodeComponent(period)}') as List<dynamic>;
   Future<Map<String, dynamic>> myTaskStats() async => await _request('GET', '/tasks/my-stats') as Map<String, dynamic>;
   Future<Map<String, dynamic>> requestUploadUrl(String fileExtension) async => await _request('POST', '/tasks/upload-url', body: {'file_extension': fileExtension}) as Map<String, dynamic>;
