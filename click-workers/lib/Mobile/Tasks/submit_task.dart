@@ -83,11 +83,8 @@ class _SubmitTaskState extends State<SubmitTask> {
   }
 
   Future<List<Map<String, dynamic>>> getPreviousSubmissions() async {
-    final all = await ApiClient.instance.mySubmissions();
-    final matching = all
-        .where((s) => (s as Map<String, dynamic>)['task_id'] == widget.taskID)
-        .cast<Map<String, dynamic>>()
-        .toList();
+    final all = await ApiClient.instance.mySubmissions(taskId: widget.taskID);
+    final matching = all.cast<Map<String, dynamic>>().toList();
     for (final submission in matching) {
       final proofKeys = (submission['proof_urls'] as List?)?.map((value) => value.toString()).toList() ?? <String>[];
       if (proofKeys.isEmpty) continue;
