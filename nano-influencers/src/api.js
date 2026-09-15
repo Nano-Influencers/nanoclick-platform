@@ -40,26 +40,19 @@ async function fetchWithTimeout(url, options = {}) {
   } catch (error) {
     if (error?.name === "AbortError") throw new ApiError("The request timed out. Please try again.", 408);
     throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
+  } finally { clearTimeout(timeout); }
 }
 
 async function request(path, { method = "GET", body, auth = true, headers: extraHeaders = {}, _retried = false } = {}) {
   const headers = { "Content-Type": "application/json", "X-Request-ID": requestId(), ...extraHeaders };
   if (auth && accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
   let res;
-  try {
-    res = await fetchWithTimeout(`${API_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" });
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError("Unable to reach the server. Check your connection and try again.", 0);
-  }
+  try { res = await fetchWithTimeout(`${API_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" }); }
+  catch (error) { if (error instanceof ApiError) throw error; throw new ApiError("Unable to reach the server. Check your connection and try again.", 0); }
   if (res.status === 401 && auth && !_retried) {
     const refreshed = await tryRefresh();
     if (refreshed) return request(path, { method, body, auth, headers: extraHeaders, _retried: true });
-    clearTokens();
-    window.dispatchEvent(new CustomEvent("nano-auth-expired"));
+    clearTokens(); window.dispatchEvent(new CustomEvent("nano-auth-expired"));
     throw new ApiError("Session expired — please log in again.", 401);
   }
   if (!res.ok) throw new ApiError(await parseError(res), res.status);
@@ -72,16 +65,10 @@ async function tryRefresh() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Request-ID": requestId() },
-        credentials: "include",
-      });
+      const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, { method: "POST", headers: { "Content-Type": "application/json", "X-Request-ID": requestId() }, credentials: "include" });
       if (!res.ok) return false;
-      const data = await res.json();
-      if (!data.access_token) return false;
-      setTokens(data.access_token);
-      return true;
+      const data = await res.json(); if (!data.access_token) return false;
+      setTokens(data.access_token); return true;
     } catch { return false; }
   })();
   try { return await refreshInFlight; } finally { refreshInFlight = null; }
@@ -98,20 +85,18 @@ export const api = {
   async resetPassword(token, new_password) { return request("/auth/reset-password", { method: "POST", auth: false, body: { token, new_password } }); },
   async deleteAccount() { return request("/auth/me", { method: "DELETE" }); },
   async logout() { try { await request("/auth/logout?platform=web", { method: "POST", auth: false }); } catch {} clearTokens(); },
-  isLoggedIn() { return !!accessToken; },
-  setSessionTokens(access) { setTokens(access); },
+  isLoggedIn() { return !!accessToken; }, setSessionTokens(access) { setTokens(access); },
   oauthUrl(provider) { return `${API_URL}/auth/${provider}/login?role=advertiser&platform=web`; },
   async getBalance() { return request("/wallet/balance"); },
-  async getTransactions() { return request("/wallet/transactions"); },
+  async getTransactions({ limit = 100, offset = 0 } = {}) { return request(`/wallet/transactions?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`); },
   async getDepositStatus(reference) { return request(`/wallet/deposits/${encodeURIComponent(reference)}`); },
   async initiateDeposit(amount_ngn, options = {}) { return request("/wallet/deposit/initialize", { method: "POST", body: { amount_ngn }, headers: { "Idempotency-Key": options.idempotencyKey || idempotencyKey() } }); },
   async listCampaigns({ limit = 50, offset = 0 } = {}) { return request(`/campaigns?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`); },
-  async getCampaign(id) { return request(`/campaigns/${id}`); },
-  async getCampaignReport(id) { return request(`/campaigns/${id}/report`); },
+  async getCampaign(id) { return request(`/campaigns/${id}`); }, async getCampaignReport(id) { return request(`/campaigns/${id}/report`); },
   async createCampaign(payload) { return request("/campaigns", { method: "POST", body: payload }); },
   async updateCampaignStatus(id, new_status) { return request(`/campaigns/${id}/status?new_status=${encodeURIComponent(new_status)}`, { method: "PATCH" }); },
   async previewAudience(id) { return request(`/campaigns/${id}/audience`); },
-  async listNotifications() { return request("/notifications"); },
+  async listNotifications({ unreadOnly = false, limit = 50, offset = 0 } = {}) { return request(`/notifications?unread_only=${unreadOnly ? "true" : "false"}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`); },
   async unreadNotificationCount() { return request("/notifications/unread-count"); },
   async markNotificationRead(id) { return request(`/notifications/${id}/read`, { method: "POST" }); },
   async markAllNotificationsRead() { return request(`/notifications/read-all`, { method: "POST" }); },
