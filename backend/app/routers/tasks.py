@@ -61,11 +61,6 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     accepted_ids = list(accepted_result.scalars())
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
 
-    # Targeting eligibility is worker-specific and includes profile thresholds that
-    # are evaluated in Python. Therefore SQL pagination must happen only after the
-    # eligibility filter, otherwise an ineligible task can consume a page slot and
-    # push an eligible task onto a later page. Scan deterministic candidate chunks
-    # and paginate the resulting eligible stream instead.
     candidate_offset = 0
     scan_size = max(limit, 100)
     eligible_seen = 0
@@ -114,8 +109,9 @@ async def my_task_stats(current_user: User = Depends(require_worker), db: AsyncS
     return {"ongoing_tasks": ongoing_r.scalar() or 0, "completed_tasks": completed_r.scalar() or 0, "missed_tasks": missed_r.scalar() or 0}
 
 @router.get("/my-submissions", response_model=list[SubmissionWithTaskResponse])
-async def my_submissions(status: str = Query(None), limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+async def my_submissions(task_id: uuid.UUID | None = Query(None), status: str = Query(None), limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
     conds = [Submission.worker_id == current_user.id]
+    if task_id is not None: conds.append(Submission.task_id == task_id)
     if status: conds.append(Submission.status == status)
     result = await db.execute(select(Submission, Task.title, Task.pay_kobo).join(Task, Task.id == Submission.task_id).where(and_(*conds)).order_by(Submission.submitted_at.desc(), Submission.id.desc()).offset(offset).limit(limit))
     return [SubmissionWithTaskResponse(id=sub.id, task_id=sub.task_id, task_title=title, status=sub.status, proof_urls=sub.proof_urls, rejection_reason=sub.rejection_reason, query_reason=sub.query_reason, client_rating=sub.client_rating, pay_ngn=pay_kobo / 100, submitted_at=sub.submitted_at, reviewed_at=sub.reviewed_at) for sub, title, pay_kobo in result.all()]
