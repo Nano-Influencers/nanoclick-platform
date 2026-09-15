@@ -47,7 +47,8 @@ async def _validate_proofs(proof_keys: list[str], worker_id: uuid.UUID) -> None:
 @router.get("", response_model=list[TaskResponse])
 async def list_tasks(category: str = Query(None), difficulty: str = Query(None), is_high_earning: bool = Query(None), is_urgent: bool = Query(None), platform: str = Query(None), limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
     conds = [Task.status == "available", Task.slots_filled < Task.slots_total]
-    if not current_user.kyc_verified: conds.append(Task.campaign_id.not_in(select(CampaignTargeting.campaign_id).scalar_subquery()))
+    if not current_user.kyc_verified:
+        conds.append(Task.campaign_id.not_in(select(CampaignTargeting.campaign_id).scalar_subquery()))
     if category: conds.append(Task.cw_task_category == category)
     if difficulty: conds.append(Task.difficulty == difficulty)
     if is_high_earning is not None: conds.append(Task.is_high_earning == is_high_earning)
@@ -56,7 +57,7 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     accepted_result = await db.execute(select(TaskAcceptance.task_id).where(TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status.in_(["active", "submitted"])))
     accepted_ids = list(accepted_result.scalars())
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
-    result = await db.execute(select(Task).join(Campaign, Campaign.id == Task.campaign_id).where(and_(*conds, Campaign.status == "active")).order_by(Task.is_urgent.desc(), Task.created_at.desc(), Task.id.desc()).offset(offset).limit(limit))
+    result = await db.execute(select(Task).join(Campaign, Campaign.id == Task.campaign_id).where(and_(*conds, Campaign.status == "active")).order_by(Task.is_urgent.desc(), Task.created_at.desc(), Task.id.desc()).limit(limit).offset(offset))
     tasks = result.scalars().all()
     visible = []
     for task in tasks:
@@ -146,9 +147,9 @@ async def get_upload_url(body: PresignedUrlRequest, current_user: User = Depends
     try:
         return generate_presigned_upload_url(body.file_extension, folder=f"proofs/{current_user.id}")
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(503, str(exc))
+        raise HTTPException(503, str(exc)) from exc
 
 @router.get("/leaderboard/{period}", response_model=list[LeaderboardEntryResponse])
 async def get_leaderboard(period: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
