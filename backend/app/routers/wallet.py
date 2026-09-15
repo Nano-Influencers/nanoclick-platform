@@ -74,9 +74,18 @@ async def get_transactions(
 
 
 @router.get("/withdrawals")
-async def get_withdrawals(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+async def get_withdrawals(
+    current_user: User = Depends(require_worker),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     result = await db.execute(
-        select(Withdrawal).where(Withdrawal.user_id == current_user.id).order_by(Withdrawal.created_at.desc()).limit(100)
+        select(Withdrawal)
+        .where(Withdrawal.user_id == current_user.id)
+        .order_by(Withdrawal.created_at.desc(), Withdrawal.id.desc())
+        .offset(offset)
+        .limit(limit)
     )
     return [
         {
@@ -258,109 +267,3 @@ async def daily_checkin(current_user: User = Depends(require_worker), db: AsyncS
 @router.post("/webhooks/paystack", include_in_schema=False)
 async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     raw_body = await request.body()
-    signature = request.headers.get("x-paystack-signature", "")
-    if not paystack.verify_webhook_signature(raw_body, signature):
-        raise HTTPException(401, "Invalid webhook signature")
-    try:
-        event = json.loads(raw_body)
-    except json.JSONDecodeError:
-        raise HTTPException(400, "Invalid JSON payload")
-
-    event_type = event.get("event")
-    data = event.get("data") or {}
-    reference = data.get("reference") or ""
-    event_id = request.headers.get("x-paystack-event-id") or hashlib.sha256(raw_body).hexdigest()
-
-    inserted = await db.execute(
-        pg_insert(PaystackEvent).values(event_id=event_id, event_type=event_type or "unknown", reference=reference or None)
-        .on_conflict_do_nothing(index_elements=["event_id"]).returning(PaystackEvent.id)
-    )
-    if inserted.scalar_one_or_none() is None:
-        return {"status": "duplicate"}
-
-    if event_type == "charge.success":
-        amount_kobo = int(data.get("amount") or 0)
-        currency = data.get("currency")
-        if not reference or amount_kobo <= 0 or currency != "NGN":
-            raise HTTPException(400, "Invalid payment payload")
-        deposit_result = await db.execute(select(Deposit).where(Deposit.reference == reference).with_for_update())
-        deposit = deposit_result.scalar_one_or_none()
-        if not deposit:
-            raise HTTPException(400, "Unknown deposit reference")
-        if deposit.status == "completed":
-            return {"status": "already_completed"}
-        if deposit.status != "pending" or deposit.amount_kobo != amount_kobo:
-            raise HTTPException(400, "Payment amount or state does not match deposit")
-        try:
-            verified = await paystack.verify_transaction(reference)
-            if verified.get("status") != "success" or int(verified.get("amount") or 0) != amount_kobo or verified.get("currency") != "NGN":
-                raise HTTPException(400, "Payment verification failed")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(502, "Payment verification temporarily unavailable")
-        await wallet_service.credit(db, deposit.user_id, amount_kobo, "deposit", description="Wallet top-up via Paystack", reference=reference)
-        deposit.status = "completed"
-        deposit.completed_at = datetime.utcnow()
-        from app.services.notification_service import notify
-        await notify(db, deposit.user_id, "deposit_success", "Wallet funded", f"₦{amount_kobo/100:,.2f} was added to your wallet.")
-
-    elif event_type in ("transfer.failed", "transfer.reversed"):
-        rt = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
-        withdrawal = rt.scalar_one_or_none()
-        if withdrawal:
-            event_amount = int(data.get("amount") or 0)
-            if event_amount and event_amount != withdrawal.amount_kobo:
-                raise HTTPException(400, "Transfer amount does not match withdrawal")
-
-            if event_type == "transfer.failed":
-                should_refund = withdrawal.status in ("requested", "processing")
-                target_status = "failed"
-            else:
-                should_refund = withdrawal.status in ("requested", "processing", "successful")
-                target_status = "reversed"
-
-            if should_refund:
-                tx_result = await db.execute(select(Transaction).where(
-                    Transaction.reference == reference,
-                    Transaction.type == "withdrawal",
-                ).with_for_update())
-                tx = tx_result.scalar_one_or_none()
-                if not tx:
-                    raise HTTPException(409, "Withdrawal ledger entry missing; cannot safely reverse funds")
-
-                reversal_reference = f"{reference}:reversal"
-                existing_reversal = await db.execute(select(Transaction).where(
-                    Transaction.reference == reversal_reference,
-                    Transaction.type == "withdrawal_reversal",
-                ).with_for_update())
-                if existing_reversal.scalar_one_or_none() is None:
-                    await wallet_service.credit(
-                        db, withdrawal.user_id, tx.amount_kobo, "withdrawal_reversal",
-                        description="Withdrawal failed at bank — funds returned",
-                        reference=reversal_reference,
-                    )
-                withdrawal.status = target_status
-                withdrawal.provider_reference = data.get("transfer_code") or withdrawal.provider_reference
-                withdrawal.failure_reason = data.get("reason") or ("Paystack transfer reversed" if event_type == "transfer.reversed" else "Paystack transfer failed")
-                withdrawal.completed_at = datetime.utcnow()
-                from app.services.notification_service import notify
-                title = "Withdrawal reversed" if event_type == "transfer.reversed" else "Withdrawal failed"
-                await notify(db, withdrawal.user_id, "withdrawal_processed", title, f"Your withdrawal of ₦{withdrawal.amount_kobo/100:,.2f} could not be completed and was refunded to your wallet.")
-
-    elif event_type == "transfer.success":
-        result = await db.execute(select(Withdrawal).where(Withdrawal.reference == reference).with_for_update())
-        withdrawal = result.scalar_one_or_none()
-        if withdrawal:
-            event_amount = int(data.get("amount") or 0)
-            if event_amount and event_amount != withdrawal.amount_kobo:
-                raise HTTPException(400, "Transfer amount does not match withdrawal")
-            if withdrawal.status not in ("successful", "failed", "reversed"):
-                withdrawal.status = "successful"
-                withdrawal.provider_reference = data.get("transfer_code") or withdrawal.provider_reference or reference
-                withdrawal.completed_at = datetime.utcnow()
-                from app.services.notification_service import notify
-                await notify(db, withdrawal.user_id, "withdrawal_processed", "Withdrawal successful", f"₦{withdrawal.amount_kobo/100:,.2f} has been sent to your bank account.")
-
-    await db.commit()
-    return {"status": "ok"}
