@@ -136,9 +136,18 @@ async def accept_task(task_id: uuid.UUID, current_user: User = Depends(require_w
 
 @router.post("/{task_id}/submit", response_model=SubmissionResponse)
 async def submit_task(task_id: uuid.UUID, body: SubmissionCreate, current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
-    acc_r = await db.execute(select(TaskAcceptance).where(TaskAcceptance.task_id == task_id, TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status == "active").with_for_update())
-    acceptance = acc_r.scalar_one_or_none()
-    if not acceptance: raise HTTPException(400, "No active acceptance for this task")
+    acc_r = await db.execute(select(TaskAcceptance).where(TaskAcceptance.task_id == task_id, TaskAcceptance.worker_id == current_user.id).order_by(TaskAcceptance.accepted_at.desc()).with_for_update())
+    acceptance = acc_r.scalars().first()
+    if not acceptance:
+        raise HTTPException(400, "No acceptance for this task")
+    if acceptance.status == "submitted":
+        existing_r = await db.execute(select(Submission).where(Submission.acceptance_id == acceptance.id).order_by(Submission.submitted_at.desc(), Submission.id.desc()))
+        existing = existing_r.scalars().first()
+        if existing:
+            return existing
+        raise HTTPException(409, "Submission is being finalized; please retry shortly")
+    if acceptance.status != "active":
+        raise HTTPException(400, f"Acceptance is {acceptance.status} and cannot accept a submission")
     now = datetime.utcnow()
     if acceptance.expires_at <= now:
         acceptance.status = "expired"
