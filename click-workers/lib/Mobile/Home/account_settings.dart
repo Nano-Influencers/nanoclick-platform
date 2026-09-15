@@ -10,9 +10,8 @@ import 'package:click_workers/Mobile/Home/preferred_currency.dart';
 import 'package:click_workers/services/api_client.dart';
 
 class AccountSettings extends StatefulWidget {
-  const AccountSettings({super.key, required this.status, required this.id});
-  final String id;
-  final String status;
+  const AccountSettings({super.key});
+
   @override
   State<AccountSettings> createState() => _AccountSettingsState();
 }
@@ -21,42 +20,86 @@ class _AccountSettingsState extends State<AccountSettings> {
   bool loading = true;
   String name = 'Worker';
   String email = '';
+  String role = '';
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   Future<void> _load() async {
     try {
       final user = await ApiClient.instance.me();
-      if (mounted) setState(() { name = user.fullName; email = user.email; loading = false; });
-    } catch (_) { if (mounted) setState(() => loading = false); }
+      if (mounted) {
+        setState(() {
+          name = user.fullName;
+          email = user.email;
+          role = user.role;
+          loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
-  void _push(Widget page) => Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+  void _push(Widget page) => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => page),
+      );
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xffeeeeee),
-      appBar: AppBar(title: const Text('Account Settings'), backgroundColor: Colors.white),
-      body: loading ? const Center(child: CircularProgressIndicator()) : SingleChildScrollView(
-        padding: EdgeInsets.all(5.w),
-        child: Column(children: [
-          Card(child: ListTile(leading: CircleAvatar(child: Text(name.isEmpty ? 'W' : name[0].toUpperCase())), title: Text(name), subtitle: Text(email), trailing: Text(widget.status))),
-          SizedBox(height: 1.h),
-          _item(Icons.person, 'Edit profile', () => _push(const EditProfile())),
-          _item(Icons.photo_camera, 'Profile picture', () => _push(const ChangeDP())),
-          _item(Icons.lock, 'Change password', () => _push(const ChangePassword())),
-          _item(Icons.language, 'Preferred language', () => _push(const PreferredLanguage())),
-          _item(Icons.payments, 'Preferred currency', () => _push(const PreferredCurrency())),
-          _item(Icons.delete_forever, 'Delete account', () => showDeleteDialog(context)),
-          Card(child: ListTile(leading: const Icon(Icons.logout), title: const Text('Sign out'), trailing: const Icon(Icons.chevron_right), onTap: () => showSignOutDialog(context))),
-        ]),
+      appBar: AppBar(
+        title: const Text('Account Settings'),
+        backgroundColor: Colors.white,
       ),
+      body: loading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: EdgeInsets.all(5.w),
+              child: Column(
+                children: [
+                  Card(
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        child: Text(name.isEmpty ? 'W' : name[0].toUpperCase()),
+                      ),
+                      title: Text(name),
+                      subtitle: Text(email),
+                      trailing: Text(role.isEmpty ? 'Worker' : role),
+                    ),
+                  ),
+                  SizedBox(height: 1.h),
+                  _item(Icons.person, 'Edit profile', () => _push(const EditProfile())),
+                  _item(Icons.photo_camera, 'Profile picture', () => _push(const ChangeDP())),
+                  _item(Icons.lock, 'Change password', () => _push(const ChangePassword())),
+                  _item(Icons.language, 'Preferred language', () => _push(const PreferredLanguage())),
+                  _item(Icons.payments, 'Preferred currency', () => _push(const PreferredCurrency())),
+                  _item(Icons.delete_forever, 'Delete account', () => showDeleteDialog(context)),
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.logout),
+                      title: const Text('Sign out'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => showSignOutDialog(context),
+                    ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 
   Widget _item(IconData icon, String title, VoidCallback onTap) => Card(
-    child: ListTile(leading: Icon(icon), title: Text(title), trailing: const Icon(Icons.chevron_right), onTap: onTap),
-  );
+        child: ListTile(
+          leading: Icon(icon),
+          title: Text(title),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: onTap,
+        ),
+      );
 }
