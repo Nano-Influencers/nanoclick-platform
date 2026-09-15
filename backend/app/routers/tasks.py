@@ -45,7 +45,7 @@ async def _validate_proofs(proof_keys: list[str], worker_id: uuid.UUID) -> None:
             raise HTTPException(400, str(exc)) from exc
 
 @router.get("", response_model=list[TaskResponse])
-async def list_tasks(category: str = Query(None), difficulty: str = Query(None), is_high_earning: bool = Query(None), is_urgent: bool = Query(None), platform: str = Query(None), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+async def list_tasks(category: str = Query(None), difficulty: str = Query(None), is_high_earning: bool = Query(None), is_urgent: bool = Query(None), platform: str = Query(None), limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
     conds = [Task.status == "available", Task.slots_filled < Task.slots_total]
     if not current_user.kyc_verified: conds.append(Task.campaign_id.not_in(select(CampaignTargeting.campaign_id).scalar_subquery()))
     if category: conds.append(Task.cw_task_category == category)
@@ -56,7 +56,7 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     accepted_result = await db.execute(select(TaskAcceptance.task_id).where(TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status.in_(["active", "submitted"])))
     accepted_ids = list(accepted_result.scalars())
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
-    result = await db.execute(select(Task).join(Campaign, Campaign.id == Task.campaign_id).where(and_(*conds, Campaign.status == "active")).order_by(Task.is_urgent.desc(), Task.created_at.desc()).limit(50))
+    result = await db.execute(select(Task).join(Campaign, Campaign.id == Task.campaign_id).where(and_(*conds, Campaign.status == "active")).order_by(Task.is_urgent.desc(), Task.created_at.desc(), Task.id.desc()).offset(offset).limit(limit))
     tasks = result.scalars().all()
     visible = []
     for task in tasks:
@@ -74,10 +74,10 @@ async def my_task_stats(current_user: User = Depends(require_worker), db: AsyncS
     return {"ongoing_tasks": ongoing_r.scalar() or 0, "completed_tasks": completed_r.scalar() or 0, "missed_tasks": missed_r.scalar() or 0}
 
 @router.get("/my-submissions", response_model=list[SubmissionWithTaskResponse])
-async def my_submissions(status: str = Query(None), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+async def my_submissions(status: str = Query(None), limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
     conds = [Submission.worker_id == current_user.id]
     if status: conds.append(Submission.status == status)
-    result = await db.execute(select(Submission, Task.title, Task.pay_kobo).join(Task, Task.id == Submission.task_id).where(and_(*conds)).order_by(Submission.submitted_at.desc()).limit(100))
+    result = await db.execute(select(Submission, Task.title, Task.pay_kobo).join(Task, Task.id == Submission.task_id).where(and_(*conds)).order_by(Submission.submitted_at.desc(), Submission.id.desc()).offset(offset).limit(limit))
     return [SubmissionWithTaskResponse(id=sub.id, task_id=sub.task_id, task_title=title, status=sub.status, proof_urls=sub.proof_urls, rejection_reason=sub.rejection_reason, query_reason=sub.query_reason, client_rating=sub.client_rating, pay_ngn=pay_kobo / 100, submitted_at=sub.submitted_at, reviewed_at=sub.reviewed_at) for sub, title, pay_kobo in result.all()]
 
 @router.post("/{task_id}/accept", response_model=AcceptTaskResponse)
