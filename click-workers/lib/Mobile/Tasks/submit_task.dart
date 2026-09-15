@@ -22,6 +22,7 @@ class SubmitTask extends StatefulWidget {
 class _SubmitTaskState extends State<SubmitTask> {
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _selectedFiles = [];
+  final List<String?> _uploadedProofKeys = [];
   final TextEditingController _urlController = TextEditingController();
   bool _submitting = false;
 
@@ -36,7 +37,10 @@ class _SubmitTaskState extends State<SubmitTask> {
     if (file == null) return;
     final fileSize = await file.length();
     if (fileSize <= 7 * 1024 * 1024) {
-      setState(() => _selectedFiles.add(file));
+      setState(() {
+        _selectedFiles.add(file);
+        _uploadedProofKeys.add(null);
+      });
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File too large (max 7MB)')));
     }
@@ -70,7 +74,10 @@ class _SubmitTaskState extends State<SubmitTask> {
             top: 2,
             right: 2,
             child: GestureDetector(
-              onTap: () => setState(() => _selectedFiles.removeAt(index)),
+              onTap: () => setState(() {
+                _selectedFiles.removeAt(index);
+                _uploadedProofKeys.removeAt(index);
+              }),
               child: Container(
                 decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
                 child: const Icon(Icons.close, size: 18, color: Colors.white),
@@ -95,6 +102,17 @@ class _SubmitTaskState extends State<SubmitTask> {
       }
     }
     return matching;
+  }
+
+  Future<bool> _recoverExistingSubmission() async {
+    try {
+      final submissions = await ApiClient.instance.mySubmissions(taskId: widget.taskID, limit: 10);
+      if (submissions.isEmpty || !mounted) return false;
+      Navigator.push(context, MaterialPageRoute(builder: (context) => TaskSubmitted(points: widget.points, earnings: widget.earnings, type: widget.type, treasureID: widget.treasureID)));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Widget uploadCard() => SizedBox(
@@ -168,7 +186,13 @@ class _SubmitTaskState extends State<SubmitTask> {
 
   Future<List<String>> _uploadSelectedFiles() async {
     final keys = <String>[];
-    for (final file in _selectedFiles) {
+    for (var index = 0; index < _selectedFiles.length; index++) {
+      final cachedKey = _uploadedProofKeys[index];
+      if (cachedKey != null && cachedKey.isNotEmpty) {
+        keys.add(cachedKey);
+        continue;
+      }
+      final file = _selectedFiles[index];
       final ext = file.path.contains('.') ? file.path.split('.').last.toLowerCase() : 'jpg';
       final presigned = await ApiClient.instance.requestUploadUrl(ext);
       final bytes = await file.readAsBytes();
@@ -177,12 +201,15 @@ class _SubmitTaskState extends State<SubmitTask> {
         bytes,
         contentType: presigned['content_type'] as String,
       );
-      keys.add(presigned['file_key'] as String);
+      final key = presigned['file_key'] as String;
+      _uploadedProofKeys[index] = key;
+      keys.add(key);
     }
     return keys;
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     final link = _urlController.text.trim();
     if (_selectedFiles.isEmpty && link.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add a proof screenshot or a link before submitting')));
@@ -203,7 +230,10 @@ class _SubmitTaskState extends State<SubmitTask> {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (context) => TaskSubmitted(points: widget.points, earnings: widget.earnings, type: widget.type, treasureID: widget.treasureID)));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      final recovered = await _recoverExistingSubmission();
+      if (mounted && !recovered) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -321,4 +351,3 @@ class _SubmitTaskState extends State<SubmitTask> {
           ),
         ),
       );
-}
