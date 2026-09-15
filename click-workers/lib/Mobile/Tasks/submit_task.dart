@@ -20,6 +20,7 @@ class SubmitTask extends StatefulWidget {
 }
 
 class _SubmitTaskState extends State<SubmitTask> {
+  static const int _maxProofBytes = 50 * 1024 * 1024;
   final ImagePicker _picker = ImagePicker();
   final List<XFile> _selectedFiles = [];
   final List<String?> _uploadedProofKeys = [];
@@ -36,13 +37,13 @@ class _SubmitTaskState extends State<SubmitTask> {
     final file = await _picker.pickMedia();
     if (file == null) return;
     final fileSize = await file.length();
-    if (fileSize <= 7 * 1024 * 1024) {
+    if (fileSize <= _maxProofBytes) {
       setState(() {
         _selectedFiles.add(file);
         _uploadedProofKeys.add(null);
       });
     } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File too large (max 7MB)')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File too large (max 50MB)')));
     }
   }
 
@@ -104,10 +105,18 @@ class _SubmitTaskState extends State<SubmitTask> {
     return matching;
   }
 
-  Future<bool> _recoverExistingSubmission() async {
+  Future<bool> _recoverExistingSubmission(DateTime attemptStartedAt) async {
     try {
       final submissions = await ApiClient.instance.mySubmissions(taskId: widget.taskID, limit: 10);
       if (submissions.isEmpty || !mounted) return false;
+
+      final latest = submissions
+          .whereType<Map<String, dynamic>>()
+          .map((submission) => MapEntry(submission, DateTime.tryParse((submission['submitted_at'] ?? '').toString())))
+          .where((entry) => entry.value != null && !entry.value!.isBefore(attemptStartedAt.subtract(const Duration(seconds: 10))))
+          .toList();
+      if (latest.isEmpty) return false;
+
       Navigator.push(context, MaterialPageRoute(builder: (context) => TaskSubmitted(points: widget.points, earnings: widget.earnings, type: widget.type, treasureID: widget.treasureID)));
       return true;
     } catch (_) {
@@ -141,7 +150,7 @@ class _SubmitTaskState extends State<SubmitTask> {
                         SizedBox(height: 2.h),
                         const Text('Choose files to upload', style: TextStyle(fontWeight: FontWeight.bold)),
                         SizedBox(height: 1.h),
-                        const Text('Supports PNG, JPG, MP4 (Max 7MB each)', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                        const Text('Supports PNG, JPG, MP4 (Max 50MB each)', style: TextStyle(color: Colors.grey, fontSize: 12)),
                         SizedBox(height: 3.h),
                       ],
                     ),
@@ -223,6 +232,7 @@ class _SubmitTaskState extends State<SubmitTask> {
       }
     }
 
+    final attemptStartedAt = DateTime.now().toUtc();
     setState(() => _submitting = true);
     try {
       final proofKeys = await _uploadSelectedFiles();
@@ -230,7 +240,7 @@ class _SubmitTaskState extends State<SubmitTask> {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (context) => TaskSubmitted(points: widget.points, earnings: widget.earnings, type: widget.type, treasureID: widget.treasureID)));
     } catch (e) {
-      final recovered = await _recoverExistingSubmission();
+      final recovered = await _recoverExistingSubmission(attemptStartedAt);
       if (mounted && !recovered) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
       }
