@@ -57,14 +57,50 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
     accepted_result = await db.execute(select(TaskAcceptance.task_id).where(TaskAcceptance.worker_id == current_user.id, TaskAcceptance.status.in_(["active", "submitted"])))
     accepted_ids = list(accepted_result.scalars())
     if accepted_ids: conds.append(Task.id.not_in(accepted_ids))
-    result = await db.execute(select(Task).join(Campaign, Campaign.id == Task.campaign_id).where(and_(*conds, Campaign.status == "active")).order_by(Task.is_urgent.desc(), Task.created_at.desc(), Task.id.desc()).limit(limit).offset(offset))
-    tasks = result.scalars().all()
+
+    # Targeting eligibility is worker-specific and includes profile thresholds that
+    # are evaluated in Python. Therefore SQL pagination must happen only after the
+    # eligibility filter, otherwise an ineligible task can consume a page slot and
+    # push an eligible task onto a later page. Scan deterministic candidate chunks
+    # and paginate the resulting eligible stream instead.
+    candidate_offset = 0
+    scan_size = max(limit, 100)
+    eligible_seen = 0
     visible = []
-    for task in tasks:
-        targeting_result = await db.execute(select(CampaignTargeting).where(CampaignTargeting.campaign_id == task.campaign_id))
-        targeting = targeting_result.scalar_one_or_none()
-        if targeting is not None and not await is_worker_eligible(db, current_user.id, targeting): continue
-        visible.append({**{c.name: getattr(task, c.name) for c in task.__table__.columns}, "id": str(task.id), "pay_ngn": task.pay_kobo/100})
+    targeting_cache: dict[uuid.UUID, CampaignTargeting | None] = {}
+
+    while len(visible) < limit:
+        result = await db.execute(
+            select(Task)
+            .join(Campaign, Campaign.id == Task.campaign_id)
+            .where(and_(*conds, Campaign.status == "active"))
+            .order_by(Task.is_urgent.desc(), Task.created_at.desc(), Task.id.desc())
+            .offset(candidate_offset)
+            .limit(scan_size)
+        )
+        tasks = result.scalars().all()
+        if not tasks:
+            break
+
+        for task in tasks:
+            if task.campaign_id not in targeting_cache:
+                targeting_result = await db.execute(select(CampaignTargeting).where(CampaignTargeting.campaign_id == task.campaign_id))
+                targeting_cache[task.campaign_id] = targeting_result.scalar_one_or_none()
+            targeting = targeting_cache[task.campaign_id]
+            if targeting is not None and not await is_worker_eligible(db, current_user.id, targeting):
+                continue
+            if eligible_seen < offset:
+                eligible_seen += 1
+                continue
+            visible.append({**{c.name: getattr(task, c.name) for c in task.__table__.columns}, "id": str(task.id), "pay_ngn": task.pay_kobo/100})
+            eligible_seen += 1
+            if len(visible) >= limit:
+                break
+
+        candidate_offset += len(tasks)
+        if len(tasks) < scan_size:
+            break
+
     return visible
 
 @router.get("/my-stats")
