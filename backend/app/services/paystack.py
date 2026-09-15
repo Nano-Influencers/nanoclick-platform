@@ -6,6 +6,14 @@ from app.config import settings
 PAYSTACK_BASE = "https://api.paystack.co"
 
 
+class PaystackTransferNotFound(Exception):
+    """The provider confirms that no transfer exists for this reference."""
+
+
+class PaystackTransferVerificationError(Exception):
+    """The transfer state could not be determined safely."""
+
+
 async def initialize_transaction(email: str, amount_kobo: int, reference: str) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
@@ -84,16 +92,33 @@ async def initiate_transfer(
 async def verify_transfer(reference: str) -> dict:
     """Fetch the provider-side transfer state for a stable transfer reference.
 
-    This is the reconciliation primitive used after an ambiguous transfer
-    request (for example, a network timeout after Paystack accepted the POST).
+    A 404 is materially different from a timeout/5xx: only the former proves
+    that no transfer exists and therefore permits a new initiate call.
     """
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"{PAYSTACK_BASE}/transfer/verify/{reference}",
-            headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
-        )
-        resp.raise_for_status()
-        return resp.json()["data"]
+        try:
+            resp = await client.get(
+                f"{PAYSTACK_BASE}/transfer/verify/{reference}",
+                headers={"Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise PaystackTransferNotFound(reference) from exc
+            raise PaystackTransferVerificationError(
+                f"Paystack transfer verification returned HTTP {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise PaystackTransferVerificationError(
+                "Paystack transfer verification failed before provider state could be determined"
+            ) from exc
+        try:
+            payload = resp.json()
+            return payload["data"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise PaystackTransferVerificationError(
+                "Paystack returned an invalid transfer verification response"
+            ) from exc
 
 
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
