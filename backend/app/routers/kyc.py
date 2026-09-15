@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from pathlib import PurePosixPath
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,17 +12,33 @@ from app.services.storage import generate_presigned_upload_url, validate_uploade
 
 router = APIRouter(prefix="/kyc", tags=["kyc"])
 
+KYC_DOCUMENT_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "pdf"}
 
-def validate_kyc_document_ownership(user_id, document_key: str | None) -> None:
-    if document_key and not document_key.startswith(f"kyc/{user_id}/"):
+
+def validate_kyc_document_ownership(user_id, document_key: str) -> None:
+    if not document_key.startswith(f"kyc/{user_id}/"):
         raise HTTPException(status_code=403, detail="KYC document does not belong to this account")
+    ext = PurePosixPath(document_key).suffix.lower().lstrip(".")
+    if ext not in KYC_DOCUMENT_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Unsupported KYC document type")
 
 
 @router.post("/upload-url")
-async def kyc_upload_url(file_extension: str, current_user: User = Depends(require_worker)):
+async def kyc_upload_url(
+    file_extension: str = Query(..., min_length=2, max_length=5),
+    current_user: User = Depends(require_worker),
+):
+    extension = file_extension.strip().lower().lstrip(".")
+    if extension not in KYC_DOCUMENT_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="KYC documents must be JPG, JPEG, PNG, WEBP or PDF")
     try:
-        result = generate_presigned_upload_url(file_extension, folder=f"kyc/{current_user.id}")
-        return {"upload_url": result["upload_url"], "file_key": result["file_key"], "content_type": result["content_type"], "expires_in_seconds": result["expires_in_seconds"]}
+        result = generate_presigned_upload_url(extension, folder=f"kyc/{current_user.id}")
+        return {
+            "upload_url": result["upload_url"],
+            "file_key": result["file_key"],
+            "content_type": result["content_type"],
+            "expires_in_seconds": result["expires_in_seconds"],
+        }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -28,17 +46,20 @@ async def kyc_upload_url(file_extension: str, current_user: User = Depends(requi
 
 
 @router.post("/submit", status_code=201)
-async def submit_kyc(body: KycSubmitRequest, current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+async def submit_kyc(
+    body: KycSubmitRequest,
+    current_user: User = Depends(require_worker),
+    db: AsyncSession = Depends(get_db),
+):
     ex = await db.execute(select(KycProfile).where(KycProfile.user_id == current_user.id))
     if ex.scalar_one_or_none():
         raise HTTPException(400, "KYC already submitted")
 
-    if body.document_url:
-        validate_kyc_document_ownership(current_user.id, body.document_url)
-        try:
-            validate_uploaded_object(body.document_url, f"kyc/{current_user.id}")
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
+    validate_kyc_document_ownership(current_user.id, body.document_url)
+    try:
+        validate_uploaded_object(body.document_url, f"kyc/{current_user.id}")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     db.add(KycProfile(user_id=current_user.id, **body.model_dump()))
     try:
