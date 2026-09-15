@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,12 +53,23 @@ async def get_balance(current_user: User = Depends(get_current_user), db: AsyncS
 
 
 @router.get("/transactions", response_model=list[TransactionResponse])
-async def get_transactions(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_transactions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     rw = await db.execute(select(Wallet).where(Wallet.user_id == current_user.id))
     w = rw.scalar_one_or_none()
     if not w:
         raise HTTPException(404, "Wallet not found")
-    rt = await db.execute(select(Transaction).where(Transaction.wallet_id == w.id).order_by(Transaction.created_at.desc()).limit(100))
+    rt = await db.execute(
+        select(Transaction)
+        .where(Transaction.wallet_id == w.id)
+        .order_by(Transaction.created_at.desc(), Transaction.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
     return [{**{c.name: getattr(tx, c.name) for c in tx.__table__.columns}, "id": str(tx.id), "amount_ngn": tx.amount_kobo / 100} for tx in rt.scalars()]
 
 
