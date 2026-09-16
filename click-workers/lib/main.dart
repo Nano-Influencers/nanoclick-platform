@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:click_workers/Desktop/home/desktop_home.dart';
 import 'package:click_workers/Mobile/authentication/forgotPassword/new_password.dart';
 import 'package:flutter/material.dart';
@@ -16,29 +18,45 @@ import 'package:click_workers/services/token_storage_stub.dart'
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final uri = Uri.base;
-  await ApiClient.instance.initialize();
-
   final authProvider = AuthProvider();
-  final oauthCode = uri.queryParameters['oauth_code'];
-  if (oauthCode != null && oauthCode.isNotEmpty) {
-    try {
-      await ApiClient.instance.exchangeOAuthCode(oauthCode, platform: 'web');
+
+  // Never block Flutter's first frame on API/session restoration. A failed
+  // refresh or unavailable backend must not leave the web app as a blank page.
+  runApp(MyApp(initialUri: uri, authProvider: authProvider));
+
+  unawaited(_bootstrap(authProvider, uri));
+}
+
+Future<void> _bootstrap(AuthProvider authProvider, Uri uri) async {
+  try {
+    await ApiClient.instance.initialize();
+
+    final oauthCode = uri.queryParameters['oauth_code'];
+    if (oauthCode != null && oauthCode.isNotEmpty) {
+      try {
+        await ApiClient.instance.exchangeOAuthCode(oauthCode, platform: 'web');
+        await authProvider.refreshSessionSilently();
+      } catch (_) {
+        // Invalid/expired codes fall through to the normal sign-in screen.
+      } finally {
+        // OAuth codes are short-lived bearer credentials. Remove them from
+        // the browser URL even when exchange fails.
+        storage.replaceBrowserUrl('/');
+      }
+    } else {
+      // AuthProvider performs an initial restore itself. This second refresh
+      // makes the post-initialize state deterministic when a web session was
+      // restored by ApiClient during bootstrap.
       await authProvider.refreshSessionSilently();
-    } catch (_) {
-      // Invalid/expired codes fall through to the normal sign-in screen.
-    } finally {
-      // OAuth codes are short-lived bearer credentials. Remove them from the
-      // browser URL even when exchange fails to avoid retaining them in
-      // history, copied URLs, or referrer data.
-      storage.replaceBrowserUrl('/');
     }
+  } catch (_) {
+    // Startup must remain usable when the API is unavailable or CORS/session
+    // restoration fails. The landing page is still rendered by MyApp.
   }
 
   await initializeNativeOAuthDeepLinks(
     onAuthenticated: authProvider.refreshSessionSilently,
   );
-
-  runApp(MyApp(initialUri: uri, authProvider: authProvider));
 }
 
 class MyApp extends StatelessWidget {
