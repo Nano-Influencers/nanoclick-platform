@@ -230,7 +230,7 @@ class _LandingState extends State<Landing> {
     Text('Refer & Earn 5% Extra', style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w800, color: Colors.white)), SizedBox(height: 1.5.h),
     Text('Invite your friends to join ClickWorkers and earn 5% of their task earnings.', style: TextStyle(fontSize: 14.5.sp, height: 1.5, color: Colors.white)), SizedBox(height: 2.h),
     SizedBox(width: double.infinity, height: 48, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: _orange), onPressed: () => _auth(const SignUp()), child: const Text('Invite Friends'))),
-  ]);
+  ]));
 
   Widget _faqs() => Container(color: _light, padding: EdgeInsets.fromLTRB(6.w, 4.h, 6.w, 4.h), child: Column(children: [
     Text('FAQs', style: TextStyle(fontSize: 21.sp, fontWeight: FontWeight.w800)), SizedBox(height: 1.h), Text('Find answers to common questions about ClickWorkers.', textAlign: TextAlign.center, style: TextStyle(fontSize: 14.5.sp, color: _muted)), SizedBox(height: 2.h),
