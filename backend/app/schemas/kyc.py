@@ -87,18 +87,24 @@ class KycSubmitRequest(BaseModel):
     youtube_handle: str | None = None
     whatsapp_number: str | None = None
 
-    # Identity documents
-    document_type: str | None = None
-    document_url: str | None = None
+    # Identity documents are mandatory for a complete KYC submission.
+    document_type: str = Field(min_length=1, max_length=100)
+    document_url: str = Field(min_length=1, max_length=500)
+
+    @field_validator("document_type")
+    @classmethod
+    def validate_document_type(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Document type is required")
+        return value
 
     @field_validator("document_url")
     @classmethod
-    def validate_document_storage_key(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
+    def validate_document_storage_key(cls, value: str) -> str:
         value = value.strip()
-        if not value or len(value) > 500:
-            raise ValueError("Invalid document storage key")
+        if not value:
+            raise ValueError("Document storage key is required")
         parsed = urlparse(value)
         if parsed.scheme or parsed.netloc or value.startswith("/"):
             raise ValueError("Document must use a private storage key, not a URL")

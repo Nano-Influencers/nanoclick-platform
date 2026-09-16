@@ -10,27 +10,29 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
 from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
-from app.routers import admin_audit, admin_mfa, admin_kyc_documents, deposits, campaign_reports, submission_revisions, admin_lifecycle
+from app.routers import admin_audit, admin_mfa, admin_kyc_documents, deposits, campaign_reports, submission_revisions, admin_lifecycle, proofs
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
 
 logger = logging.getLogger("nanoclick.api")
+_is_production = settings.APP_ENV.strip().lower() in {"production", "prod"}
 
 app = FastAPI(
     title="NanoClick API",
     description="Backend for Nano Influencers (advertiser) and Click Workers (worker) apps.",
     version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
 )
 
 
@@ -41,7 +43,7 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-    if settings.APP_ENV == "production":
+    if _is_production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
@@ -135,6 +137,8 @@ app.include_router(deposits.router)
 app.include_router(campaigns.router)
 app.include_router(campaign_reports.router)
 app.include_router(submission_revisions.router)
+# Register static proof routes before the dynamic /tasks/{task_id} routes.
+app.include_router(proofs.router)
 app.include_router(tasks.router)
 app.include_router(kyc.router)
 app.include_router(admin_mfa.router)

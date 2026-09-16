@@ -65,6 +65,10 @@ function AuthSplash() {
   return <div className="auth-page"><div className="auth-card"><p className="auth-loading">Loading…</p></div></div>;
 }
 
+function authError(err, fallback) {
+  return err instanceof ApiError ? err.message : err?.message || fallback;
+}
+
 export function LoginPage() {
   const { login, user } = useAuth();
   const navigate = useNavigate();
@@ -77,7 +81,7 @@ export function LoginPage() {
   const submit = async (e) => {
     e.preventDefault(); setError(""); setBusy(true);
     try { await login(email, password); navigate("/app"); }
-    catch (err) { setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."); }
+    catch (err) { setError(authError(err, "Something went wrong. Please try again.")); }
     finally { setBusy(false); }
   };
 
@@ -88,10 +92,89 @@ export function LoginPage() {
     <form onSubmit={submit}>
       <label>Email<input className="field" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" /></label>
       <label>Password<input className="field" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" /></label>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "-0.35rem", marginBottom: "0.75rem" }}>
+        <Link to="/forgot-password">Forgot password?</Link>
+      </div>
       <button className="primary-btn" disabled={busy} type="submit">{busy ? "Logging in…" : "Log In"}</button>
     </form>
     <OAuthButtons />
     <p className="auth-switch">New here? <Link to="/register">Create an advertiser account</Link></p>
+  </div></div>;
+}
+
+export function ForgotPasswordPage() {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try {
+      await api.forgotPassword(email);
+      setSent(true);
+    } catch (err) {
+      setError(authError(err, "Unable to start password recovery. Please try again."));
+    } finally { setBusy(false); }
+  };
+
+  return <div className="auth-page"><div className="auth-card">
+    <div className="auth-brand"><span className="l-dot" />The Nano Influencers</div>
+    {sent ? <>
+      <h1>Check your email</h1>
+      <p className="auth-sub">If an account exists for that email, a password-reset link has been sent. Check your inbox and spam folder.</p>
+      <Link className="primary-btn" style={{ display: "block", textAlign: "center", textDecoration: "none" }} to="/login">Back to login</Link>
+    </> : <>
+      <h1>Forgot your password?</h1><p className="auth-sub">Enter your email and we’ll send instructions to reset your password.</p>
+      {error && <div className="auth-error">{error}</div>}
+      <form onSubmit={submit}>
+        <label>Email<input className="field" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>
+        <button className="primary-btn" disabled={busy} type="submit">{busy ? "Sending…" : "Send reset link"}</button>
+      </form>
+      <p className="auth-switch"><Link to="/login">← Back to login</Link></p>
+    </>}
+  </div></div>;
+}
+
+export function ResetPasswordPage() {
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const token = params.get("token") || "";
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState(token ? "" : "This password-reset link is missing its token.");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault(); setError("");
+    if (!token) return setError("This password-reset link is invalid or incomplete.");
+    if (password !== confirm) return setError("Passwords do not match.");
+    if (password.length < 8) return setError("Password must be at least 8 characters.");
+    setBusy(true);
+    try {
+      await api.resetPassword(token, password);
+      setDone(true);
+      setTimeout(() => navigate("/login", { replace: true }), 1200);
+    } catch (err) {
+      setError(authError(err, "Unable to reset your password. The link may have expired."));
+    } finally { setBusy(false); }
+  };
+
+  return <div className="auth-page"><div className="auth-card">
+    <div className="auth-brand"><span className="l-dot" />The Nano Influencers</div>
+    {done ? <>
+      <h1>Password updated</h1><p className="auth-sub">Your password has been changed. Redirecting you to login…</p>
+    </> : <>
+      <h1>Set a new password</h1><p className="auth-sub">Choose a new password for your advertiser account.</p>
+      {error && <div className="auth-error">{error}</div>}
+      <form onSubmit={submit}>
+        <label>New password<input className="field" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" autoComplete="new-password" /></label>
+        <label>Confirm password<input className="field" type="password" required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Repeat your new password" autoComplete="new-password" /></label>
+        <button className="primary-btn" disabled={busy || !token} type="submit">{busy ? "Updating…" : "Update password"}</button>
+      </form>
+      <p className="auth-switch"><Link to="/login">← Back to login</Link></p>
+    </>}
   </div></div>;
 }
 
@@ -105,7 +188,7 @@ export function RegisterPage() {
   const submit = async (e) => {
     e.preventDefault(); setError(""); setBusy(true);
     try { await register(fields); navigate("/app"); }
-    catch (err) { setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."); }
+    catch (err) { setError(authError(err, "Something went wrong. Please try again.")); }
     finally { setBusy(false); }
   };
   return <div className="auth-page"><div className="auth-card">

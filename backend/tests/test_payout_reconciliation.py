@@ -26,13 +26,13 @@ async def _user(db, user_id):
 
 
 @pytest.mark.asyncio
-async def test_reconciliation_keeps_provider_success_processing(db_factory, monkeypatch):
+async def test_reconciliation_finalizes_provider_success(db_factory, monkeypatch):
     user_id = uuid.uuid4()
     reference = "wdw_reconcile_success"
 
     async with db_factory() as db:
         await _user(db, user_id)
-        db.add(Wallet(user_id=user_id, balance_kobo=50_000))
+        db.add(Wallet(user_id=user_id, balance_kobo=50_000, total_withdrawn_kobo=20_000))
         db.add(
             Withdrawal(
                 user_id=user_id,
@@ -56,8 +56,11 @@ async def test_reconciliation_keeps_provider_success_processing(db_factory, monk
 
     async with db_factory() as db:
         withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
-        assert withdrawal.status == "processing"
+        wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
+        assert withdrawal.status == "successful"
         assert withdrawal.provider_reference == "TRF_test_001"
+        assert withdrawal.completed_at is not None
+        assert wallet.total_withdrawn_kobo == 20_000
 
 
 @pytest.mark.asyncio
@@ -67,7 +70,7 @@ async def test_reconciliation_failure_refunds_once(db_factory, monkeypatch):
 
     async with db_factory() as db:
         await _user(db, user_id)
-        wallet = Wallet(user_id=user_id, balance_kobo=10_000)
+        wallet = Wallet(user_id=user_id, balance_kobo=10_000, total_withdrawn_kobo=10_000)
         db.add(wallet)
         await db.flush()
         db.add(
@@ -112,56 +115,104 @@ async def test_reconciliation_failure_refunds_once(db_factory, monkeypatch):
 
         assert withdrawal.status == "failed"
         assert wallet.balance_kobo == 10_000
+        assert wallet.total_withdrawn_kobo == 0
         assert len(reversals) == 1
 
 
 @pytest.mark.asyncio
-async def test_reconciliation_is_idempotent_after_failure(db_factory, monkeypatch):
+async def test_reconciliation_reversed_preserves_reversed_status(db_factory, monkeypatch):
     user_id = uuid.uuid4()
-    reference = "wdw_reconcile_idempotent"
+    reference = "wdw_reconcile_reversed"
 
     async with db_factory() as db:
         await _user(db, user_id)
-        wallet = Wallet(user_id=user_id, balance_kobo=0)
+        wallet = Wallet(user_id=user_id, balance_kobo=0, total_withdrawn_kobo=8_000)
         db.add(wallet)
         await db.flush()
-        db.add(
-            Transaction(
-                wallet_id=wallet.id,
-                type="withdrawal",
-                amount_kobo=5_000,
-                status="completed",
-                reference=reference,
-            )
-        )
-        db.add(
-            Withdrawal(
-                user_id=user_id,
-                reference=reference,
-                amount_kobo=5_000,
-                account_number="0123456789",
-                bank_code="058",
-                account_name="Test Worker",
-                status="failed",
-            )
-        )
+        db.add(Transaction(
+            wallet_id=wallet.id,
+            type="withdrawal",
+            amount_kobo=8_000,
+            status="completed",
+            reference=reference,
+        ))
+        db.add(Withdrawal(
+            user_id=user_id,
+            reference=reference,
+            amount_kobo=8_000,
+            account_number="0123456789",
+            bank_code="058",
+            account_name="Test Worker",
+            status="processing",
+        ))
         await db.commit()
 
-    calls = 0
-
     async def verify_transfer(_reference):
-        nonlocal calls
-        calls += 1
-        return {"status": "failed", "transfer_code": "TRF_failed_002", "reference": reference}
+        return {"status": "reversed", "transfer_code": "TRF_reversed_001", "reference": reference}
+
+    async def notify(*_args, **_kwargs):
+        return None
 
     monkeypatch.setattr(paystack, "verify_transfer", verify_transfer)
+    monkeypatch.setattr(notification_service, "notify", notify)
 
     assert await payout_tasks._reconcile_provider_transfer(reference) is True
-    assert calls == 1
 
     async with db_factory() as db:
+        withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
+        wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
         reversals = (await db.execute(select(Transaction).where(Transaction.reference == f"{reference}:reversal"))).scalars().all()
-        assert len(reversals) == 0
+        assert withdrawal.status == "reversed"
+        assert wallet.balance_kobo == 8_000
+        assert wallet.total_withdrawn_kobo == 0
+        assert len(reversals) == 1
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_transfer_verification_never_initiates_second_transfer(db_factory, monkeypatch):
+    user_id = uuid.uuid4()
+    reference = "wdw_ambiguous_verify_001"
+
+    async with db_factory() as db:
+        await _user(db, user_id)
+        db.add(Withdrawal(
+            user_id=user_id,
+            reference=reference,
+            amount_kobo=6_000,
+            account_number="0123456789",
+            bank_code="058",
+            account_name="Test Worker",
+            status="processing",
+        ))
+        await db.commit()
+
+    initiate_calls = 0
+
+    async def verify_transfer(_reference):
+        raise paystack.PaystackTransferVerificationError("timeout")
+
+    async def create_recipient(*_args):
+        return "RCP_should_not_be_called"
+
+    async def initiate_transfer(*_args):
+        nonlocal initiate_calls
+        initiate_calls += 1
+        return {"status": "pending", "transfer_code": "TRF_should_not_exist", "reference": reference}
+
+    monkeypatch.setattr(paystack, "verify_transfer", verify_transfer)
+    monkeypatch.setattr(paystack, "create_transfer_recipient", create_recipient)
+    monkeypatch.setattr(paystack, "initiate_transfer", initiate_transfer)
+
+    with pytest.raises(RuntimeError, match="Unable to reconcile ambiguous Paystack transfer"):
+        await payout_tasks._do_withdrawal(
+            str(user_id), 6_000, reference, "0123456789", "058", "Test Worker"
+        )
+
+    assert initiate_calls == 0
+
+    async with db_factory() as db:
+        withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
+        assert withdrawal.status == "processing"
 
 
 @pytest.mark.asyncio
@@ -199,7 +250,7 @@ async def test_duplicate_worker_delivery_reconciles_before_second_transfer(db_fa
         nonlocal verify_calls
         verify_calls += 1
         if verify_calls == 1:
-            raise RuntimeError("transfer not visible yet")
+            raise paystack.PaystackTransferNotFound(reference)
         return {"status": "success", "transfer_code": "TRF_duplicate_test", "reference": reference}
 
     monkeypatch.setattr(paystack, "create_transfer_recipient", create_recipient)
@@ -218,5 +269,6 @@ async def test_duplicate_worker_delivery_reconciles_before_second_transfer(db_fa
 
     async with db_factory() as db:
         withdrawal = (await db.execute(select(Withdrawal).where(Withdrawal.reference == reference))).scalar_one()
-        assert withdrawal.status == "processing"
+        assert withdrawal.status == "successful"
         assert withdrawal.provider_reference == "TRF_duplicate_test"
+        assert withdrawal.completed_at is not None
