@@ -26,45 +26,6 @@ async def list_pending(db: AsyncSession = Depends(get_db), _: User = Depends(req
              "status": s.status, "proof_urls": s.proof_urls, "speed_min": s.task_speed_minutes,
              "submitted_at": s.submitted_at} for s in r.scalars()]
 
-@router.post("/submissions/{submission_id}/approve")
-async def approve_submission(submission_id: uuid.UUID, client_rating: float = 5.0,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    sub_r = await db.execute(select(Submission).where(Submission.id == submission_id).with_for_update())
-    sub = sub_r.scalar_one_or_none()
-    if not sub:
-        raise HTTPException(404, "Submission not found")
-    if sub.status not in ("pending", "under_review", "queried"):
-        raise HTTPException(400, f"Cannot approve status '{sub.status}'")
-    task_r = await db.execute(select(Task).where(Task.id == sub.task_id).with_for_update())
-    task = task_r.scalar_one_or_none()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if task.slots_filled >= task.slots_total:
-        raise HTTPException(409, "Task has no remaining slots")
-    campaign_r = await db.execute(select(Campaign).where(Campaign.id == task.campaign_id))
-    campaign = campaign_r.scalar_one_or_none()
-    if not campaign:
-        raise HTTPException(404, "Campaign not found")
-    cps = calculate_click_points(cw_task_category=task.cw_task_category, worker_pay_kobo=task.pay_kobo,
-        is_urgent=task.is_urgent, submitted_at=sub.submitted_at)
-    await wallet_service.release_escrow_to_worker(db=db, advertiser_id=campaign.owner_id,
-        worker_id=sub.worker_id, amount_kobo=task.pay_kobo, click_points=cps,
-        task_category=task.cw_task_category, reference=str(sub.id))
-    sub.status = "approved"
-    sub.reviewed_at = datetime.utcnow()
-    sub.client_rating = max(0.0, min(5.0, client_rating))
-    task.slots_filled += 1
-    if task.slots_filled >= task.slots_total:
-        task.status = "completed"
-    from app.services import rewards_service
-    from app.services.notification_service import notify
-    await rewards_service.award_referral_bonus_if_first_approval(db, sub.worker_id)
-    await notify(db, sub.worker_id, "task_approved", "Task approved!",
-                 f"\"{task.title}\" was approved — you earned ₦{task.pay_kobo/100:,.2f}.")
-    from app.workers.notification_tasks import notify_task_approved
-    notify_task_approved.delay(str(sub.worker_id), task.title, task.pay_kobo/100)
-    return {"message": "Approved", "click_points_awarded": cps, "amount_ngn": task.pay_kobo/100}
-
 @router.post("/submissions/{submission_id}/reject")
 async def reject_submission(submission_id: uuid.UUID, reason: str,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
@@ -99,26 +60,6 @@ async def list_pending_campaigns(db: AsyncSession = Depends(get_db), _: User = D
              "action_type": c.action_type, "tni_service_type": c.tni_service_type,
              "client_budget_kobo": c.client_budget_kobo, "slots_total": c.slots_total,
              "created_at": c.created_at} for c in r.scalars()]
-
-@router.post("/campaigns/{campaign_id}/approve")
-async def approve_campaign(campaign_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    r = await db.execute(select(Campaign).options(selectinload(Campaign.targeting)).where(Campaign.id==campaign_id))
-    campaign = r.scalar_one_or_none()
-    if not campaign: raise HTTPException(404, "Campaign not found")
-    if campaign.status != "pending_admin": raise HTTPException(400, f"Campaign is already '{campaign.status}'")
-    campaign.status = "active"
-    tasks_r = await db.execute(select(Task).where(Task.campaign_id==campaign_id))
-    for task in tasks_r.scalars(): task.status = "available"
-    from app.services.notification_service import notify
-    await notify(db, campaign.owner_id, "campaign_approved", "Campaign is live",
-                 f"\"{campaign.title}\" was approved and is now live for workers.")
-    if campaign.targeting:
-        from app.services.targeting import get_eligible_worker_ids
-        worker_ids = await get_eligible_worker_ids(campaign.targeting, campaign.slots_total, db)
-        if worker_ids:
-            from app.workers.notification_tasks import notify_new_tasks_available
-            notify_new_tasks_available.delay([str(w) for w in worker_ids], campaign.title)
-    return {"message": "Campaign approved and tasks are now live"}
 
 @router.post("/campaigns/{campaign_id}/reject")
 async def reject_campaign(campaign_id: uuid.UUID, reason: str,
