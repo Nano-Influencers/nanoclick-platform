@@ -9,7 +9,7 @@ from app.models.treasure import TreasureCampaign, TreasureParticipation
 from app.models.rewards import Notification
 from app.services import wallet_service
 from app.models.wallet import Wallet, Transaction
-from app.schemas.treasure import TreasureHintResponse
+from app.schemas.treasure import TreasureHintResponse, TreasureResponse
 
 HINT_EARNINGS_KOBO = 10_000
 HINT_POINTS = 500
