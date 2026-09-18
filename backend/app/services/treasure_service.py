@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.treasure import TreasureCampaign, TreasureParticipation
 from app.services import wallet_service
-from app.models.wallet import Wallet
+from app.models.wallet import Wallet, Transaction\nfrom app.schemas.treasure import TreasureHintResponse
 
 HINT_EARNINGS_KOBO = 10_000
 HINT_POINTS = 500
