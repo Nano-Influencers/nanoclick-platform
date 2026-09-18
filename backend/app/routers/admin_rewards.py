@@ -1,7 +1,7 @@
 import hashlib, uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from app.database import get_db
 from app.dependencies import require_admin
 from app.models.user import User
@@ -50,4 +50,4 @@ async def close_treasure(treasure_id: uuid.UUID, db: AsyncSession = Depends(get_
         raise HTTPException(404, "Treasure not found")
     campaign.status = "closed"
     await db.commit()
-    return {"id": str(campaign.id), "status": campaign.status}
+    return {"id": str(campaign.id), "status": campaign.status}\n    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('nanoclick:active_treasure'))"))
