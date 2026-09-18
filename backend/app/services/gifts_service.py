@@ -5,7 +5,8 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.gifts import GiftCampaign, GiftEntry, GiftWinner
-from app.models.wallet import Wallet\nfrom app.schemas.gifts import GiftEntryResponse, GiftWinnerResponse
+from app.models.wallet import Wallet
+from app.schemas.gifts import GiftEntryResponse, GiftWinnerResponse
 from app.services import wallet_service
 
 async def active(db: AsyncSession, user_id: uuid.UUID):
