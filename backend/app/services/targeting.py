@@ -355,7 +355,8 @@ class GenderExpander:
     """
     MAX_TIERS = 3
 
-    def __init__(self, target_genders: list[str]):
+    def __init__(self, target_genders: list[str], max_tier: int = 3):
+        self.max_tier = max(1, min(max_tier, self.MAX_TIERS))
         self.genders = [g.lower() for g in (target_genders or [])]
 
     def has_targets(self) -> bool:
@@ -371,7 +372,7 @@ class GenderExpander:
         results: list[TierResult] = []
         cumulative = len(seen)
 
-        for tier in range(1, self.MAX_TIERS + 1):
+        for tier in range(1, self.max_tier + 1):
             filters = self._tier_filter(tier)
             if not filters:
                 continue
@@ -424,7 +425,8 @@ class AgeExpander:
     """
     MAX_TIERS = 2
 
-    def __init__(self, target_brackets: list[str]):
+    def __init__(self, target_brackets: list[str], max_tier: int = 2):
+        self.max_tier = max(1, min(max_tier, self.MAX_TIERS))
         self.brackets = target_brackets or []
 
     def has_targets(self) -> bool:
@@ -464,6 +466,9 @@ class AgeExpander:
         if cumulative >= desired:
             return results
 
+        if self.max_tier < 2:
+            return results
+
         # Tier 2 — adjacent
         adj = self._adjacent()
         if adj:
@@ -487,7 +492,8 @@ class MaritalExpander:
     """
     MAX_TIERS = 3
 
-    def __init__(self, target_statuses: list[str]):
+    def __init__(self, target_statuses: list[str], max_tier: int = 3):
+        self.max_tier = max(1, min(max_tier, self.MAX_TIERS))
         self.statuses = [s.lower() for s in (target_statuses or [])]
 
     def has_targets(self) -> bool:
@@ -597,7 +603,7 @@ class TargetingEngine:
 
         # ── Gender ────────────────────────────────────────────────────────────
         if t.target_genders:
-            expander = GenderExpander(t.target_genders)
+            expander = GenderExpander(t.target_genders, self.max_tier)
             self._tier_results.extend(
                 await expander.expand(db, hard, self.seen, self.desired)
             )
@@ -606,7 +612,7 @@ class TargetingEngine:
 
         # ── Age ───────────────────────────────────────────────────────────────
         if t.target_age_brackets:
-            expander = AgeExpander(t.target_age_brackets)
+            expander = AgeExpander(t.target_age_brackets, self.max_tier)
             self._tier_results.extend(
                 await expander.expand(db, hard, self.seen, self.desired)
             )
@@ -615,7 +621,7 @@ class TargetingEngine:
 
         # ── Marital status ────────────────────────────────────────────────────
         if t.target_marital_statuses:
-            expander = MaritalExpander(t.target_marital_statuses)
+            expander = MaritalExpander(t.target_marital_statuses, self.max_tier)
             self._tier_results.extend(
                 await expander.expand(db, hard, self.seen, self.desired)
             )
@@ -719,5 +725,5 @@ async def get_eligible_workers_with_metadata(
     Extended entry point — returns the full ExpansionResult with audit metadata.
     Called by the campaigns analytics endpoint.
     """
-    engine = TargetingEngine(targeting, desired)
+    engine = TargetingEngine(targeting, desired, max_tier=max(1, min(targeting.current_expansion_tier, 9)))
     return await engine.run(db)
