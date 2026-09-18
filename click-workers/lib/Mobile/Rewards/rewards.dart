@@ -140,6 +140,71 @@ class _RewardsState extends State<Rewards> {
     );
   }
 
+  Widget _streakCard() {
+    final streak = _intValue('checkin_streak');
+    final checkedIn = _boolValue('checked_in_today');
+    final milestones = <int>[1, 2, 3, 4, 6, 7, 8, 9, 12];
+    final nextMilestone = milestones.firstWhere(
+      (value) => streak < value,
+      orElse: () => milestones.last,
+    );
+
+    return Card(
+      margin: EdgeInsets.only(bottom: 1.5.h),
+      child: Padding(
+        padding: EdgeInsets.all(4.w),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const CircleAvatar(child: Icon(Icons.local_fire_department)),
+            SizedBox(width: 3.w),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Task streak', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              SizedBox(height: .5.h),
+              Text(
+                checkedIn ? 'Checked in today' : 'Check in today to keep your streak going.',
+                style: TextStyle(fontSize: 12.sp, color: Colors.black54),
+              ),
+            ])),
+            Text('$streak days', style: const TextStyle(fontWeight: FontWeight.bold)),
+          ]),
+          SizedBox(height: 2.h),
+          if (streak == 0)
+            const Text('Start your streak with your first daily check-in.')
+          else if (streak >= 12)
+            const Text('All current streak milestones reached.')
+          else
+            Text('$streak / $nextMilestone days toward the next streak milestone'),
+          SizedBox(height: 1.h),
+          LinearProgressIndicator(
+            value: streak >= 12 ? 1.0 : (streak / nextMilestone).clamp(0.0, 1.0).toDouble(),
+          ),
+          SizedBox(height: 1.5.h),
+          Wrap(
+            spacing: 1.w,
+            runSpacing: .8.h,
+            children: milestones.map((milestone) {
+              final complete = streak >= milestone;
+              return Chip(
+                avatar: Icon(
+                  complete ? Icons.check_circle : Icons.lock_outline,
+                  size: 16,
+                ),
+                label: Text('$milestone day'),
+              );
+            }).toList(),
+          ),
+          if (checkedIn && progress['next_checkin_at'] != null) ...[
+            SizedBox(height: 1.h),
+            Text(
+              'Next check-in: ${progress['next_checkin_at']}',
+              style: TextStyle(fontSize: 11.sp, color: Colors.black54),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+
   Widget _stat(String label, String value, IconData icon) => Card(
     child: ListTile(
       leading: Icon(icon),
@@ -161,6 +226,7 @@ class _RewardsState extends State<Rewards> {
           SizedBox(height: 1.h),
           if (error != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(error!))),
           if (error == null) ...[
+            _streakCard(),
             _trackCard(
               title: 'Grit',
               description: 'Progress through difficult approved tasks.',
@@ -190,7 +256,9 @@ class _RewardsState extends State<Rewards> {
             SizedBox(height: 1.h),
             Row(children: [
               Expanded(child: SizedBox(height: 50, child: ElevatedButton.icon(
-                onPressed: actionLoading ? null : () => _runAction(ApiClient.instance.checkin, action: 'checkin'),
+                onPressed: actionLoading || _boolValue('checked_in_today')
+                    ? null
+                    : () => _runAction(ApiClient.instance.checkin, action: 'checkin'),
                 icon: const Icon(Icons.check_circle_outline), label: const Text('Check in'),
               ))),
               SizedBox(width: 3.w),
