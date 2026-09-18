@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.treasure import TreasureCampaign, TreasureParticipation
+from app.models.rewards import Notification
 from app.services import wallet_service
 from app.models.wallet import Wallet, Transaction
 from app.schemas.treasure import TreasureHintResponse
@@ -106,6 +107,7 @@ async def claim(db: AsyncSession, user_id: uuid.UUID, claim_code: str):
     participation.claimed = True
     participation.items_won = 1
     participation.claimed_at = datetime.utcnow()
+    db.add(Notification(user_id=user_id, type="treasure_reward", title="Treasure Hunt reward claimed", body="Your Treasure Hunt reward has been credited.", data={"campaign_id": str(campaign.id), "reward_kobo": campaign.reward_kobo, "reward_click_points": campaign.reward_click_points}))
     await db.flush()
     return {"status": "claimed", "reward_kobo": campaign.reward_kobo, "reward_click_points": campaign.reward_click_points}
 
