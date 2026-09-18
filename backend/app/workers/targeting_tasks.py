@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.workers.celery_app import celery_app
 
 def _run(coro):
@@ -20,7 +20,7 @@ async def _expand():
     from sqlalchemy import select, and_
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Campaign).where(and_(
-            Campaign.status=="active", Campaign.slots_filled < Campaign.slots_total)))
+            Campaign.status=="active", Campaign.slots_filled < Campaign.slots_total)).with_for_update())
         for campaign in result.scalars().all():
             if not campaign.targeting: continue
             t = campaign.targeting
