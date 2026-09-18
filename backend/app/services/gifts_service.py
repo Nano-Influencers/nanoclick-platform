@@ -40,7 +40,7 @@ async def enter(db: AsyncSession, user_id: uuid.UUID, campaign_id: uuid.UUID):
             raise HTTPException(400, "Insufficient click points")
         wallet.click_points -= campaign.entry_cost_points
         from app.models.wallet import Transaction
-        db.add(Transaction(wallet_id=wallet.id, type="gift_entry", amount_kobo=0, click_points_awarded=0,
+        db.add(Transaction(wallet_id=wallet.id, type="gift_entry", amount_kobo=0, click_points_awarded=0, click_points_spent=campaign.entry_cost_points,
                            reference=f"gift-entry:{campaign.id}:{user_id}", description=f"Gift entry — {campaign.entry_cost_points} click points spent"))
     entry = GiftEntry(campaign_id=campaign.id, user_id=user_id)
     db.add(entry)
