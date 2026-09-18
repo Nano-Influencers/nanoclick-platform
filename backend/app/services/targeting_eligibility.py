@@ -41,7 +41,7 @@ def _expanded_location_matches(p, t, tier):
     if city in cities or state in states: return True
     scopes = set(cities + states)
     if tier >= 2 and any(str(x).strip().lower() in scopes for x in (p.secondary_locations or [])): return True
-    if tier >= 3 and any(str(x).strip().lower() in scopes for x in (p.occupation_location, p.study_location, p.trade_school_niche) if x): return True
+    if tier >= 3 and any(str(x).strip().lower() in set(cities) for x in (p.occupation_location, p.study_location, p.trade_school_niche) if x): return True
     if tier >= 4 and any(x in ' '.join(p.group_descriptions or []).lower() for x in scopes): return True
     if tier >= 5 and (p.majority_follower_location or '').lower() in cities: return True
     if tier >= 6 and ((p.state_of_origin or '').lower() in states or (p.town_of_origin or '').lower() in cities): return True
