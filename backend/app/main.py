@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
 from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
-from app.routers import admin_audit, admin_mfa, admin_kyc_documents, deposits, campaign_reports, submission_revisions, admin_lifecycle, proofs, admin_rewards, admin_gifts
+from app.routers import admin_audit, admin_mfa, admin_kyc_documents, campaign_reports, submission_revisions, admin_lifecycle, proofs, admin_rewards, admin_gifts, gifts
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
 from app.services.rate_limit import check_rate_limit
@@ -35,7 +35,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
 )
 
-
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -47,7 +46,6 @@ async def security_headers(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
-
 @app.middleware("http")
 async def request_observability(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
@@ -56,25 +54,12 @@ async def request_observability(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception:
-        logger.exception(
-            "request_failed method=%s path=%s request_id=%s",
-            request.method,
-            request.url.path,
-            request_id,
-        )
+        logger.exception("request_failed method=%s path=%s request_id=%s", request.method, request.url.path, request_id)
         raise
     duration_ms = (time.perf_counter() - started) * 1000
     response.headers["X-Request-ID"] = request_id
-    logger.info(
-        "request_complete method=%s path=%s status=%s duration_ms=%.2f request_id=%s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-        request_id,
-    )
+    logger.info("request_complete method=%s path=%s status=%s duration_ms=%.2f request_id=%s", request.method, request.url.path, response.status_code, duration_ms, request_id)
     return response
-
 
 @app.middleware("http")
 async def sensitive_endpoint_rate_limit(request: Request, call_next):
@@ -96,7 +81,6 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         await check_rate_limit(request, *rule)
     return await call_next(request)
 
-
 @app.middleware("http")
 async def sensitive_action_audit(request: Request, call_next):
     path = request.url.path
@@ -105,35 +89,23 @@ async def sensitive_action_audit(request: Request, call_next):
     response = await call_next(request)
     if not is_sensitive:
         return response
-
     actor_id = None
     authorization = request.headers.get("authorization", "")
     if authorization.lower().startswith("bearer "):
         payload = decode_token(authorization[7:].strip())
         if payload:
             actor_id = payload.get("sub")
-
     try:
         actor_uuid = uuid.UUID(actor_id) if actor_id else None
         async with AsyncSessionLocal() as db:
-            await record_audit(
-                db,
-                request,
-                action=f"{request.method} {path}",
-                actor_user_id=actor_uuid,
-                resource_type="http_endpoint",
-                resource_id=path,
-                metadata={"status_code": response.status_code},
-            )
+            await record_audit(db, request, action=f"{request.method} {path}", actor_user_id=actor_uuid, resource_type="http_endpoint", resource_id=path, metadata={"status_code": response.status_code})
             await db.commit()
     except Exception:
         logger.exception("sensitive_action_audit_failed path=%s", path)
     return response
 
-
 app.include_router(auth.router)
 app.include_router(wallet.router)
-app.include_router(deposits.router)
 app.include_router(campaigns.router)
 app.include_router(campaign_reports.router)
 app.include_router(submission_revisions.router)
@@ -142,8 +114,7 @@ app.include_router(proofs.router)
 app.include_router(tasks.router)
 app.include_router(kyc.router)
 app.include_router(admin_mfa.router)
-# Lifecycle handlers are registered before the legacy admin router so the
-# synchronized campaign/submission implementations win for duplicate paths.
+# Lifecycle handlers are registered before the legacy admin router so the synchronized campaign/submission implementations win for duplicate paths.
 app.include_router(admin_lifecycle.router)
 app.include_router(admin.router)
 app.include_router(admin_kyc_documents.router)
@@ -154,16 +125,13 @@ app.include_router(gifts.router)
 app.include_router(notifications.router)
 app.include_router(rewards.router)
 
-
 @app.get("/health", tags=["meta"])
 async def health():
     return {"status": "ok", "env": settings.APP_ENV, "version": "2.0.0"}
 
-
 @app.get("/health/live", tags=["meta"])
 async def liveness():
     return {"status": "ok"}
-
 
 @app.get("/health/ready", tags=["meta"])
 async def readiness():
@@ -174,7 +142,6 @@ async def readiness():
         checks["database"] = True
     except Exception:
         logger.exception("readiness_database_failed")
-
     redis = Redis.from_url(settings.REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
     try:
         await redis.ping()
@@ -183,9 +150,5 @@ async def readiness():
         logger.exception("readiness_redis_failed")
     finally:
         await redis.aclose()
-
     ready = all(checks.values())
-    return JSONResponse(
-        status_code=200 if ready else 503,
-        content={"status": "ok" if ready else "degraded", "checks": checks},
-    )
+    return JSONResponse(status_code=200 if ready else 503, content={"status": "ok" if ready else "degraded", "checks": checks})
