@@ -1,4 +1,6 @@
 from pydantic import BaseModel
+from app.schemas.treasure import TreasureResponse
+from app.schemas.gifts import GiftResponse
 
 class RewardProgressResponse(BaseModel):
     grit_level: int
@@ -47,6 +49,6 @@ class RewardsDashboardResponse(BaseModel):
     spin_available: bool
     next_spin_at: str | None
     try_for_free: TryForFreeResponse
-    treasure: dict | None
-    gifts: list[dict]
+    treasure: TreasureResponse | None
+    gifts: list[GiftResponse]
     leaderboard: RewardsLeaderboardResponse
