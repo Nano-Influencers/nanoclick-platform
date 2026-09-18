@@ -102,7 +102,7 @@ async def is_worker_eligible_for_campaign(db: AsyncSession, worker_id: uuid.UUID
     if targeting.min_follower_count and p.follower_count < targeting.min_follower_count: return False
     if targeting.min_avg_story_views and p.avg_story_views < targeting.min_avg_story_views: return False
     tier = max(1, min(int(targeting.current_expansion_tier or 1), 9))
-    return (_expanded_location_matches(p, targeting, tier) and _expanded_gender_matches(p, set(_clean(targeting.target_genders)), tier) and _expanded_age_matches(p.age_bracket, set(_clean(targeting.target_age_brackets)), tier) and _expanded_marital_matches(p, set(_clean(targeting.target_marital_statuses)), tier) and (not targeting.target_ethnicities or (p.ethnicity_tribe or '').lower() in _clean(targeting.target_ethnicities)))
+    return (_expanded_location_matches(p, targeting, tier) and _expanded_gender_matches(p, set(_clean(targeting.target_genders)), tier) and _expanded_age_matches(p.age_bracket, set(_clean(targeting.target_age_brackets)), tier) and _expanded_marital_matches(p, set(_clean(targeting.target_marital_statuses)), tier) and (not targeting.target_ethnicities or tier >= 9 and (p.ethnicity_tribe or '').lower() in _clean(targeting.target_ethnicities)))
 
 async def is_worker_eligible(db: AsyncSession, worker_id: uuid.UUID, targeting: CampaignTargeting) -> bool:
     return await is_worker_eligible_for_campaign(db, worker_id, targeting)
