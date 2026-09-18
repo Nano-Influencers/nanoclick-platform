@@ -26,15 +26,16 @@ async def reward_progress(current_user: User = Depends(require_worker), db: Asyn
 
 @router.get("/treasure")
 async def active_treasure(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
-    result = await treasure_service.get_active(db, current_user.id)
+    result = await treasure_service.get_active(db, current_user.id, create_participation=False)
     if not result:
         return {"active": False}
     campaign, participation = result
-    return {"active": True, "treasure": (await treasure_service.to_response(db, campaign, participation)).model_dump()}
+    treasure = await treasure_service.to_response(db, campaign, participation)
+    return {"active": True, "treasure": treasure.model_dump()}
 
 @router.post("/treasure/participate")
 async def participate_treasure(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
-    campaign, _ = await treasure_service.participate(db, current_user.id)
+    campaign, participation = await treasure_service.participate(db, current_user.id)
     await db.commit()
     return {"status": "participating", "treasure_id": str(campaign.id)}
 
@@ -69,7 +70,7 @@ async def rewards_dashboard(current_user: User = Depends(require_worker), db: As
         if candidate > now:
             next_spin = candidate.isoformat() + "Z"
 
-    treasure_result = await treasure_service.get_active(db, current_user.id)
+    treasure_result = await treasure_service.get_active(db, current_user.id, create_participation=False)
     treasure = None
     if treasure_result:
         campaign, participation = treasure_result
