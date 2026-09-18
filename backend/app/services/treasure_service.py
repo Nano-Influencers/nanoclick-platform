@@ -50,10 +50,12 @@ async def participate(db: AsyncSession, user_id: uuid.UUID):
     return result
 
 async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
-    result = await get_active(db, user_id, create_participation=True)
+    result = await get_active(db, user_id, create_participation=False)
     if not result:
         raise HTTPException(404, "No active treasure hunt")
     campaign, participation = result
+    if participation is None:
+        raise HTTPException(409, "Join the Treasure Hunt before using this action")
     participation = (await db.execute(select(TreasureParticipation).where(TreasureParticipation.id == participation.id).with_for_update())).scalar_one()
     campaign = (await db.execute(select(TreasureCampaign).where(TreasureCampaign.id == campaign.id).with_for_update())).scalar_one()
     now = datetime.utcnow()
@@ -83,10 +85,12 @@ async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
                                 spent_earnings_kobo=participation.spent_earnings_kobo, spent_points=participation.spent_points)
 
 async def claim(db: AsyncSession, user_id: uuid.UUID, claim_code: str):
-    result = await get_active(db, user_id, create_participation=True)
+    result = await get_active(db, user_id, create_participation=False)
     if not result:
         raise HTTPException(404, "No active treasure hunt")
     campaign, participation = result
+    if participation is None:
+        raise HTTPException(409, "Join the Treasure Hunt before claiming a reward")
     participation = (await db.execute(select(TreasureParticipation).where(TreasureParticipation.id == participation.id).with_for_update())).scalar_one()
     campaign = (await db.execute(select(TreasureCampaign).where(TreasureCampaign.id == campaign.id).with_for_update())).scalar_one()
     if participation.claimed:
@@ -111,14 +115,17 @@ async def claim(db: AsyncSession, user_id: uuid.UUID, claim_code: str):
     await db.flush()
     return {"status": "claimed", "reward_kobo": campaign.reward_kobo, "reward_click_points": campaign.reward_click_points}
 
-async def to_response(db: AsyncSession, campaign: TreasureCampaign, participation: TreasureParticipation):
+async def to_response(db: AsyncSession, campaign: TreasureCampaign, participation: TreasureParticipation | None):
     return TreasureResponse(
         id=str(campaign.id), name=campaign.name, details=campaign.details, image_url=campaign.image_url,
         starts_at=campaign.starts_at, ends_at=campaign.ends_at, status=campaign.status,
         reward_kobo=campaign.reward_kobo, reward_click_points=campaign.reward_click_points,
         max_winners=campaign.max_winners,
-        participation={"participated": participation.participated, "found": participation.found,
-                       "hunted_down": participation.hunted_down, "claimed": participation.claimed,
-                       "hints_used": participation.hints_used, "items_won": participation.items_won,
-                       "spent_earnings_kobo": participation.spent_earnings_kobo,
-                       "spent_points": participation.spent_points})
+        participation={"participated": participation.participated if participation else False,
+                       "found": participation.found if participation else False,
+                       "hunted_down": participation.hunted_down if participation else False,
+                       "claimed": participation.claimed if participation else False,
+                       "hints_used": participation.hints_used if participation else 0,
+                       "items_won": participation.items_won if participation else 0,
+                       "spent_earnings_kobo": participation.spent_earnings_kobo if participation else 0,
+                       "spent_points": participation.spent_points if participation else 0})
