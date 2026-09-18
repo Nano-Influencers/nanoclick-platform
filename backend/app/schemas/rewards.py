@@ -11,3 +11,7 @@ class RewardProgressResponse(BaseModel):
     gratis_tasks_to_next_level: int
     gratis_level10_reached: bool
     gratis_level10_pool_claimed: bool
+    checkin_streak: int
+    last_checkin_at: str | None
+    checked_in_today: bool
+    next_checkin_at: str | None
