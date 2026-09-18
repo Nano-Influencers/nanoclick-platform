@@ -4,7 +4,8 @@ from app.database import get_db
 from app.dependencies import require_worker
 from app.models.user import User
 from app.services import rewards_service
-from app.schemas.rewards import RewardProgressResponse\nfrom app.schemas.treasure import TreasureClaimRequest, TreasureHintResponse
+from app.schemas.rewards import RewardProgressResponse
+from app.schemas.treasure import TreasureClaimRequest, TreasureHintResponse
 
 router = APIRouter(prefix="/rewards", tags=["rewards"])
 
@@ -16,7 +17,8 @@ async def reward_progress(current_user: User = Depends(require_worker), db: Asyn
     Level thresholds and the rationale for the pooled Level-10 payout)."""
     return await rewards_service.get_progress(db, current_user.id)
 
-\n@router.get("/treasure")
+
+@router.get("/treasure")
 async def active_treasure(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
     result = await treasure_service.get_active(db, current_user.id)
     if not result:
