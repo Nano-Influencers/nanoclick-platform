@@ -1,7 +1,7 @@
 import uuid
 import secrets
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin
@@ -66,4 +66,4 @@ async def fulfill_gift(campaign_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSess
     if winner.status == "fulfilled": return {"status": "already_fulfilled"}
     winner.status = "fulfilled"; winner.fulfilled_at = datetime.utcnow()
     await db.commit()
-    return {"status": "fulfilled"}
+    return {"status": "fulfilled"}\n    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('nanoclick:active_gift'))"))
