@@ -82,7 +82,7 @@ def _expanded_marital_matches(p, targets, tier):
     if status in targets: return True
     if tier >= 2:
         keys = {k.lower() for t in targets for k in MARITAL_GROUP_KEYWORDS.get(t, [])}
-        if keys & set(' '.join(p.marital_group_keywords or []).lower().split()): return True
+        if any(k in ' '.join(p.marital_group_keywords or []).lower() for k in keys): return True
     if tier >= 3 and status in {x.lower() for t in targets for x in MARITAL_ADJACENT.get(t, [])}: return True
     return False
 
