@@ -61,6 +61,11 @@ class _SignedInState extends State<SignedIn> {
     ProfilePhotoState.photoUrl.value = AuthProvider().currentUser?.photoURL;
   }
 
+  void _openTryForFree() {
+    setState(() => isSelected = 'Unpaid');
+    controller.jumpToPage(1);
+  }
+
   void fetchUser() {
     final user = AuthProvider().currentUser;
     if (user != null && mounted) {
@@ -91,6 +96,7 @@ class _SignedInState extends State<SignedIn> {
       Rewards(
         controller: controller,
         kycCompleted: userDoc['kycCompleted'] ?? false,
+        onTryForFree: _openTryForFree,
       ),
       Wallet(
         controller: controller,
