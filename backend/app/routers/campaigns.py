@@ -66,7 +66,7 @@ async def create_campaign(body: CampaignCreate, current_user: User = Depends(req
         client_budget_kobo = int(Decimal(client_budget_kobo) * Decimal("1.2"))
     if client_price_kobo <= 0:
         raise HTTPException(400, "Price per action must be > 0")
-    worker_pay_kobo = calculate_worker_pay_kobo(
+    worker_pay_kobo = 0 if body.tni_service_type == "try_for_free" else calculate_worker_pay_kobo(
         client_price_per_action_kobo=client_price_kobo,
         action_type=body.action_type,
         comment_subtype=body.comment_subtype,
