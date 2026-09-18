@@ -15,3 +15,29 @@ class RewardProgressResponse(BaseModel):
     last_checkin_at: str | None
     checked_in_today: bool
     next_checkin_at: str | None
+
+
+class TryForFreeCampaignResponse(BaseModel):
+    campaign_id: str
+    title: str
+    description: str | None
+    platform: str
+    action_type: str
+    pay_kobo: int
+    task_count: int
+
+class TryForFreeResponse(BaseModel):
+    active: bool
+    campaigns: list[TryForFreeCampaignResponse]
+    unpaid_tasks_approved: int
+    gratis_level: int
+    gratis_tasks_to_next_level: int
+
+class RewardsDashboardResponse(BaseModel):
+    progress: RewardProgressResponse
+    spin_available: bool
+    next_spin_at: str | None
+    try_for_free: TryForFreeResponse
+    treasure: dict | None
+    gifts: list[dict]
+    leaderboard: dict
