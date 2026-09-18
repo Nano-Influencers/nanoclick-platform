@@ -43,7 +43,7 @@ async def _expand():
                         )
                     )
                     existing = {row.worker_id: row for row in existing_result.scalars().all()}
-                    newly_eligible = []
+                    pending_notifications = []
                     for worker_id in worker_ids:
                         allocation = existing.get(worker_id)
                         if allocation is None:
@@ -53,14 +53,18 @@ async def _expand():
                                 expansion_tier=t.current_expansion_tier,
                                 eligibility_reason=f"targeting_tier_{t.current_expansion_tier}",
                                 first_eligible_at=datetime.utcnow(),
-                                notified_at=datetime.utcnow(),
+                                notified_at=None,
                             )
                             db.add(allocation)
-                            newly_eligible.append(worker_id)
                         elif t.current_expansion_tier > allocation.expansion_tier:
                             allocation.expansion_tier = t.current_expansion_tier
-                    if newly_eligible:
+                        if allocation.notified_at is None:
+                            pending_notifications.append(worker_id)
+                    if pending_notifications:
                         notify_new_tasks_available.delay(
-                            [str(worker_id) for worker_id in newly_eligible], campaign.title
+                            [str(worker_id) for worker_id in pending_notifications], campaign.title
                         )
+                        notified_at = datetime.utcnow()
+                        for worker_id in pending_notifications:
+                            existing[worker_id].notified_at = notified_at
         await db.commit()
