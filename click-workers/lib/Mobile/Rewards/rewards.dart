@@ -16,6 +16,7 @@ class _RewardsState extends State<Rewards> {
   bool actionLoading = false;
   String? error;
   Map<String, dynamic> progress = {};
+  Map<String, dynamic>? treasure;
 
   @override
   void initState() { super.initState(); _load(); }
@@ -23,8 +24,10 @@ class _RewardsState extends State<Rewards> {
   Future<void> _load() async {
     try {
       final data = await ApiClient.instance.rewardsProgress();
+      Map<String, dynamic>? treasureData;
+      try { treasureData = await ApiClient.instance.activeTreasure(); } catch (_) { treasureData = null; }
       if (!mounted) return;
-      setState(() { progress = data; loading = false; error = null; });
+      setState(() { progress = data; treasure = treasureData?['active'] == true ? Map<String, dynamic>.from(treasureData!['treasure'] as Map) : null; loading = false; error = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() { error = e.message; loading = false; });
     } catch (_) {
@@ -207,6 +210,85 @@ class _RewardsState extends State<Rewards> {
     );
   }
 
+  Widget _treasureCard() {
+    final data = treasure;
+    if (data == null) return const SizedBox.shrink();
+    final participation = Map<String, dynamic>.from(data['participation'] as Map? ?? {});
+    final claimed = participation['claimed'] == true;
+    final hintsUsed = participation['hints_used'] is num ? (participation['hints_used'] as num).toInt() : 0;
+    final spentPoints = participation['spent_points'] is num ? (participation['spent_points'] as num).toInt() : 0;
+    final spentEarnings = participation['spent_earnings_kobo'] is num ? (participation['spent_earnings_kobo'] as num).toInt() : 0;
+    return Card(
+      margin: EdgeInsets.only(bottom: 1.5.h),
+      child: Padding(
+        padding: EdgeInsets.all(4.w),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(data['name']?.toString() ?? 'Treasure Hunt', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          SizedBox(height: 1.h),
+          Text(data['details']?.toString() ?? '', style: TextStyle(fontSize: 12.sp, color: Colors.black54)),
+          SizedBox(height: 1.h),
+          Text('Reward: ₦${_formatNumber(((data['reward_kobo'] as num?)?.toDouble() ?? 0) / 100)}',
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+          SizedBox(height: 1.h),
+          Text('Hints used: ${hintsUsed} • Points spent: ${spentPoints} • Earnings spent: ₦${_formatNumber(spentEarnings / 100)}',
+              style: TextStyle(fontSize: 11.sp, color: Colors.black54)),
+          SizedBox(height: 1.5.h),
+          Wrap(spacing: 2.w, runSpacing: 1.h, children: [
+            OutlinedButton.icon(onPressed: hintsUsed > 0 ? null : () => _useTreasureHint(false), icon: const Icon(Icons.lightbulb_outline), label: const Text('Hint • 500 points')),
+            OutlinedButton.icon(onPressed: hintsUsed > 0 ? null : () => _useTreasureHint(true), icon: const Icon(Icons.payments_outlined), label: const Text('Hint • ₦100')),
+            ElevatedButton.icon(onPressed: claimed ? null : _claimTreasure, icon: const Icon(Icons.card_giftcard_outlined), label: Text(claimed ? 'Claimed' : 'Claim reward')),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _useTreasureHint(bool useEarnings) async {
+    if (actionLoading) return;
+    setState(() => actionLoading = true);
+    try {
+      final result = await ApiClient.instance.treasureHint(useEarnings: useEarnings);
+      await _load();
+      if (!mounted) return;
+      showDialog<void>(context: context, builder: (_) => AlertDialog(
+        title: const Text('Treasure Hint'),
+        content: Text(result['hint']?.toString() ?? 'No hint returned.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Continue'))],
+      ));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => actionLoading = false);
+    }
+  }
+
+  Future<void> _claimTreasure() async {
+    final controller = TextEditingController();
+    final code = await showDialog<String>(context: context, builder: (_) => AlertDialog(
+      title: const Text('Claim Treasure'),
+      content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'Claim code')),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Claim')),
+      ],
+    ));
+    controller.dispose();
+    if (code == null || code.isEmpty || !mounted) return;
+    setState(() => actionLoading = true);
+    try {
+      final result = await ApiClient.instance.claimTreasure(code);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+        'Treasure claimed: ₦${_formatNumber(((result['reward_kobo'] as num?)?.toDouble() ?? 0) / 100)}',
+      )));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => actionLoading = false);
+    }
+  }
+
   Widget _rewardInfoCard() => Card(
     margin: EdgeInsets.only(bottom: 1.5.h),
     child: Padding(
@@ -246,7 +328,7 @@ class _RewardsState extends State<Rewards> {
           contentPadding: EdgeInsets.zero,
           leading: const CircleAvatar(child: Icon(Icons.explore_outlined)),
           title: const Text('Treasure Hunt'),
-          subtitle: const Text('Treasure Hunt is not active yet because its previous client-only data has no authoritative backend contract.'),
+          subtitle: Text(treasure == null ? 'No active treasure hunt right now.' : 'An active server-backed hunt is available below.'),
         ),
         ListTile(
           contentPadding: EdgeInsets.zero,
@@ -297,6 +379,7 @@ class _RewardsState extends State<Rewards> {
           if (error != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(error!))),
           if (error == null) ...[
             _rewardInfoCard(),
+            _treasureCard(),
             _streakCard(),
             _trackCard(
               title: 'Grit',
