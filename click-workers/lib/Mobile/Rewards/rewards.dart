@@ -17,6 +17,7 @@ class _RewardsState extends State<Rewards> {
   String? error;
   Map<String, dynamic> progress = {};
   Map<String, dynamic>? treasure;
+  List<dynamic> gifts = [];
 
   @override
   void initState() { super.initState(); _load(); }
@@ -24,10 +25,12 @@ class _RewardsState extends State<Rewards> {
   Future<void> _load() async {
     try {
       final data = await ApiClient.instance.rewardsProgress();
+      List<dynamic> giftData = [];
+      try { giftData = await ApiClient.instance.activeGifts(); } catch (_) { giftData = []; }
       Map<String, dynamic>? treasureData;
       try { treasureData = await ApiClient.instance.activeTreasure(); } catch (_) { treasureData = null; }
       if (!mounted) return;
-      setState(() { progress = data; treasure = treasureData?['active'] == true ? Map<String, dynamic>.from(treasureData!['treasure'] as Map) : null; loading = false; error = null; });
+      setState(() { progress = data; treasure = treasureData?['active'] == true ? Map<String, dynamic>.from(treasureData!['treasure'] as Map) : null; gifts = giftData; loading = false; error = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() { error = e.message; loading = false; });
     } catch (_) {
@@ -210,6 +213,30 @@ class _RewardsState extends State<Rewards> {
     );
   }
 
+  Widget _giftsCard() {
+    if (gifts.isEmpty) return const SizedBox.shrink();
+    return Card(child: Padding(padding: EdgeInsets.all(4.w), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text("Win Gifts", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      ...gifts.map((item) {
+        final gift = Map<String, dynamic>.from(item as Map);
+        final entered = gift["entered"] == true;
+        return ListTile(title: Text(gift["title"]?.toString() ?? "Gift campaign"), subtitle: Text("${gift["prize_name"] ?? "Prize"} • Entry: ${gift["entry_cost_points"] ?? 0} points"), trailing: ElevatedButton(onPressed: entered ? null : () => _enterGift(gift["id"].toString()), child: Text(entered ? "Entered" : "Enter")));
+      }),
+    ])));
+  }
+
+  Future<void> _enterGift(String campaignId) async {
+    if (actionLoading) return;
+    setState(() => actionLoading = true);
+    try {
+      final result = await ApiClient.instance.enterGift(campaignId);
+      await _load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result["status"] == "already_entered" ? "You are already entered." : "Entry confirmed.")));
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally { if (mounted) setState(() => actionLoading = false); }
+  }
+
   Widget _treasureCard() {
     final data = treasure;
     if (data == null) return const SizedBox.shrink();
@@ -379,6 +406,7 @@ class _RewardsState extends State<Rewards> {
           if (error != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(error!))),
           if (error == null) ...[
             _rewardInfoCard(),
+            _giftsCard(),
             _treasureCard(),
             _streakCard(),
             _trackCard(
