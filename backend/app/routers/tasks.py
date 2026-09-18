@@ -85,7 +85,7 @@ async def list_tasks(category: str = Query(None), difficulty: str = Query(None),
                 targeting_result = await db.execute(select(CampaignTargeting).where(CampaignTargeting.campaign_id == task.campaign_id))
                 targeting_cache[task.campaign_id] = targeting_result.scalar_one_or_none()
             targeting = targeting_cache[task.campaign_id]
-            if targeting is not None and not await is_worker_eligible(db, current_user.id, targeting):
+            if targeting is not None and not await is_worker_eligible_for_campaign(db, current_user.id, targeting):
                 continue
             if eligible_seen < offset:
                 eligible_seen += 1
