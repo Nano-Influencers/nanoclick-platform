@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
+from sqlalchemy import select
+from app.config import settings
 from app.dependencies import require_worker
 from app.models.user import User
 from app.services import rewards_service, treasure_service
-from app.schemas.rewards import RewardProgressResponse
+from app.schemas.rewards import RewardProgressResponse, TryForFreeResponse, RewardsDashboardResponse
+from app.models.wallet import Wallet
+from app.models.task import LeaderboardScore
+from app.services import gifts_service
 from app.schemas.treasure import TreasureClaimRequest, TreasureHintResponse
 
 router = APIRouter(prefix="/rewards", tags=["rewards"])
@@ -43,3 +49,62 @@ async def claim_treasure(payload: TreasureClaimRequest, current_user: User = Dep
     response = await treasure_service.claim(db, current_user.id, payload.claim_code)
     await db.commit()
     return response
+
+
+@router.get("/try-for-free", response_model=TryForFreeResponse)
+async def try_for_free(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+    return await rewards_service.get_try_for_free(db, current_user.id)
+
+
+@router.get("/dashboard", response_model=RewardsDashboardResponse)
+async def rewards_dashboard(current_user: User = Depends(require_worker), db: AsyncSession = Depends(get_db)):
+    progress = await rewards_service.get_progress(db, current_user.id)
+    try_free = await rewards_service.get_try_for_free(db, current_user.id)
+
+    wallet = (await db.execute(select(Wallet).where(Wallet.user_id == current_user.id))).scalar_one_or_none()
+    now = datetime.utcnow()
+    next_spin = None
+    if wallet and wallet.last_spin_at:
+        candidate = wallet.last_spin_at + timedelta(hours=settings.SPIN_COOLDOWN_HOURS)
+        if candidate > now:
+            next_spin = candidate.isoformat() + "Z"
+
+    treasure_result = await treasure_service.get_active(db, current_user.id)
+    treasure = None
+    if treasure_result:
+        campaign, participation = treasure_result
+        treasure = (await treasure_service.to_response(db, campaign, participation)).model_dump()
+
+    gift_campaigns, entered = await gifts_service.active(db, current_user.id)
+    gifts = [{
+        "campaign_id": str(g.id),
+        "title": g.title,
+        "description": g.description,
+        "prize_name": g.prize_name,
+        "image_url": g.image_url,
+        "entry_cost_points": g.entry_cost_points,
+        "ends_at": g.ends_at,
+        "entered": g.id in entered,
+    } for g in gift_campaigns]
+
+    scores = (await db.execute(
+        select(LeaderboardScore).where(LeaderboardScore.period == "weekly")
+        .order_by(LeaderboardScore.total_score.desc()).limit(3)
+    )).scalars().all()
+
+    return {
+        "progress": progress,
+        "spin_available": next_spin is None,
+        "next_spin_at": next_spin,
+        "try_for_free": try_free,
+        "treasure": treasure,
+        "gifts": gifts,
+        "leaderboard": {
+            "period": "weekly",
+            "top": [{
+                "rank": s.rank or 0,
+                "worker_id": str(s.worker_id),
+                "total_score": s.total_score,
+            } for s in scores],
+        },
+    }
