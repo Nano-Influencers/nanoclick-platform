@@ -693,13 +693,16 @@ async def get_eligible_worker_ids(
     targeting: CampaignTargeting,
     desired: int,
     db: AsyncSession,
-    current_tier: int = 1,          # kept for API compatibility; ignored internally
+    current_tier: int = 1,
 ) -> list[uuid.UUID]:
     """
     Drop-in replacement for the original function.
     Returns a flat list of eligible worker UUIDs (trimmed to desired).
     """
-    engine = TargetingEngine(targeting, desired)
+    # The persisted campaign tier is now authoritative: expansion is progressive
+    # rather than rerunning all tiers immediately. Tier 1 is the initial audience;
+    # scheduled expansion can advance the campaign to later tiers.
+    engine = TargetingEngine(targeting, desired, max_tier=max(1, min(current_tier, 9)))
     result = await engine.run(db)
     return result.worker_ids
 
