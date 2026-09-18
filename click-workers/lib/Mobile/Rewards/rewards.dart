@@ -105,7 +105,7 @@ class _RewardsState extends State<Rewards> {
     required IconData icon,
   }) {
     final currentLevelProgress = level10Reached ? perLevel : (completed % perLevel).clamp(0, perLevel);
-    final progressValue = level10Reached ? 1.0 : (currentLevelProgress / perLevel).clamp(0.0, 1.0);
+    final progressValue = level10Reached ? 1.0 : (currentLevelProgress / perLevel).clamp(0.0, 1.0).toDouble();
     return Card(
       margin: EdgeInsets.only(bottom: 1.5.h),
       child: Padding(
