@@ -56,10 +56,15 @@ async def get_progress(db: AsyncSession, worker_id: uuid.UUID) -> dict:
     if worker_wallet:
         last_checkin = worker_wallet.last_checkin_at
 
-    checked_in_today = bool(last_checkin and last_checkin.date() == now.date())
+    # Keep the UI state aligned with the same 24-hour cooldown enforced by checkin().
+    # Comparing UTC calendar dates would disagree around midnight (including for
+    # workers in Nigeria, where local time is UTC+1).
+    checked_in_today = bool(last_checkin and now - last_checkin < timedelta(hours=24))
     next_checkin_at = None
     if last_checkin:
-        next_checkin_at = (last_checkin + timedelta(hours=24)).isoformat() + "Z"
+        next_checkin = last_checkin + timedelta(hours=24)
+        if next_checkin > now:
+            next_checkin_at = next_checkin.isoformat() + "Z"
 
     return {
         "grit_level": grit_level,
