@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.task import Submission, Task
+from app.models.campaign import Campaign
 from app.models.user import User
 from app.models.wallet import Wallet, Transaction
 from app.models.rewards import RewardClaim
@@ -81,6 +82,42 @@ async def get_progress(db: AsyncSession, worker_id: uuid.UUID) -> dict:
         "last_checkin_at": last_checkin.isoformat() + "Z" if last_checkin else None,
         "checked_in_today": checked_in_today,
         "next_checkin_at": next_checkin_at,
+    }
+
+
+async def get_try_for_free(db: AsyncSession, worker_id: uuid.UUID) -> dict:
+    """Return server-authoritative Try-for-Free campaigns and Gratis progress."""
+    rows = (await db.execute(
+        select(Campaign, Task)
+        .join(Task, Task.campaign_id == Campaign.id)
+        .where(
+            Campaign.status == "active",
+            Campaign.tni_service_type == "try_for_free",
+            Task.status == "available",
+            Task.slots_filled < Task.slots_total,
+        )
+        .order_by(Campaign.created_at.desc(), Task.created_at.desc())
+    )).all()
+    grouped = {}
+    for campaign, task in rows:
+        item = grouped.setdefault(str(campaign.id), {
+            "campaign_id": str(campaign.id),
+            "title": campaign.title,
+            "description": campaign.description,
+            "platform": campaign.platform,
+            "action_type": campaign.action_type,
+            "pay_kobo": task.pay_kobo,
+            "task_count": 0,
+        })
+        item["task_count"] += 1
+    count = await _approved_count(db, worker_id, cw_task_category="unpaid")
+    level = min(GRATIS_MAX_LEVEL, count // GRATIS_TASKS_PER_LEVEL + 1)
+    return {
+        "active": bool(grouped),
+        "campaigns": list(grouped.values()),
+        "unpaid_tasks_approved": count,
+        "gratis_level": level,
+        "gratis_tasks_to_next_level": max(0, GRATIS_TASKS_PER_LEVEL * level - count) if level < GRATIS_MAX_LEVEL else 0,
     }
 
 
