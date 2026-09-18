@@ -49,6 +49,18 @@ async def get_progress(db: AsyncSession, worker_id: uuid.UUID) -> dict:
     gratis_claimed = await db.execute(select(RewardClaim).where(
         RewardClaim.user_id == worker_id, RewardClaim.reward_key == "gratis_level10_pool"))
 
+    now = datetime.utcnow()
+    last_checkin = None
+    wallet_result = await db.execute(select(Wallet).where(Wallet.user_id == worker_id))
+    worker_wallet = wallet_result.scalar_one_or_none()
+    if worker_wallet:
+        last_checkin = worker_wallet.last_checkin_at
+
+    checked_in_today = bool(last_checkin and last_checkin.date() == now.date())
+    next_checkin_at = None
+    if last_checkin:
+        next_checkin_at = (last_checkin + timedelta(hours=24)).isoformat() + "Z"
+
     return {
         "grit_level": grit_level,
         "grit_difficult_tasks_approved": grit_count,
@@ -60,6 +72,10 @@ async def get_progress(db: AsyncSession, worker_id: uuid.UUID) -> dict:
         "gratis_tasks_to_next_level": max(0, GRATIS_TASKS_PER_LEVEL * min(gratis_level, GRATIS_MAX_LEVEL) - gratis_count) if gratis_level < GRATIS_MAX_LEVEL else 0,
         "gratis_level10_reached": gratis_count >= GRATIS_TASKS_PER_LEVEL * GRATIS_MAX_LEVEL,
         "gratis_level10_pool_claimed": gratis_claimed.scalar_one_or_none() is not None,
+        "checkin_streak": worker_wallet.checkin_streak if worker_wallet else 0,
+        "last_checkin_at": last_checkin.isoformat() + "Z" if last_checkin else None,
+        "checked_in_today": checked_in_today,
+        "next_checkin_at": next_checkin_at,
     }
 
 
