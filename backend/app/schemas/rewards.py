@@ -38,6 +38,7 @@ class TryForFreeResponse(BaseModel):
 class RewardsLeaderboardEntry(BaseModel):
     rank: int
     worker_id: str
+    full_name: str
     total_score: int
 
 class RewardsLeaderboardResponse(BaseModel):
