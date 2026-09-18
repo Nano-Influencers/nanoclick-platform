@@ -291,13 +291,37 @@ class _RewardsState extends State<Rewards> {
               style: TextStyle(fontSize: 11.sp, color: Colors.black54)),
           SizedBox(height: 1.5.h),
           Wrap(spacing: 2.w, runSpacing: 1.h, children: [
-            OutlinedButton.icon(onPressed: hintsUsed > 0 ? null : () => _useTreasureHint(false), icon: const Icon(Icons.lightbulb_outline), label: const Text('Hint • 500 points')),
+            if (participation['participated'] != true)
+              ElevatedButton.icon(
+                onPressed: actionLoading ? null : _participateTreasure,
+                icon: const Icon(Icons.explore_outlined),
+                label: const Text('Join hunt'),
+              ),
+            OutlinedButton.icon(onPressed: participation['participated'] != true || hintsUsed > 0 ? null : () => _useTreasureHint(false), icon: const Icon(Icons.lightbulb_outline), label: const Text('Hint • 500 points')),
             OutlinedButton.icon(onPressed: hintsUsed > 0 ? null : () => _useTreasureHint(true), icon: const Icon(Icons.payments_outlined), label: const Text('Hint • ₦100')),
             ElevatedButton.icon(onPressed: claimed ? null : _claimTreasure, icon: const Icon(Icons.card_giftcard_outlined), label: Text(claimed ? 'Claimed' : 'Claim reward')),
           ]),
         ]),
       ),
     );
+  }
+
+  Future<void> _participateTreasure() async {
+    if (actionLoading) return;
+    setState(() => actionLoading = true);
+    try {
+      await ApiClient.instance.participateTreasure();
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('You joined the Treasure Hunt.')),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => actionLoading = false);
+    }
   }
 
   Future<void> _useTreasureHint(bool useEarnings) async {
