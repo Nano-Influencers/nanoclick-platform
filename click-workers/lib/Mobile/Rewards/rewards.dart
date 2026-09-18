@@ -33,7 +33,7 @@ class _RewardsState extends State<Rewards> {
       Map<String, dynamic>? treasureData;
       try { treasureData = await ApiClient.instance.activeTreasure(); } catch (_) { treasureData = null; }
       if (!mounted) return;
-      setState(() { progress = data; treasure = treasureData?['active'] == true ? Map<String, dynamic>.from(treasureData!['treasure'] as Map) : null; gifts = giftData; loading = false; error = null; });
+      setState(() { progress = data; treasure = treasureData?['active'] == true ? Map<String, dynamic>.from(treasureData!['treasure'] as Map) : null; gifts = giftData; giftWins = winData; loading = false; error = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() { error = e.message; loading = false; });
     } catch (_) {
@@ -265,7 +265,7 @@ class _RewardsState extends State<Rewards> {
           SizedBox(height: 1.h),
           Text(data['details']?.toString() ?? '', style: TextStyle(fontSize: 12.sp, color: Colors.black54)),
           SizedBox(height: 1.h),
-          Text('Reward: ₦${_formatNumber(((data['reward_kobo'] as num?)?.toDouble() ?? 0) / 100)}',
+          Text('Reward: ₦${_formatNumber(((data['reward_kobo'] as num?)?.toDouble() ?? 0) / 100)}${(data['reward_click_points'] as num?) != null && ((data['reward_click_points'] as num?)!.toInt() > 0) ? ' • ${((data['reward_click_points'] as num?)!.toInt())} points' : ''}',
               style: const TextStyle(fontWeight: FontWeight.w700)),
           SizedBox(height: 1.h),
           Text('Hints used: ${hintsUsed} • Points spent: ${spentPoints} • Earnings spent: ₦${_formatNumber(spentEarnings / 100)}',
@@ -318,7 +318,7 @@ class _RewardsState extends State<Rewards> {
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
-        'Treasure claimed: ₦${_formatNumber(((result['reward_kobo'] as num?)?.toDouble() ?? 0) / 100)}',
+        'Treasure claimed: ₦${_formatNumber(((result['reward_kobo'] as num?)?.toDouble() ?? 0) / 100)}${(result['reward_click_points'] as num?) != null && ((result['reward_click_points'] as num?)!.toInt() > 0) ? ' • ${((result['reward_click_points'] as num?)!.toInt())} points' : ''}',
       )));
     } on ApiException catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
