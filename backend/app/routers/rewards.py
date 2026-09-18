@@ -73,7 +73,7 @@ async def rewards_dashboard(current_user: User = Depends(require_worker), db: As
     treasure = None
     if treasure_result:
         campaign, participation = treasure_result
-        treasure = (await treasure_service.to_response(db, campaign, participation)).model_dump()
+        treasure = await treasure_service.to_response(db, campaign, participation)
 
     gift_campaigns, entered = await gifts_service.active(db, current_user.id)
     gifts = [{
