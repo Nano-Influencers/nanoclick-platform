@@ -28,6 +28,7 @@ async def create_treasure(payload: TreasureCreateRequest, db: AsyncSession = Dep
 
 @router.post("/{treasure_id}/publish")
 async def publish_treasure(treasure_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('nanoclick:active_treasure'))"))
     campaign = (await db.execute(select(TreasureCampaign).where(TreasureCampaign.id == treasure_id).with_for_update())).scalar_one_or_none()
     if not campaign:
         raise HTTPException(404, "Treasure not found")
@@ -50,4 +51,4 @@ async def close_treasure(treasure_id: uuid.UUID, db: AsyncSession = Depends(get_
         raise HTTPException(404, "Treasure not found")
     campaign.status = "closed"
     await db.commit()
-    return {"id": str(campaign.id), "status": campaign.status}\n    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('nanoclick:active_treasure'))"))
+    return {"id": str(campaign.id), "status": campaign.status}
