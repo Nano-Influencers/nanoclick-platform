@@ -260,6 +260,8 @@ class ApiClient {
   Future<void> submitKyc(Map<String, dynamic> fields) async => await _request('POST', '/kyc/submit', body: fields);
   Future<String> kycStatus() async => (await _request('GET', '/kyc/status') as Map<String, dynamic>)['status'] as String;
   Future<Map<String, dynamic>> rewardsProgress() async => await _request('GET', '/rewards/progress') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> rewardsDashboard() async => await _request('GET', '/rewards/dashboard') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> tryForFree() async => await _request('GET', '/rewards/try-for-free') as Map<String, dynamic>;
   Future<List<dynamic>> activeGifts() async { final response = await _request('GET', '/rewards/gifts') as Map<String, dynamic>; return List<dynamic>.from(response['gifts'] as List? ?? const []); }
   Future<Map<String, dynamic>> enterGift(String campaignId) async => await _request('POST', '/rewards/gifts/${Uri.encodeComponent(campaignId)}/enter') as Map<String, dynamic>;
   Future<List<dynamic>> myGiftWins() async => await _request('GET', '/rewards/gifts/my-wins') as List<dynamic>;
