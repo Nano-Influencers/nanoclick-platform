@@ -22,7 +22,7 @@ def _next_calendar_week(now: datetime) -> datetime:
 def _hash_code(code: str) -> str:
     return hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
 
-async def get_active(db: AsyncSession, user_id: uuid.UUID):
+async def get_active(db: AsyncSession, user_id: uuid.UUID, create_participation: bool = True):
     now = datetime.utcnow()
     campaign = (await db.execute(
         select(TreasureCampaign).where(
@@ -37,20 +37,20 @@ async def get_active(db: AsyncSession, user_id: uuid.UUID):
         TreasureParticipation.campaign_id == campaign.id,
         TreasureParticipation.user_id == user_id,
     ))).scalar_one_or_none()
-    if not participation:
+    if not participation and create_participation:
         participation = TreasureParticipation(campaign_id=campaign.id, user_id=user_id)
         db.add(participation)
         await db.flush()
     return campaign, participation
 
 async def participate(db: AsyncSession, user_id: uuid.UUID):
-    result = await get_active(db, user_id)
+    result = await get_active(db, user_id, create_participation=True)
     if not result:
         raise HTTPException(404, "No active treasure hunt")
     return result
 
 async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
-    result = await get_active(db, user_id)
+    result = await get_active(db, user_id, create_participation=True)
     if not result:
         raise HTTPException(404, "No active treasure hunt")
     campaign, participation = result
@@ -83,7 +83,7 @@ async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
                                 spent_earnings_kobo=participation.spent_earnings_kobo, spent_points=participation.spent_points)
 
 async def claim(db: AsyncSession, user_id: uuid.UUID, claim_code: str):
-    result = await get_active(db, user_id)
+    result = await get_active(db, user_id, create_participation=True)
     if not result:
         raise HTTPException(404, "No active treasure hunt")
     campaign, participation = result
