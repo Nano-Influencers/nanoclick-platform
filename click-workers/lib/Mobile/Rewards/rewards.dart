@@ -4,9 +4,10 @@ import 'package:click_workers/services/api_client.dart';
 import 'streak_achievements.dart';
 
 class Rewards extends StatefulWidget {
-  const Rewards({super.key, required this.controller, required this.kycCompleted});
+  const Rewards({super.key, required this.controller, required this.kycCompleted, this.onTryForFree});
   final PageController controller;
   final bool kycCompleted;
+  final VoidCallback? onTryForFree;
   @override State<Rewards> createState() => _RewardsState();
 }
 
@@ -237,7 +238,7 @@ class _RewardsState extends State<Rewards> {
           title: const Text('Try for Free'),
           subtitle: const Text('Try-for-Free campaigns map to unpaid worker tasks. Open Tasks to see eligible unpaid tasks when available.'),
           trailing: TextButton(
-            onPressed: () => widget.controller.jumpToPage(1),
+            onPressed: widget.onTryForFree ?? () => widget.controller.jumpToPage(1),
             child: const Text('Tasks'),
           ),
         ),
