@@ -26,4 +26,16 @@ async def _expand():
             if t.current_expansion_tier < 9:
                 t.current_expansion_tier += 1
                 t.last_expanded_at = datetime.utcnow()
+                # Re-evaluate the now-expanded audience and notify workers who
+                # are eligible under the newly unlocked tier. The targeting
+                # engine remains authoritative for all hard constraints.
+                from app.services.targeting import get_eligible_worker_ids
+                from app.workers.notification_tasks import notify_new_tasks_available
+                worker_ids = await get_eligible_worker_ids(
+                    t, campaign.slots_total, db, current_tier=t.current_expansion_tier
+                )
+                if worker_ids:
+                    notify_new_tasks_available.delay(
+                        [str(worker_id) for worker_id in worker_ids], campaign.title
+                    )
         await db.commit()
