@@ -11,3 +11,5 @@ from app.models.password_reset import PasswordResetToken
 from app.models.audit import AuditLog
 from app.models.platform_wallet import PlatformWallet
 from app.models.platform_wallet_transaction import PlatformWalletTransaction
+
+from app.models.gifts import GiftCampaign, GiftEntry, GiftWinner
