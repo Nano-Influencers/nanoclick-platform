@@ -18,6 +18,7 @@ class _RewardsState extends State<Rewards> {
   Map<String, dynamic> progress = {};
   Map<String, dynamic>? treasure;
   List<dynamic> gifts = [];
+  List<dynamic> giftWins = [];
 
   @override
   void initState() { super.initState(); _load(); }
@@ -27,6 +28,8 @@ class _RewardsState extends State<Rewards> {
       final data = await ApiClient.instance.rewardsProgress();
       List<dynamic> giftData = [];
       try { giftData = await ApiClient.instance.activeGifts(); } catch (_) { giftData = []; }
+      List<dynamic> winData = [];
+      try { winData = await ApiClient.instance.myGiftWins(); } catch (_) { winData = []; }
       Map<String, dynamic>? treasureData;
       try { treasureData = await ApiClient.instance.activeTreasure(); } catch (_) { treasureData = null; }
       if (!mounted) return;
@@ -237,6 +240,14 @@ class _RewardsState extends State<Rewards> {
     } finally { if (mounted) setState(() => actionLoading = false); }
   }
 
+  Widget _giftWinsCard() {
+    if (giftWins.isEmpty) return const SizedBox.shrink();
+    return Card(child: Padding(padding: EdgeInsets.all(4.w), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('My Gift Wins', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      ...giftWins.map((item) { final win = Map<String, dynamic>.from(item as Map); return ListTile(title: Text(win['prize_name']?.toString() ?? 'Prize'), subtitle: Text('Status: ${win['status'] ?? 'selected'}')); }),
+    ])));
+  }
+
   Widget _treasureCard() {
     final data = treasure;
     if (data == null) return const SizedBox.shrink();
@@ -339,7 +350,7 @@ class _RewardsState extends State<Rewards> {
           contentPadding: EdgeInsets.zero,
           leading: const CircleAvatar(child: Icon(Icons.card_giftcard_outlined)),
           title: const Text('Win Gifts'),
-          subtitle: const Text('No active server-backed gift-reward contract is currently present, so no gift reward is being shown as available.'),
+          subtitle: Text(gifts.isEmpty ? 'Published gift campaigns appear here when available. Enter eligible campaigns to participate and winners can be tracked from your rewards.' : 'Published gift campaigns are available below. Enter eligible campaigns to participate.'),
         ),
         ListTile(
           contentPadding: EdgeInsets.zero,
@@ -407,6 +418,7 @@ class _RewardsState extends State<Rewards> {
           if (error == null) ...[
             _rewardInfoCard(),
             _giftsCard(),
+            _giftWinsCard(),
             _treasureCard(),
             _streakCard(),
             _trackCard(
