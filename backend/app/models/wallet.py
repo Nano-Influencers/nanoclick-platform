@@ -74,6 +74,7 @@ class Transaction(Base):
         ),
         CheckConstraint("amount_kobo >= 0", name="ck_transaction_amount_nonnegative"),
         CheckConstraint("click_points_awarded >= 0", name="ck_transaction_click_points_nonnegative"),
+        CheckConstraint("click_points_spent >= 0", name="ck_transaction_click_points_spent_nonnegative"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -83,6 +84,7 @@ class Transaction(Base):
     task_category: Mapped[str | None] = mapped_column(String(40), nullable=True)
     amount_kobo: Mapped[int] = mapped_column(Integer, nullable=False)
     click_points_awarded: Mapped[int] = mapped_column(Integer, default=0)
+    click_points_spent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False)
     reference: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
