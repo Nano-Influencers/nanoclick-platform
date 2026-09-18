@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_worker
 from app.models.user import User
-from app.services import rewards_service
+from app.services import rewards_service, treasure_service
 from app.schemas.rewards import RewardProgressResponse
 from app.schemas.treasure import TreasureClaimRequest, TreasureHintResponse
 
