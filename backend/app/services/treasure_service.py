@@ -13,6 +13,10 @@ HINT_EARNINGS_KOBO = 10_000
 HINT_POINTS = 500
 HINT_COOLDOWN = timedelta(days=7)
 
+def _next_calendar_week(now: datetime) -> datetime:
+    start = datetime(now.year, now.month, now.day) - timedelta(days=now.weekday())
+    return start + timedelta(days=7)
+
 def _hash_code(code: str) -> str:
     return hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
 
@@ -49,8 +53,8 @@ async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
         raise HTTPException(404, "No active treasure hunt")
     campaign, participation = result
     now = datetime.utcnow()
-    if participation.last_hint_at and now < participation.last_hint_at + HINT_COOLDOWN:
-        raise HTTPException(409, "Only one hint can be used per treasure week")
+    if participation.last_hint_at and participation.last_hint_at.isocalendar()[:2] == now.isocalendar()[:2]:
+        raise HTTPException(409, "Only one hint can be used per calendar week")
     if not campaign.hint_options:
         raise HTTPException(409, "No hint is configured for this treasure")
     ref = f"treasure-hint:{campaign.id}:{user_id}:{now.date().isoformat()}"
@@ -71,7 +75,7 @@ async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
     participation.last_hint_at = now
     db.add(participation)
     await db.flush()
-    return TreasureHintResponse(hint=random.choice(campaign.hint_options), next_hint_at=now + HINT_COOLDOWN,
+    return TreasureHintResponse(hint=random.choice(campaign.hint_options), next_hint_at=_next_calendar_week(now),
                                 spent_earnings_kobo=participation.spent_earnings_kobo, spent_points=participation.spent_points)
 
 async def claim(db: AsyncSession, user_id: uuid.UUID, claim_code: str):
