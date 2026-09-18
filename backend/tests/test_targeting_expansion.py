@@ -66,3 +66,11 @@ def test_age_tier_two_accepts_adjacent_bracket():
 
 def test_marital_tier_three_accepts_adjacent_status():
     assert _expanded_marital_matches(profile(marital_status="widowed"), {"married"}, 3)
+
+
+
+def test_try_for_free_tasks_are_unpaid_but_award_click_points():
+    from app.services.clickpoints import calculate_click_points, calculate_worker_pay_kobo
+
+    assert calculate_worker_pay_kobo(10_000, "like", tni_service_type="try_for_free") == 0
+    assert calculate_click_points("unpaid", 0) == 500
