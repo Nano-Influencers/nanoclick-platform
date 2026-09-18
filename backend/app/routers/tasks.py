@@ -10,7 +10,7 @@ from app.models.task import Task, TaskAcceptance, Submission, TaskReport, Leader
 from app.models.campaign import Campaign, CampaignTargeting
 from app.schemas.task import TaskResponse, AcceptTaskResponse, SubmissionCreate, SubmissionResponse, SubmissionWithTaskResponse, TaskReportCreate, PresignedUrlRequest, PresignedUrlResponse, LeaderboardEntryResponse
 from app.services.storage import generate_presigned_upload_url, compute_image_hash, validate_uploaded_object
-from app.services.targeting_eligibility import is_worker_eligible
+from app.services.targeting_eligibility import is_worker_eligible_for_campaign
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -18,7 +18,7 @@ async def _enforce_task_visibility(task_id: uuid.UUID, current_user: User, db: A
     if current_user.kyc_verified:
         targeted = await db.execute(select(CampaignTargeting).join(Task, Task.campaign_id == CampaignTargeting.campaign_id).where(Task.id == task_id))
         targeting = targeted.scalar_one_or_none()
-        if targeting is not None and not await is_worker_eligible(db, current_user.id, targeting):
+        if targeting is not None and not await is_worker_eligible_for_campaign(db, current_user.id, targeting):
             raise HTTPException(403, "You do not match this task's targeting criteria")
         return
     targeted = await db.execute(select(CampaignTargeting.campaign_id).join(Task, Task.campaign_id == CampaignTargeting.campaign_id).where(Task.id == task_id))
