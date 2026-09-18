@@ -44,10 +44,31 @@ async def get_active(db: AsyncSession, user_id: uuid.UUID, create_participation:
     return campaign, participation
 
 async def participate(db: AsyncSession, user_id: uuid.UUID):
-    result = await get_active(db, user_id, create_participation=True)
-    if not result:
+    now = datetime.utcnow()
+    campaign = (await db.execute(
+        select(TreasureCampaign).where(
+            TreasureCampaign.status == "active",
+            TreasureCampaign.starts_at <= now,
+            TreasureCampaign.ends_at > now,
+        ).order_by(TreasureCampaign.starts_at.desc()).limit(1).with_for_update()
+    )).scalar_one_or_none()
+    if not campaign:
         raise HTTPException(404, "No active treasure hunt")
-    return result
+    participation = (await db.execute(select(TreasureParticipation).where(
+        TreasureParticipation.campaign_id == campaign.id,
+        TreasureParticipation.user_id == user_id,
+    ).with_for_update())).scalar_one_or_none()
+    if not participation:
+        participation = TreasureParticipation(
+            campaign_id=campaign.id,
+            user_id=user_id,
+            participated=True,
+        )
+        db.add(participation)
+        await db.flush()
+    else:
+        participation.participated = True
+    return campaign, participation
 
 async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
     result = await get_active(db, user_id, create_participation=False)
