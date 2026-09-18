@@ -53,6 +53,8 @@ async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
     if not result:
         raise HTTPException(404, "No active treasure hunt")
     campaign, participation = result
+    participation = (await db.execute(select(TreasureParticipation).where(TreasureParticipation.id == participation.id).with_for_update())).scalar_one()
+    campaign = (await db.execute(select(TreasureCampaign).where(TreasureCampaign.id == campaign.id).with_for_update())).scalar_one()
     now = datetime.utcnow()
     if participation.last_hint_at and participation.last_hint_at.isocalendar()[:2] == now.isocalendar()[:2]:
         raise HTTPException(409, "Only one hint can be used per calendar week")
@@ -84,6 +86,8 @@ async def claim(db: AsyncSession, user_id: uuid.UUID, claim_code: str):
     if not result:
         raise HTTPException(404, "No active treasure hunt")
     campaign, participation = result
+    participation = (await db.execute(select(TreasureParticipation).where(TreasureParticipation.id == participation.id).with_for_update())).scalar_one()
+    campaign = (await db.execute(select(TreasureCampaign).where(TreasureCampaign.id == campaign.id).with_for_update())).scalar_one()
     if participation.claimed:
         raise HTTPException(409, "Treasure reward already claimed")
     if _hash_code(claim_code) != campaign.claim_code_hash:
