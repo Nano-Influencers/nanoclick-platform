@@ -46,6 +46,7 @@ class TransactionResponse(BaseModel):
     amount_kobo: int
     amount_ngn: float
     click_points_awarded: int
+    click_points_spent: int
     status: str
     description: str | None
     created_at: datetime
