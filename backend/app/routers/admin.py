@@ -61,25 +61,6 @@ async def list_pending_campaigns(db: AsyncSession = Depends(get_db), _: User = D
              "client_budget_kobo": c.client_budget_kobo, "slots_total": c.slots_total,
              "created_at": c.created_at} for c in r.scalars()]
 
-@router.post("/campaigns/{campaign_id}/reject")
-async def reject_campaign(campaign_id: uuid.UUID, reason: str,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    r = await db.execute(select(Campaign).where(Campaign.id==campaign_id).with_for_update())
-    campaign = r.scalar_one_or_none()
-    if campaign.status in ("cancelled", "completed"): raise HTTPException(400, f"Campaign is already '{campaign.status}'")
-    if campaign.escrow_kobo > 0:
-        refund_kobo = campaign.escrow_kobo
-        await wallet_service.refund_escrow(
-            db, campaign.owner_id, refund_kobo, reference=f"{campaign_id}:admin_reject",
-            description=f"Campaign rejected: {reason}",
-        )
-        campaign.escrow_kobo = 0
-    campaign.status = "cancelled"
-    from app.services.notification_service import notify
-    await notify(db, campaign.owner_id, "campaign_rejected", "Campaign rejected",
-                 f"\"{campaign.title}\" was rejected: {reason}. Your budget has been refunded.")
-    return {"message": "Campaign rejected and budget refunded"}
-
 @router.get("/reports/pending")
 async def list_pending_reports(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
     r = await db.execute(select(TaskReport).where(TaskReport.status=="pending").order_by(TaskReport.created_at.asc()))
