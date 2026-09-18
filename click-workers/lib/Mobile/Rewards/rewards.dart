@@ -16,6 +16,8 @@ class _RewardsState extends State<Rewards> {
   bool actionLoading = false;
   String? error;
   Map<String, dynamic> progress = {};
+  Map<String, dynamic> tryForFree = {};
+  Map<String, dynamic> dashboard = {};
   Map<String, dynamic>? treasure;
   List<dynamic> gifts = [];
   List<dynamic> giftWins = [];
@@ -25,22 +27,39 @@ class _RewardsState extends State<Rewards> {
 
   Future<void> _load() async {
     try {
-      final data = await ApiClient.instance.rewardsProgress();
-      List<dynamic> giftData = [];
-      try { giftData = await ApiClient.instance.activeGifts(); } catch (_) { giftData = []; }
+      final dashboardData = await ApiClient.instance.rewardsDashboard();
+      final progressData = Map<String, dynamic>.from(
+        dashboardData['progress'] as Map? ?? const {},
+      );
+      final tryFreeData = Map<String, dynamic>.from(
+        dashboardData['try_for_free'] as Map? ?? const {},
+      );
+      final treasureRaw = dashboardData['treasure'];
+      final treasureData = treasureRaw is Map
+          ? Map<String, dynamic>.from(treasureRaw)
+          : null;
+      final giftData = List<dynamic>.from(
+        dashboardData['gifts'] as List? ?? const [],
+      );
       List<dynamic> winData = [];
-      try { winData = await ApiClient.instance.myGiftWins(); } catch (_) { winData = []; }
-      Map<String, dynamic>? treasureData;
-      try { treasureData = await ApiClient.instance.activeTreasure(); } catch (_) { treasureData = null; }
+      try { winData = await ApiClient.instance.myGiftWins(); } catch (_) {}
       if (!mounted) return;
-      setState(() { progress = data; treasure = treasureData?['active'] == true ? Map<String, dynamic>.from(treasureData!['treasure'] as Map) : null; gifts = giftData; giftWins = winData; loading = false; error = null; });
+      setState(() {
+        dashboard = dashboardData;
+        progress = progressData;
+        tryForFree = tryFreeData;
+        treasure = treasureData;
+        gifts = giftData;
+        giftWins = winData;
+        loading = false;
+        error = null;
+      });
     } on ApiException catch (e) {
       if (mounted) setState(() { error = e.message; loading = false; });
     } catch (_) {
       if (mounted) setState(() { error = 'Unable to load rewards.'; loading = false; });
     }
   }
-
   Future<void> _runAction(
     Future<Map<String, dynamic>> Function() request, {
     required String action,
@@ -356,7 +375,11 @@ class _RewardsState extends State<Rewards> {
           contentPadding: EdgeInsets.zero,
           leading: const CircleAvatar(child: Icon(Icons.redeem_outlined)),
           title: const Text('Try for Free'),
-          subtitle: const Text('Try-for-Free campaigns map to unpaid worker tasks. Open Tasks to see eligible unpaid tasks when available.'),
+          subtitle: Text(
+            tryForFree['active'] == true
+                ? (tryForFree['campaigns'] as List? ?? const []).length.toString() + ' active campaign(s) • ' + (tryForFree['unpaid_tasks_approved'] ?? 0).toString() + ' approved unpaid tasks'
+                : 'No active Try-for-Free campaigns right now.',
+          ),
           trailing: TextButton(
             onPressed: widget.onTryForFree ?? () => widget.controller.jumpToPage(1),
             child: const Text('Tasks'),
@@ -457,7 +480,9 @@ class _RewardsState extends State<Rewards> {
               ))),
               SizedBox(width: 3.w),
               Expanded(child: SizedBox(height: 50, child: ElevatedButton.icon(
-                onPressed: actionLoading ? null : () => _runAction(ApiClient.instance.spin, action: 'spin'),
+                onPressed: actionLoading || dashboard['spin_available'] == false
+                    ? null
+                    : () => _runAction(ApiClient.instance.spin, action: 'spin'),
                 icon: const Icon(Icons.casino_outlined), label: const Text('Spin'),
               ))),
             ]),
