@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:responsive_sizer/responsive_sizer.dart';
 import 'package:click_workers/services/api_client.dart';
+import 'streak_achievements.dart';
 
 class Rewards extends StatefulWidget {
   const Rewards({super.key, required this.controller, required this.kycCompleted});
@@ -223,6 +224,19 @@ class _RewardsState extends State<Rewards> {
         padding: EdgeInsets.all(4.w),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Rewards', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          if (error == null) ...[
+            SizedBox(height: 1.h),
+            Align(alignment: Alignment.centerRight, child: TextButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => StreakAchievements(
+                  streakDays: _intValue('checkin_streak'),
+                  controller: widget.controller,
+                ),
+              )),
+              icon: const Icon(Icons.emoji_events_outlined),
+              label: const Text('View streak achievements'),
+            )),
+          ],
           SizedBox(height: 1.h),
           if (error != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(error!))),
           if (error == null) ...[
