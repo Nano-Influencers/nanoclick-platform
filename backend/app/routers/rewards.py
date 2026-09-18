@@ -77,14 +77,17 @@ async def rewards_dashboard(current_user: User = Depends(require_worker), db: As
 
     gift_campaigns, entered = await gifts_service.active(db, current_user.id)
     gifts = [{
-        "campaign_id": str(g.id),
+        "id": str(g.id),
         "title": g.title,
         "description": g.description,
-        "prize_name": g.prize_name,
         "image_url": g.image_url,
-        "entry_cost_points": g.entry_cost_points,
+        "prize_name": g.prize_name,
+        "starts_at": g.starts_at,
         "ends_at": g.ends_at,
+        "entry_cost_points": g.entry_cost_points,
+        "max_winners": g.max_winners,
         "entered": g.id in entered,
+        "status": g.status,
     } for g in gift_campaigns]
 
     scores = (await db.execute(
