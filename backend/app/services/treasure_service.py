@@ -70,7 +70,7 @@ async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
         wallet.click_points -= HINT_POINTS
         participation.spent_points += HINT_POINTS
         from app.models.wallet import Transaction
-        db.add(Transaction(wallet_id=wallet.id, type="treasure_hint", amount_kobo=0, click_points_awarded=0, reference=ref, description=f"Treasure Hunt hint — {HINT_POINTS} click points spent"))
+        db.add(Transaction(wallet_id=wallet.id, type="treasure_hint", amount_kobo=0, click_points_awarded=0, click_points_spent=HINT_POINTS, reference=ref, description=f"Treasure Hunt hint — {HINT_POINTS} click points spent"))
     participation.hints_used += 1
     participation.last_hint_at = now
     db.add(participation)
