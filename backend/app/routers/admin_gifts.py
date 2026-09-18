@@ -1,4 +1,5 @@
 import uuid
+import random
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,10 @@ async def create_gift(payload: GiftCreateRequest, db: AsyncSession = Depends(get
 async def publish_gift(campaign_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
     campaign = (await db.execute(select(GiftCampaign).where(GiftCampaign.id == campaign_id).with_for_update())).scalar_one_or_none()
     if not campaign: raise HTTPException(404, "Gift campaign not found")
+    if campaign.ends_at <= campaign.starts_at: raise HTTPException(400, "Invalid gift campaign schedule")
+    if campaign.ends_at <= datetime.utcnow(): raise HTTPException(409, "Gift campaign has already ended")
+    active = (await db.execute(select(GiftCampaign).where(GiftCampaign.status == "active", GiftCampaign.id != campaign_id))).scalar_one_or_none()
+    if active: raise HTTPException(409, "Another gift campaign is already active")
     campaign.status = "active"; await db.commit()
     return {"id": str(campaign.id), "status": campaign.status}
 
