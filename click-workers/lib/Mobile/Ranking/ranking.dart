@@ -33,7 +33,6 @@ class _RankingState extends State<Ranking> {
       padding: EdgeInsets.all(4.w),
       child: Column(children: [
         SegmentedButton<String>(segments: const [
-          ButtonSegment(value: 'daily', label: Text('Daily')),
           ButtonSegment(value: 'weekly', label: Text('Weekly')),
           ButtonSegment(value: 'monthly', label: Text('Monthly')),
         ], selected: {period}, onSelectionChanged: (v) { setState(() => period = v.first); _load(); }),
@@ -45,7 +44,7 @@ class _RankingState extends State<Ranking> {
               itemBuilder: (_, index) {
                 final row = (rows[index] as Map).cast<String, dynamic>();
                 final name = '${row['full_name'] ?? row['name'] ?? 'Worker'}';
-                final score = '${row['points'] ?? row['score'] ?? row['total_earned'] ?? 0}';
+                final score = '${row['total_score'] ?? row['score'] ?? row['points'] ?? 0}';
                 return Card(child: ListTile(leading: CircleAvatar(child: Text('${index + 1}')), title: Text(name), trailing: Text(score, style: const TextStyle(fontWeight: FontWeight.bold))));
               },
             ))),
