@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from sqlalchemy import select
+from sqlalchemy.orm import aliased
 from app.config import settings
 from app.dependencies import require_worker
 from app.models.user import User
@@ -92,9 +93,12 @@ async def rewards_dashboard(current_user: User = Depends(require_worker), db: As
     } for g in gift_campaigns]
 
     scores = (await db.execute(
-        select(LeaderboardScore).where(LeaderboardScore.period == "weekly")
-        .order_by(LeaderboardScore.total_score.desc()).limit(3)
-    )).scalars().all()
+        select(LeaderboardScore, User.full_name)
+        .join(User, User.id == LeaderboardScore.worker_id)
+        .where(LeaderboardScore.period == "weekly")
+        .order_by(LeaderboardScore.total_score.desc(), LeaderboardScore.worker_id.asc())
+        .limit(3)
+    )).all()
 
     return {
         "progress": progress,
@@ -106,9 +110,10 @@ async def rewards_dashboard(current_user: User = Depends(require_worker), db: As
         "leaderboard": {
             "period": "weekly",
             "top": [{
-                "rank": s.rank or 0,
+                "rank": index + 1,
                 "worker_id": str(s.worker_id),
+                "full_name": full_name or "Unknown",
                 "total_score": s.total_score,
-            } for s in scores],
+            } for index, (s, full_name) in enumerate(scores)],
         },
     }
