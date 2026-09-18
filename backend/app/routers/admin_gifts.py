@@ -23,6 +23,7 @@ async def create_gift(payload: GiftCreateRequest, db: AsyncSession = Depends(get
 
 @router.post("/{campaign_id}/publish")
 async def publish_gift(campaign_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('nanoclick:active_gift'))"))
     campaign = (await db.execute(select(GiftCampaign).where(GiftCampaign.id == campaign_id).with_for_update())).scalar_one_or_none()
     if not campaign: raise HTTPException(404, "Gift campaign not found")
     if campaign.ends_at <= campaign.starts_at: raise HTTPException(400, "Invalid gift campaign schedule")
@@ -66,4 +67,4 @@ async def fulfill_gift(campaign_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSess
     if winner.status == "fulfilled": return {"status": "already_fulfilled"}
     winner.status = "fulfilled"; winner.fulfilled_at = datetime.utcnow()
     await db.commit()
-    return {"status": "fulfilled"}\n    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext('nanoclick:active_gift'))"))
+    return {"status": "fulfilled"}
