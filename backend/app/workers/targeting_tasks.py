@@ -16,6 +16,7 @@ def expand_targeting_tiers():
 async def _expand():
     from app.database import AsyncSessionLocal
     from app.models.campaign import Campaign, CampaignTargeting
+    from app.models.campaign_worker_audience import CampaignWorkerAudience
     from sqlalchemy import select, and_
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Campaign).where(and_(
@@ -35,7 +36,31 @@ async def _expand():
                     t, campaign.slots_total, db, current_tier=t.current_expansion_tier
                 )
                 if worker_ids:
-                    notify_new_tasks_available.delay(
-                        [str(worker_id) for worker_id in worker_ids], campaign.title
+                    existing_result = await db.execute(
+                        select(CampaignWorkerAudience).where(
+                            CampaignWorkerAudience.campaign_id == campaign.id,
+                            CampaignWorkerAudience.worker_id.in_(worker_ids),
+                        )
                     )
+                    existing = {row.worker_id: row for row in existing_result.scalars().all()}
+                    newly_eligible = []
+                    for worker_id in worker_ids:
+                        allocation = existing.get(worker_id)
+                        if allocation is None:
+                            allocation = CampaignWorkerAudience(
+                                campaign_id=campaign.id,
+                                worker_id=worker_id,
+                                expansion_tier=t.current_expansion_tier,
+                                eligibility_reason=f"targeting_tier_{t.current_expansion_tier}",
+                                first_eligible_at=datetime.utcnow(),
+                                notified_at=datetime.utcnow(),
+                            )
+                            db.add(allocation)
+                            newly_eligible.append(worker_id)
+                        elif t.current_expansion_tier > allocation.expansion_tier:
+                            allocation.expansion_tier = t.current_expansion_tier
+                    if newly_eligible:
+                        notify_new_tasks_available.delay(
+                            [str(worker_id) for worker_id in newly_eligible], campaign.title
+                        )
         await db.commit()
