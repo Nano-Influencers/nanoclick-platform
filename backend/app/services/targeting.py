@@ -98,6 +98,18 @@ def _hard_filters(t: CampaignTargeting) -> list:
             for ind in t.target_industries
         ]))
 
+    if t.target_races:
+        f.append(func.lower(KycProfile.race).in_([r.lower() for r in t.target_races]))
+
+    if t.target_countries:
+        f.append(func.lower(KycProfile.primary_country).in_([c.lower() for c in t.target_countries]))
+
+    if t.target_skills:
+        f.append(KycProfile.skills.op("&&")([s.lower() for s in t.target_skills]))
+
+    if t.target_interests:
+        f.append(KycProfile.interests_hobbies.op("&&")([i.lower() for i in t.target_interests]))
+
     if t.min_follower_count:
         f.append(KycProfile.follower_count >= t.min_follower_count)
 
