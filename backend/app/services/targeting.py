@@ -163,7 +163,8 @@ class LocationExpander:
 
     MAX_TIERS = 9
 
-    def __init__(self, target_cities: list[str], target_states: list[str], target_ethnicities: list[str]):
+    def __init__(self, target_cities: list[str], target_states: list[str], target_ethnicities: list[str], max_tier: int = 9):
+        self.max_tier = max(1, min(max_tier, self.MAX_TIERS))
         self.cities   = [c.lower() for c in (target_cities or [])]
         self.states   = [s.lower() for s in (target_states or [])]
         self.ethnicities = [e.lower() for e in (target_ethnicities or [])]
@@ -275,7 +276,7 @@ class LocationExpander:
         cumulative = len(seen)
 
         # Primary target loop: Tiers 1–9
-        for tier in range(1, self.MAX_TIERS + 1):
+        for tier in range(1, self.max_tier + 1):
             filters = self._tier_filter(tier, self.cities, self.states)
             if not filters:
                 continue
@@ -561,9 +562,10 @@ class TargetingEngine:
       - Structured ExpansionResult metadata
     """
 
-    def __init__(self, targeting: CampaignTargeting, desired: int):
+    def __init__(self, targeting: CampaignTargeting, desired: int, max_tier: int = 9):
         self.targeting = targeting
         self.desired = desired
+        self.max_tier = max(1, min(max_tier, 9))
         self.seen: set[uuid.UUID] = set()
         self._tier_results: list[TierResult] = []
 
@@ -584,6 +586,7 @@ class TargetingEngine:
                 t.target_cities or [],
                 t.target_states or [],
                 t.target_ethnicities or [],
+                max_tier=self.max_tier,
             )
             loc_results, neighbouring_used = await expander.expand(
                 db, hard, self.seen, self.desired
