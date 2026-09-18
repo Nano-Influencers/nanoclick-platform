@@ -13,3 +13,4 @@ from app.models.platform_wallet import PlatformWallet
 from app.models.platform_wallet_transaction import PlatformWalletTransaction
 
 from app.models.gifts import GiftCampaign, GiftEntry, GiftWinner
+from app.models.campaign_worker_audience import CampaignWorkerAudience
