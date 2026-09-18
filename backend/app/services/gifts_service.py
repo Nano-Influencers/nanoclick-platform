@@ -2,10 +2,11 @@ import random
 import uuid
 from datetime import datetime
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.gifts import GiftCampaign, GiftEntry, GiftWinner
-from app.models.wallet import Wallet, Transaction
+from app.models.wallet import Wallet\nfrom app.schemas.gifts import GiftEntryResponse, GiftWinnerResponse
+from app.services import wallet_service
 
 async def active(db: AsyncSession, user_id: uuid.UUID):
     now = datetime.utcnow()
@@ -38,6 +39,7 @@ async def enter(db: AsyncSession, user_id: uuid.UUID, campaign_id: uuid.UUID):
         if not wallet or wallet.click_points < campaign.entry_cost_points:
             raise HTTPException(400, "Insufficient click points")
         wallet.click_points -= campaign.entry_cost_points
+        from app.models.wallet import Transaction
         db.add(Transaction(wallet_id=wallet.id, type="gift_entry", amount_kobo=0, click_points_awarded=0,
                            reference=f"gift-entry:{campaign.id}:{user_id}", description=f"Gift entry — {campaign.entry_cost_points} click points spent"))
     entry = GiftEntry(campaign_id=campaign.id, user_id=user_id)
