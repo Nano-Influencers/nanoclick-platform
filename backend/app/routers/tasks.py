@@ -151,6 +151,7 @@ async def submit_task(task_id: uuid.UUID, body: SubmissionCreate, current_user: 
     now = datetime.utcnow()
     if acceptance.expires_at <= now:
         acceptance.status = "expired"
+        await db.commit()
         raise HTTPException(400, "Acceptance window expired")
     task_r = await db.execute(select(Task).where(Task.id == task_id).with_for_update())
     task = task_r.scalar_one_or_none()
