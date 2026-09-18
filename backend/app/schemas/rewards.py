@@ -33,6 +33,15 @@ class TryForFreeResponse(BaseModel):
     gratis_level: int
     gratis_tasks_to_next_level: int
 
+class RewardsLeaderboardEntry(BaseModel):
+    rank: int
+    worker_id: str
+    total_score: int
+
+class RewardsLeaderboardResponse(BaseModel):
+    period: str
+    top: list[RewardsLeaderboardEntry]
+
 class RewardsDashboardResponse(BaseModel):
     progress: RewardProgressResponse
     spin_available: bool
@@ -40,4 +49,4 @@ class RewardsDashboardResponse(BaseModel):
     try_for_free: TryForFreeResponse
     treasure: dict | None
     gifts: list[dict]
-    leaderboard: dict
+    leaderboard: RewardsLeaderboardResponse
