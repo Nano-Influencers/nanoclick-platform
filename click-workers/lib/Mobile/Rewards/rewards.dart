@@ -206,6 +206,61 @@ class _RewardsState extends State<Rewards> {
     );
   }
 
+  Widget _rewardInfoCard() => Card(
+    margin: EdgeInsets.only(bottom: 1.5.h),
+    child: Padding(
+      padding: EdgeInsets.all(4.w),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Reward activities', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        SizedBox(height: 1.5.h),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.casino_outlined)),
+          title: const Text('Spin to Win'),
+          subtitle: const Text('One spin every 24 hours. Current outcomes: 10, 25 or 50 click points, or ₦50, ₦100 or ₦500 cash.'),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.local_fire_department)),
+          title: const Text('Daily Streak'),
+          subtitle: const Text('Daily check-ins start at ₦50 and increase by ₦25 per consecutive day, capped at 7 days.'),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.card_giftcard_outlined)),
+          title: const Text('Win Gifts'),
+          subtitle: const Text('No active server-backed gift-reward contract is currently present, so no gift reward is being shown as available.'),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.redeem_outlined)),
+          title: const Text('Try for Free'),
+          subtitle: const Text('Try-for-Free campaigns map to unpaid worker tasks. Open Tasks to see eligible unpaid tasks when available.'),
+          trailing: TextButton(
+            onPressed: () => widget.controller.jumpToPage(1),
+            child: const Text('Tasks'),
+          ),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.explore_outlined)),
+          title: const Text('Treasure Hunt'),
+          subtitle: const Text('Treasure Hunt is not active yet because its previous client-only data has no authoritative backend contract.'),
+        ),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const CircleAvatar(child: Icon(Icons.leaderboard_outlined)),
+          title: const Text('Leaderboard'),
+          subtitle: const Text('View the live weekly and monthly worker rankings.'),
+          trailing: TextButton(
+            onPressed: () => widget.controller.jumpToPage(2),
+            child: const Text('View'),
+          ),
+        ),
+      ]),
+    ),
+  );
+
   Widget _stat(String label, String value, IconData icon) => Card(
     child: ListTile(
       leading: Icon(icon),
@@ -240,6 +295,7 @@ class _RewardsState extends State<Rewards> {
           SizedBox(height: 1.h),
           if (error != null) Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(error!))),
           if (error == null) ...[
+            _rewardInfoCard(),
             _streakCard(),
             _trackCard(
               title: 'Grit',
