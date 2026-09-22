@@ -87,7 +87,27 @@ async def test_engine():
 
     yield engine
 
+    # Base.metadata.drop_all() removes tables, but PostgreSQL trigger/function
+    # objects are schema-level objects and therefore survive table recreation.
+    # Remove them explicitly so every function-scoped engine starts clean.
     async with engine.begin() as conn:
+        await conn.execute(text(
+            "DROP TRIGGER IF EXISTS trg_platform_ledger_snapshot "
+            "ON platform_wallet_transactions"
+        ))
+        await conn.execute(text(
+            "DROP TRIGGER IF EXISTS trg_platform_wallet_transactions_immutable "
+            "ON platform_wallet_transactions"
+        ))
+        await conn.execute(text(
+            "DROP TRIGGER IF EXISTS trg_transactions_immutable ON transactions"
+        ))
+        await conn.execute(text(
+            "DROP FUNCTION IF EXISTS validate_platform_ledger_snapshot()"
+        ))
+        await conn.execute(text(
+            "DROP FUNCTION IF EXISTS prevent_financial_ledger_mutation()"
+        ))
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
