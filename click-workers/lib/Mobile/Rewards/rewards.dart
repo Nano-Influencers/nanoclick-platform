@@ -275,6 +275,9 @@ class _RewardsState extends State<Rewards> {
     final hintsUsed = participation['hints_used'] is num ? (participation['hints_used'] as num).toInt() : 0;
     final spentPoints = participation['spent_points'] is num ? (participation['spent_points'] as num).toInt() : 0;
     final spentEarnings = participation['spent_earnings_kobo'] is num ? (participation['spent_earnings_kobo'] as num).toInt() : 0;
+    final nextHintRaw = participation['next_hint_at'];
+    final nextHintAt = nextHintRaw == null ? null : DateTime.tryParse(nextHintRaw.toString());
+    final hintAvailable = nextHintAt == null || !nextHintAt.toUtc().isAfter(DateTime.now().toUtc());
     return Card(
       margin: EdgeInsets.only(bottom: 1.5.h),
       child: Padding(
@@ -297,8 +300,8 @@ class _RewardsState extends State<Rewards> {
                 icon: const Icon(Icons.explore_outlined),
                 label: const Text('Join hunt'),
               ),
-            OutlinedButton.icon(onPressed: participation['participated'] != true || hintsUsed > 0 ? null : () => _useTreasureHint(false), icon: const Icon(Icons.lightbulb_outline), label: const Text('Hint • 500 points')),
-            OutlinedButton.icon(onPressed: participation['participated'] != true || hintsUsed > 0 ? null : () => _useTreasureHint(true), icon: const Icon(Icons.payments_outlined), label: const Text('Hint • ₦100')),
+            OutlinedButton.icon(onPressed: participation['participated'] != true || !hintAvailable ? null : () => _useTreasureHint(false), icon: const Icon(Icons.lightbulb_outline), label: const Text('Hint • 500 points')),
+            OutlinedButton.icon(onPressed: participation['participated'] != true || !hintAvailable ? null : () => _useTreasureHint(true), icon: const Icon(Icons.payments_outlined), label: const Text('Hint • ₦100')),
             ElevatedButton.icon(onPressed: participation['participated'] != true || claimed ? null : _claimTreasure, icon: const Icon(Icons.card_giftcard_outlined), label: Text(claimed ? 'Claimed' : participation['participated'] == true ? 'Claim reward' : 'Join to claim')),
           ]),
         ]),
