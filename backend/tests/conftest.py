@@ -9,6 +9,7 @@ os.environ.setdefault(
     "postgresql+asyncpg://ci:ci@localhost:5432/nanoclick",
 )
 os.environ.setdefault("SECRET_KEY", "test-secret-key-at-least-32-characters-long")
+os.environ.setdefault("APP_ENV", "test")
 
 from app.database import Base
 from app.models import *  # noqa: F401,F403
