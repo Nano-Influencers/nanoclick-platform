@@ -158,6 +158,6 @@ async def test_admin_final_submission_refunds_unused_campaign_remainder(
     assert campaign.slots_filled == campaign.slots_total == 10
     assert campaign.escrow_kobo == 0
     assert advertiser_wallet.escrow_kobo == 0
-    # Initial 20,000 balance - 10,050 escrow lock + 50 remainder refund.
-    assert advertiser_wallet.balance_kobo == 10_000
+    # Initial 20,000 balance - 10,050 escrow lock + 9,050 unused remainder refund.
+    assert advertiser_wallet.balance_kobo == 19_000
     assert advertiser_wallet.total_spent_kobo == 10_000
