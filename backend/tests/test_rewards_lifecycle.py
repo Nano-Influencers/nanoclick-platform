@@ -134,7 +134,7 @@ def test_try_for_free_creation_approval_and_gratis_progression_contract():
     clickpoints_source = clickpoints.read_text()
     assert 'body.tni_service_type == "try_for_free"' in campaign_source
     assert "worker_pay_kobo = 0" in campaign_source
-    assert 'task_category == "unpaid"' in inspect.getsource(__import__("app.services.wallet_service", fromlist=["release_escrow_to_worker"]).release_escrow_to_worker)
+    assert 'task_category != "unpaid"' in inspect.getsource(__import__("app.services.wallet_service", fromlist=["release_escrow_to_worker"]).release_escrow_to_worker)
     assert 'cw_task_category=task.cw_task_category' in lifecycle_source
     assert 'calculate_click_points' in lifecycle_source
     assert 'if cw_task_category == "unpaid":' in clickpoints_source
