@@ -1,7 +1,7 @@
 import os
 
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 os.environ.setdefault(
@@ -33,12 +33,55 @@ async def test_engine():
 
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
-        existing = (await session.execute(
-            select(PlatformWallet).where(PlatformWallet.wallet_key == "platform_revenue")
-        )).scalar_one_or_none()
-        if existing is None:
-            session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
-            await session.commit()
+        for wallet_key in ("platform_revenue", "reward_pool"):
+            existing = (await session.execute(
+                select(PlatformWallet).where(PlatformWallet.wallet_key == wallet_key)
+            )).scalar_one_or_none()
+            if existing is None:
+                session.add(PlatformWallet(wallet_key=wallet_key, balance_kobo=0))
+        await session.commit()
+
+        await session.execute(text("""
+            CREATE OR REPLACE FUNCTION prevent_financial_ledger_mutation()
+            RETURNS trigger LANGUAGE plpgsql AS $
+            BEGIN
+                RAISE EXCEPTION 'Financial ledger rows are immutable: % on % is not permitted',
+                    TG_OP, TG_TABLE_NAME USING ERRCODE = 'restrict_violation';
+            END;
+            $;
+        """))
+        await session.execute(text("""
+            CREATE OR REPLACE FUNCTION validate_platform_ledger_snapshot()
+            RETURNS trigger LANGUAGE plpgsql AS $
+            DECLARE current_balance BIGINT;
+            BEGIN
+                SELECT balance_kobo INTO current_balance FROM platform_wallets WHERE id = NEW.platform_wallet_id;
+                IF current_balance IS NULL THEN
+                    RAISE EXCEPTION 'Platform wallet does not exist' USING ERRCODE = 'foreign_key_violation';
+                END IF;
+                IF NEW.balance_after_kobo <> current_balance THEN
+                    RAISE EXCEPTION 'Platform ledger snapshot does not match wallet balance' USING ERRCODE = 'check_violation';
+                END IF;
+                RETURN NEW;
+            END;
+            $;
+        """))
+        await session.execute(text("""
+            CREATE TRIGGER trg_transactions_immutable
+            BEFORE UPDATE OR DELETE ON transactions
+            FOR EACH ROW EXECUTE FUNCTION prevent_financial_ledger_mutation()
+        """))
+        await session.execute(text("""
+            CREATE TRIGGER trg_platform_wallet_transactions_immutable
+            BEFORE UPDATE OR DELETE ON platform_wallet_transactions
+            FOR EACH ROW EXECUTE FUNCTION prevent_financial_ledger_mutation()
+        """))
+        await session.execute(text("""
+            CREATE TRIGGER trg_platform_ledger_snapshot
+            BEFORE INSERT ON platform_wallet_transactions
+            FOR EACH ROW EXECUTE FUNCTION validate_platform_ledger_snapshot()
+        """))
+        await session.commit()
 
     yield engine
 
