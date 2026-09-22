@@ -1,6 +1,7 @@
 import os
 
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 os.environ.setdefault(
@@ -31,8 +32,12 @@ async def test_engine():
 
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
-        session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
-        await session.commit()
+        existing = (await session.execute(
+            select(PlatformWallet).where(PlatformWallet.wallet_key == "platform_revenue")
+        )).scalar_one_or_none()
+        if existing is None:
+            session.add(PlatformWallet(wallet_key="platform_revenue", balance_kobo=0))
+            await session.commit()
 
     yield engine
 
