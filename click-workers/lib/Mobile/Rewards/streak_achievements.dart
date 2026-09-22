@@ -27,9 +27,9 @@ class StreakAchievements extends StatelessWidget {
         padding: EdgeInsets.all(4.w),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Card(child: Padding(padding: EdgeInsets.all(4.w), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('\${streakDays} day streak', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            Text('${streakDays} day streak', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             SizedBox(height: 1.h),
-            Text('\${reached} of \${milestones.length} milestones reached', style: TextStyle(fontSize: 12.sp, color: Colors.black54)),
+            Text('${reached} of ${milestones.length} milestones reached', style: TextStyle(fontSize: 12.sp, color: Colors.black54)),
             SizedBox(height: 1.5.h),
             LinearProgressIndicator(value: reached / milestones.length),
           ]))),
@@ -46,10 +46,10 @@ class StreakAchievements extends StatelessWidget {
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 SizedBox(height: .5.h),
-                Text('\${days} day\${days == 1 ? '' : 's'}', style: TextStyle(fontSize: 11.sp, color: Colors.black54)),
+                Text('${days} day${days == 1 ? '' : 's'}', style: TextStyle(fontSize: 11.sp, color: Colors.black54)),
                 SizedBox(height: 1.h), LinearProgressIndicator(value: progress),
               ])), SizedBox(width: 2.w),
-              Text(complete ? 'Completed' : '\${streakDays.clamp(0, days)}/\${days}', style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w600, color: complete ? Colors.green : Colors.black54)),
+              Text(complete ? 'Completed' : '${streakDays.clamp(0, days)}/${days}', style: TextStyle(fontSize: 10.sp, fontWeight: FontWeight.w600, color: complete ? Colors.green : Colors.black54)),
             ])));
           }),
           SizedBox(height: 2.h),
