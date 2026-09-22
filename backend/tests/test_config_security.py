@@ -19,6 +19,9 @@ BASE = {
     "OAUTH_WEB_REDIRECT_URL": "https://app.example.com/oauth-callback",
     "OAUTH_ALLOWED_WEB_REDIRECTS": "https://app.example.com/oauth-callback",
     "AUTH_COOKIE_SECURE": True,
+    "PASSWORD_RESET_URL": "https://app.example.com/reset-password.html",
+    "SMTP_HOST": "smtp.example.com",
+    "SMTP_FROM_EMAIL": "no-reply@example.com",
 }
 
 
