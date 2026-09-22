@@ -1,5 +1,7 @@
 name: CI
 
+# Rewards lifecycle verification runs on every main push.
+
 permissions:
   contents: read
 
