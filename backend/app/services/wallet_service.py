@@ -139,8 +139,8 @@ async def release_escrow_to_worker(db: AsyncSession, advertiser_id: uuid.UUID, w
     The advertiser is charged the client price, the worker receives the worker
     payout, and the difference is recorded in the platform revenue wallet.
     """
-    if amount_kobo <= 0:
-        raise HTTPException(status_code=400, detail="Worker payout must be positive")
+    if amount_kobo < 0 or (amount_kobo == 0 and task_category != "unpaid"):
+        raise HTTPException(status_code=400, detail="Worker payout must be non-negative only for unpaid tasks")
     if click_points < 0:
         raise HTTPException(status_code=400, detail="Click points cannot be negative")
 
