@@ -138,7 +138,8 @@ def test_try_for_free_creation_approval_and_gratis_progression_contract():
     assert 'cw_task_category=task.cw_task_category' in lifecycle_source
     assert 'calculate_click_points' in lifecycle_source
     assert 'if cw_task_category == "unpaid":' in clickpoints_source
-    assert "return 500" in clickpoints_source
+    assert "UNPAID_FLAT_CPS = 500" in clickpoints_source
+    assert "UNPAID_FLAT_CPS * (3 if midnight else 1)" in clickpoints_source
     rewards = inspect.getsource(rewards_service)
     assert 'cw_task_category="unpaid"' in rewards
     assert "GRATIS_TASKS_PER_LEVEL = 100" in rewards
