@@ -39,7 +39,7 @@ class StreakAchievements extends StatelessWidget {
             final days = milestone['days'] as int;
             final icon = milestone['icon'] as IconData;
             final complete = streakDays >= days;
-            final previous = milestones.where((m) => (m['days'] as int) < days).fold<int>(0, (max, m) => (m['days'] as int) > max ? m['days'] as int : max);
+            final previous = milestones.map((m) => m['days'] as int).where((value) => value < days).fold<int>(0, (max, value) => value > max ? value : max);
             final progress = complete ? 1.0 : ((streakDays - previous) / (days - previous)).clamp(0.0, 1.0).toDouble();
             return Card(margin: EdgeInsets.only(bottom: 1.2.h), child: Padding(padding: EdgeInsets.all(3.5.w), child: Row(children: [
               CircleAvatar(child: Icon(complete ? Icons.check : icon)), SizedBox(width: 3.w),
