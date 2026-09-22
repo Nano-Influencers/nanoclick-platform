@@ -20,7 +20,7 @@ class StreakAchievements extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final reached = milestones.where((m) => streakDays >= m['days'] as int).length;
+    final reached = milestones.where((m) => streakDays >= (m['days'] as int)).length;
     return Scaffold(
       appBar: AppBar(title: const Text('Streak achievements')),
       body: SingleChildScrollView(
