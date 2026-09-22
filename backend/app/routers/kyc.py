@@ -15,7 +15,9 @@ router = APIRouter(prefix="/kyc", tags=["kyc"])
 KYC_DOCUMENT_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "pdf"}
 
 
-def validate_kyc_document_ownership(user_id, document_key: str) -> None:
+def validate_kyc_document_ownership(user_id, document_key: str | None) -> None:
+    if document_key is None:
+        return
     if not document_key.startswith(f"kyc/{user_id}/"):
         raise HTTPException(status_code=403, detail="KYC document does not belong to this account")
     ext = PurePosixPath(document_key).suffix.lower().lstrip(".")
