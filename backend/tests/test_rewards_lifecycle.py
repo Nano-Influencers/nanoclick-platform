@@ -76,3 +76,69 @@ def test_reward_actions_use_stable_transaction_references():
     assert 'ref = f"treasure-hint:{campaign.id}:{user_id}:{now.date().isoformat()}"' in treasure
     assert 'ref = f"treasure-reward:{campaign.id}:{user_id}"' in treasure
     assert 'gift-entry:{campaign.id}:{user_id}' in gifts
+
+
+def test_spin_and_checkin_enforce_cooldowns_and_stable_references():
+    rewards = inspect.getsource(rewards_service)
+    spin_start = rewards.index("async def spin")
+    checkin_start = rewards.index("async def checkin")
+    spin_body = rewards[spin_start:checkin_start]
+    checkin_body = rewards[checkin_start:]
+    assert "last_spin_at" in spin_body
+    assert "timedelta(hours=settings.SPIN_COOLDOWN_HOURS)" in spin_body
+    assert "random.choices(outcomes" in spin_body
+    assert "wallet.last_spin_at = now" in spin_body
+    assert "reference = f" in spin_body
+    assert "timedelta(hours=24)" in checkin_body
+    assert "timedelta(hours=48)" in checkin_body
+    assert "wallet.checkin_streak = min(wallet.checkin_streak + 1" in checkin_body
+    assert "reference = f" in checkin_body
+
+
+def test_treasure_join_hint_claim_and_winner_cap_are_serialized():
+    treasure = inspect.getsource(treasure_service)
+    participate = treasure[treasure.index("async def participate"):treasure.index("async def use_hint")]
+    hint = treasure[treasure.index("async def use_hint"):treasure.index("async def claim")]
+    claim = treasure[treasure.index("async def claim"):treasure.index("async def to_response")]
+    assert "with_for_update())).scalar_one_or_none()" in participate
+    assert "participated=True" in participate
+    assert "now - participation.last_hint_at < HINT_COOLDOWN" in hint
+    assert "wallet_service.debit" in hint
+    assert "click_points -= HINT_POINTS" in hint
+    assert "TreasureParticipation.id == participation.id).with_for_update()" in claim
+    assert "TreasureCampaign.id == campaign.id).with_for_update()" in claim
+    assert "winners >= campaign.max_winners" in claim
+    assert 'ref = f"treasure-reward:{campaign.id}:{user_id}"' in claim
+
+
+def test_gift_entry_and_draw_are_retry_safe_and_capped():
+    gifts = inspect.getsource(gifts_service)
+    admin = Path(__file__).resolve().parents[1] / "app" / "routers" / "admin_gifts.py"
+    admin_source = admin.read_text()
+    enter = gifts[gifts.index("async def enter"):gifts.index("async def winners")]
+    draw = admin_source[admin_source.index("async def draw_gift_winners"):]
+    assert "GiftCampaign.id == campaign_id).with_for_update()" in enter
+    assert "GiftEntry.campaign_id == campaign.id, GiftEntry.user_id == user_id" in enter
+    assert "wallet.click_points -= campaign.entry_cost_points" in enter
+    assert "gift-entry:{campaign.id}:{user_id}" in enter
+    assert "secrets.SystemRandom().sample(entries, min(campaign.max_winners, len(entries)))" in draw
+    assert "if existing: raise HTTPException(409, \"Winners have already been drawn\")" in draw
+
+
+def test_try_for_free_creation_approval_and_gratis_progression_contract():
+    campaigns = Path(__file__).resolve().parents[1] / "app" / "routers" / "campaigns.py"
+    lifecycle = Path(__file__).resolve().parents[1] / "app" / "routers" / "admin_lifecycle.py"
+    clickpoints = Path(__file__).resolve().parents[1] / "app" / "services" / "clickpoints.py"
+    campaign_source = campaigns.read_text()
+    lifecycle_source = lifecycle.read_text()
+    clickpoints_source = clickpoints.read_text()
+    assert 'body.tni_service_type == "try_for_free"' in campaign_source
+    assert "worker_pay_kobo = 0" in campaign_source
+    assert 'task_category == "unpaid"' in inspect.getsource(__import__("app.services.wallet_service", fromlist=["release_escrow_to_worker"]).release_escrow_to_worker)
+    assert 'cw_task_category=task.cw_task_category' in lifecycle_source
+    assert 'calculate_click_points' in lifecycle_source
+    assert 'if cw_task_category == "unpaid":' in clickpoints_source
+    assert "return 500" in clickpoints_source
+    rewards = inspect.getsource(rewards_service)
+    assert 'cw_task_category="unpaid"' in rewards
+    assert "GRATIS_TASKS_PER_LEVEL = 100" in rewards
