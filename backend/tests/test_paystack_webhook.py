@@ -125,6 +125,7 @@ async def test_transfer_failed_refunds_once_even_when_event_repeated(db_factory)
     async with db_factory() as db:
         await _add_user_and_wallet(db, user_id, "failed")
         wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
+        wallet.total_withdrawn_kobo = 7_500
         db.add(Transaction(wallet_id=wallet.id, type="withdrawal", amount_kobo=7_500, status="completed", reference=reference))
         db.add(Withdrawal(
             user_id=user_id, reference=reference, amount_kobo=7_500,
@@ -162,6 +163,7 @@ async def test_transfer_reversed_refunds_once(db_factory):
     async with db_factory() as db:
         await _add_user_and_wallet(db, user_id, "reversed")
         wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
+        wallet.total_withdrawn_kobo = 8_000
         db.add(Transaction(wallet_id=wallet.id, type="withdrawal", amount_kobo=8_000, status="completed", reference=reference))
         db.add(Withdrawal(
             user_id=user_id, reference=reference, amount_kobo=8_000,
@@ -195,6 +197,7 @@ async def test_transfer_reversed_after_success_refunds_once(db_factory):
     async with db_factory() as db:
         await _add_user_and_wallet(db, user_id, "success-reversal")
         wallet = (await db.execute(select(Wallet).where(Wallet.user_id == user_id))).scalar_one()
+        wallet.total_withdrawn_kobo = 9_000
         db.add(Transaction(wallet_id=wallet.id, type="withdrawal", amount_kobo=9_000, status="completed", reference=reference))
         db.add(Withdrawal(
             user_id=user_id, reference=reference, amount_kobo=9_000,
