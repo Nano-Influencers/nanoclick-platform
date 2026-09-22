@@ -80,8 +80,9 @@ async def use_hint(db: AsyncSession, user_id: uuid.UUID, use_earnings: bool):
     participation = (await db.execute(select(TreasureParticipation).where(TreasureParticipation.id == participation.id).with_for_update())).scalar_one()
     campaign = (await db.execute(select(TreasureCampaign).where(TreasureCampaign.id == campaign.id).with_for_update())).scalar_one()
     now = datetime.utcnow()
-    if participation.last_hint_at and participation.last_hint_at.isocalendar()[:2] == now.isocalendar()[:2]:
-        raise HTTPException(409, "Only one hint can be used per calendar week")
+    if participation.last_hint_at and now - participation.last_hint_at < HINT_COOLDOWN:
+        next_hint_at = participation.last_hint_at + HINT_COOLDOWN
+        raise HTTPException(409, f"Only one hint can be used every 7 days. Next hint available at {next_hint_at.isoformat()}Z")
     if not campaign.hint_options:
         raise HTTPException(409, "No hint is configured for this treasure")
     ref = f"treasure-hint:{campaign.id}:{user_id}:{now.date().isoformat()}"
@@ -137,6 +138,11 @@ async def claim(db: AsyncSession, user_id: uuid.UUID, claim_code: str):
     return {"status": "claimed", "reward_kobo": campaign.reward_kobo, "reward_click_points": campaign.reward_click_points}
 
 async def to_response(db: AsyncSession, campaign: TreasureCampaign, participation: TreasureParticipation | None):
+    next_hint_at = None
+    if participation and participation.last_hint_at:
+        candidate = participation.last_hint_at + HINT_COOLDOWN
+        if candidate > datetime.utcnow():
+            next_hint_at = candidate
     return TreasureResponse(
         id=str(campaign.id), name=campaign.name, details=campaign.details, image_url=campaign.image_url,
         starts_at=campaign.starts_at, ends_at=campaign.ends_at, status=campaign.status,
