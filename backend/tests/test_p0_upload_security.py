@@ -42,7 +42,7 @@ def test_kyc_rejects_http_document_url():
 
 
 def test_kyc_accepts_private_storage_key():
-    body = KycSubmitRequest(document_url=f"kyc/{uuid.uuid4()}/document.pdf")
+    body = KycSubmitRequest(document_type="passport", document_url=f"kyc/{uuid.uuid4()}/document.pdf")
     assert body.document_url.startswith("kyc/")
 
 
