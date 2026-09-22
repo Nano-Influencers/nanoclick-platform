@@ -99,7 +99,7 @@ class _LandingState extends State<Landing> {
     _featureCard(Icons.work_outline, 'Earn Money & Points', 'Get paid for publishing ads for brands or promoting brands, climb the leaderboard and win cash prizes, and unlock massive cash and item rewards.'),
     _featureCard(Icons.task_alt, 'Choose Simple Tasks', 'Choose simple tasks that match your time and eligibility, then submit the requested proof.'),
     _featureCard(Icons.verified, 'Submit & Get Paid', 'Complete your task, submit proof for review, and receive approved earnings through the platform.'),
-  ]);
+  ]));
 
   Widget _featureCard(IconData icon, String title, String body) => Container(
     margin: EdgeInsets.fromLTRB(5.w, 0, 5.w, 2.h), padding: EdgeInsets.symmetric(horizontal: 7.w, vertical: 6.h),
