@@ -55,3 +55,24 @@ def test_publishers_lock_before_active_campaign_check():
     g = gifts[gifts.index("async def publish_gift"):]
     assert t.index("pg_advisory_xact_lock") < t.index('TreasureCampaign.status == "active"')
     assert g.index("pg_advisory_xact_lock") < g.index('GiftCampaign.status == "active"')
+
+
+def test_unpaid_task_settlement_is_zero_cash_but_still_ledgered():
+    from app.services import wallet_service
+    source = inspect.getsource(wallet_service.release_escrow_to_worker)
+    assert 'amount_kobo < 0 or (amount_kobo == 0 and task_category != "unpaid")' in source
+    assert 'type="task_earning"' in source
+    assert 'click_points_awarded=click_points' in source
+
+
+def test_reward_actions_use_stable_transaction_references():
+    rewards = inspect.getsource(rewards_service)
+    treasure = inspect.getsource(treasure_service)
+    gifts = inspect.getsource(gifts_service)
+
+    assert 'reference = f"spin:{user_id}:{now.isoformat()}"' in rewards
+    assert 'reference = f"checkin:{user_id}:{now.date().isoformat()}"' in rewards
+    assert 'reference = f"referral_{worker_id}"' in rewards
+    assert 'ref = f"treasure-hint:{campaign.id}:{user_id}:{now.date().isoformat()}"' in treasure
+    assert 'ref = f"treasure-reward:{campaign.id}:{user_id}"' in treasure
+    assert 'gift-entry:{campaign.id}:{user_id}' in gifts
