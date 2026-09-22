@@ -198,6 +198,7 @@ async def test_concurrent_debits_cannot_overdraw_wallet(db_factory):
 async def test_failed_transfer_reverses_debit_once_even_for_multiple_events(db, monkeypatch):
     user = await create_worker(db)
     wallet = await db.scalar(select(Wallet).where(Wallet.user_id == user.id))
+    wallet.total_withdrawn_kobo = 75_000
     reference = f"wdw_{uuid.uuid4().hex[:16]}"
     db.add(Withdrawal(user_id=user.id, reference=reference, amount_kobo=75_000, account_number="0123456789", bank_code="058", account_name="Test Worker", status="processing", provider_reference="trf_1"))
     db.add(Transaction(wallet_id=wallet.id, type="withdrawal", amount_kobo=75_000, status="completed", reference=reference, description="Withdrawal"))
