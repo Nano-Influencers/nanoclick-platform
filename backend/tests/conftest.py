@@ -41,18 +41,20 @@ async def test_engine():
                 session.add(PlatformWallet(wallet_key=wallet_key, balance_kobo=0))
         await session.commit()
 
+        # PostgreSQL dollar-quoted function bodies must use matching tags.
+        # A bare single "$" is not a valid dollar-quote delimiter.
         await session.execute(text("""
             CREATE OR REPLACE FUNCTION prevent_financial_ledger_mutation()
-            RETURNS trigger LANGUAGE plpgsql AS $
+            RETURNS trigger LANGUAGE plpgsql AS $$
             BEGIN
                 RAISE EXCEPTION 'Financial ledger rows are immutable: % on % is not permitted',
                     TG_OP, TG_TABLE_NAME USING ERRCODE = 'restrict_violation';
             END;
-            $;
+            $$;
         """))
         await session.execute(text("""
             CREATE OR REPLACE FUNCTION validate_platform_ledger_snapshot()
-            RETURNS trigger LANGUAGE plpgsql AS $
+            RETURNS trigger LANGUAGE plpgsql AS $$
             DECLARE current_balance BIGINT;
             BEGIN
                 SELECT balance_kobo INTO current_balance FROM platform_wallets WHERE id = NEW.platform_wallet_id;
@@ -64,7 +66,7 @@ async def test_engine():
                 END IF;
                 RETURN NEW;
             END;
-            $;
+            $$;
         """))
         await session.execute(text("""
             CREATE TRIGGER trg_transactions_immutable
