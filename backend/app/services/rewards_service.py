@@ -443,6 +443,11 @@ async def award_referral_bonus_if_first_approval(db: AsyncSession, worker_id: uu
     if not worker or not worker.referred_by:
         return
     reference = f"referral_{worker_id}"
+    existing = await db.execute(select(Transaction).join(Wallet, Wallet.id == Transaction.wallet_id).where(
+        Transaction.type == "referral_bonus", Transaction.reference == reference, Wallet.user_id == worker.referred_by
+    ).with_for_update())
+    if existing.scalar_one_or_none():
+        return
     await _funded_cash_credit(
         db, worker.referred_by, settings.REFERRAL_BONUS_KOBO, "referral_bonus", reference,
         f"Referral bonus — {worker.full_name}'s first approved task",
