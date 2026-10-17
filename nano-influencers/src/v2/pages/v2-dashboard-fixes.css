@@ -1,0 +1,157 @@
+/* Follow-up fidelity fixes and alternate states from Figma comparison. */
+.v2-dashboard-profile {
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.v2-dashboard-quick-item {
+  text-decoration: none;
+  color: inherit;
+}
+
+.v2-dashboard-chart-plot .lines.is-empty {
+  top: 0;
+  height: 350px;
+  object-fit: fill;
+}
+
+.v2-dashboard-section-heading > button.is-muted {
+  opacity: .22;
+}
+
+.v2-dashboard-activity-card.is-empty {
+  min-height: 480px;
+}
+
+.v2-dashboard-empty-activity {
+  min-height: 378px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.v2-dashboard-empty-activity > img {
+  width: 64px;
+  height: 64px;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.v2-dashboard-empty-activity h3 {
+  margin: 0 0 14px;
+  font: 600 20px/1.4 var(--ni-font-heading);
+  letter-spacing: -.4px;
+}
+
+.v2-dashboard-empty-activity .ni-button {
+  width: 149px;
+}
+
+.v2-dashboard-profile-modal {
+  display: none !important;
+}
+
+@media (min-width: 901px) {
+  .v2-dashboard-page {
+    width: 100%;
+    max-width: none;
+  }
+
+  .v2-dashboard-main {
+    flex: 1 1 0;
+    width: auto;
+    max-width: none;
+  }
+
+  .v2-dashboard-insights,
+  .v2-dashboard-lower {
+    grid-template-columns: minmax(0, 1fr) minmax(330px, 374px);
+  }
+}
+
+@media (max-width: 900px) {
+  .v2-dashboard-welcome.desktop-welcome {
+    display: none !important;
+  }
+
+  .v2-dashboard-profile.is-open {
+    outline: 2px solid #fff;
+    outline-offset: 1px;
+    position: relative;
+    z-index: 31;
+  }
+
+  .v2-dashboard-profile-modal.mobile-only {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: block !important;
+  }
+
+  .v2-dashboard-profile-backdrop {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: rgba(0, 0, 0, .5);
+    cursor: pointer;
+  }
+
+  .v2-dashboard-profile-dropdown {
+    position: absolute;
+    top: 120px;
+    left: 18px;
+    right: 18px;
+    min-height: 146px;
+    padding: 18px 14px;
+    border-radius: 24px;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, .06);
+  }
+
+  .v2-dashboard-profile-dropdown a,
+  .v2-dashboard-profile-dropdown button {
+    width: 100%;
+    height: 48px;
+    border: 0;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    text-decoration: none;
+    color: #000;
+    background: #fafafa;
+    font: 600 14px/1 var(--ni-font-heading);
+    letter-spacing: -.28px;
+    text-align: left;
+  }
+
+  .v2-dashboard-profile-dropdown button {
+    border-radius: 18px;
+    background: #fbe9e7;
+    color: #f42315;
+    cursor: pointer;
+  }
+
+  .v2-dashboard-profile-dropdown img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+  }
+
+  .v2-dashboard-activity-card.is-empty {
+    min-height: 428px;
+  }
+
+  .v2-dashboard-empty-activity {
+    min-height: 378px;
+  }
+}
