@@ -1,4 +1,4 @@
-# NanoClick Platform
+# NanoClick Platform.
 
 NanoClick is a monorepo for a shared task-and-campaign platform serving **Click Workers** (workers who complete paid actions) and **Nano Influencers** (advertisers who create campaigns).
 

@@ -1,0 +1,2 @@
+.v2-wallet-logout img{display:none}.v2-wallet-logout::after{content:"";width:24px;height:24px;background:url("/assets/nano-v2-app/dashboard-logout.svg") center/contain no-repeat;flex:0 0 24px}
+@media(max-width:900px){.v2-wallet-main{margin-top:14px}.v2-wallet-success-page{gap:14px}}
