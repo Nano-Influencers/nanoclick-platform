@@ -1,0 +1,212 @@
+import uuid
+from decimal import Decimal
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
+from app.dependencies import require_admin
+from app.models.user import User, KycProfile
+from app.models.task import Submission, Task, TaskReport, LeaderboardScore
+from app.models.campaign import Campaign
+from app.models.wallet import Wallet
+from app.models.platform_wallet import PlatformWallet
+from app.models.platform_wallet_transaction import PlatformWalletTransaction
+from app.services import wallet_service
+from app.services.clickpoints import calculate_click_points
+from app.services import audit_service
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+@router.get("/submissions/pending")
+async def list_pending(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    r = await db.execute(select(Submission).where(Submission.status.in_(["pending","under_review"])).order_by(Submission.submitted_at.asc()).limit(100))
+    return [{"id": str(s.id), "task_id": str(s.task_id), "worker_id": str(s.worker_id),
+             "status": s.status, "proof_urls": s.proof_urls, "speed_min": s.task_speed_minutes,
+             "submitted_at": s.submitted_at} for s in r.scalars()]
+
+@router.post("/submissions/{submission_id}/reject")
+async def reject_submission(submission_id: uuid.UUID, reason: str,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    sub_r = await db.execute(select(Submission).where(Submission.id==submission_id).with_for_update())
+    sub = sub_r.scalar_one_or_none()
+    if not sub: raise HTTPException(404, "Submission not found")
+    if sub.status not in ("pending","under_review","queried"): raise HTTPException(400, f"Cannot reject status '{sub.status}'")
+    sub.status = "rejected"; sub.rejection_reason = reason; sub.reviewed_at = datetime.utcnow()
+    from app.services.notification_service import notify
+    from app.workers.notification_tasks import notify_task_rejected
+    task_r = await db.execute(select(Task).where(Task.id==sub.task_id))
+    task = task_r.scalar_one_or_none()
+    if task:
+        await notify(db, sub.worker_id, "task_rejected", "Task rejected",
+                     f"\"{task.title}\" was rejected: {reason}")
+        notify_task_rejected.delay(str(sub.worker_id), task.title, reason)
+    return {"message": "Rejected", "reason": reason}
+
+@router.post("/submissions/{submission_id}/query")
+async def query_submission(submission_id: uuid.UUID, query_reason: str,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    sub_r = await db.execute(select(Submission).where(Submission.id==submission_id))
+    sub = sub_r.scalar_one_or_none()
+    if not sub or sub.status != "pending": raise HTTPException(400, "Submission not in pending state")
+    sub.status = "queried"; sub.query_reason = query_reason
+    return {"message": "Submission queried"}
+
+@router.get("/campaigns/pending")
+async def list_pending_campaigns(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    r = await db.execute(select(Campaign).where(Campaign.status == "pending_admin").order_by(Campaign.created_at.asc()).limit(100))
+    return [{"id": str(c.id), "owner_id": str(c.owner_id), "title": c.title, "platform": c.platform,
+             "action_type": c.action_type, "tni_service_type": c.tni_service_type,
+             "client_budget_kobo": c.client_budget_kobo, "slots_total": c.slots_total,
+             "created_at": c.created_at} for c in r.scalars()]
+
+@router.get("/reports/pending")
+async def list_pending_reports(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    r = await db.execute(select(TaskReport).where(TaskReport.status=="pending").order_by(TaskReport.created_at.asc()))
+    return [{"id": str(rp.id), "task_id": str(rp.task_id), "reporter_id": str(rp.reporter_id),
+             "reason": rp.reason, "created_at": rp.created_at} for rp in r.scalars()]
+
+@router.post("/reports/{report_id}/uphold")
+async def uphold_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    rp_r = await db.execute(select(TaskReport).where(TaskReport.id==report_id).with_for_update())
+    report = rp_r.scalar_one_or_none()
+    if not report or report.status != "pending": raise HTTPException(404, "Report not found or already reviewed")
+    task_r = await db.execute(select(Task).where(Task.id==report.task_id).with_for_update())
+    task = task_r.scalar_one_or_none()
+    if not task: raise HTTPException(404, "Task not found")
+    campaign_r = await db.execute(select(Campaign).where(Campaign.id==task.campaign_id).with_for_update())
+    campaign = campaign_r.scalar_one_or_none()
+    task.status = "reported_removed"
+    if campaign:
+        campaign.status = "reported"
+        if campaign.escrow_kobo > 0:
+            refund_kobo = campaign.escrow_kobo
+            await wallet_service.refund_escrow(
+                db, campaign.owner_id, refund_kobo, reference=f"{campaign.id}:report_refund",
+                description="Campaign removed — ToS violation. Full refund.",
+            )
+            campaign.escrow_kobo = 0
+    CP_REWARD = 250
+    if await _reward_reporter(db, report.reporter_id, report.id, CP_REWARD):
+        report.cp_reward_given = True
+    report.status = "upheld"; report.reviewed_at = datetime.utcnow()
+    return {"message": "Report upheld. Task removed, advertiser refunded, reporter rewarded.", "cp_reward": CP_REWARD}
+
+async def _reward_reporter(db: AsyncSession, reporter_id: uuid.UUID, report_id: uuid.UUID, points: int) -> bool:
+    if points <= 0:
+        return False
+    await wallet_service.credit(
+        db, reporter_id, 0, "report_reward", description="Reward for upheld task report",
+        reference=f"report_reward:{report_id}", click_points=points,
+    )
+    return True
+
+@router.post("/reports/{report_id}/dismiss")
+async def dismiss_report(report_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    rp_r = await db.execute(select(TaskReport).where(TaskReport.id==report_id).with_for_update())
+    report = rp_r.scalar_one_or_none()
+    if not report or report.status != "pending": raise HTTPException(404, "Report not found or already reviewed")
+    report.status = "dismissed"; report.reviewed_at = datetime.utcnow()
+    return {"message": "Report dismissed"}
+
+@router.get("/kyc/pending")
+async def list_pending_kyc(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    r = await db.execute(
+        select(KycProfile, User.full_name)
+        .join(User, User.id == KycProfile.user_id)
+        .where(KycProfile.status == "pending")
+        .order_by(KycProfile.submitted_at.asc()).limit(100)
+    )
+    return [{"id": str(k.id), "user_id": str(k.user_id), "full_name": full_name,
+             "document_type": k.document_type, "submitted_at": k.submitted_at} for k, full_name in r.all()]
+
+@router.post("/kyc/{user_id}/approve")
+async def approve_kyc(user_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    kyc_r = await db.execute(select(KycProfile).where(KycProfile.user_id==user_id))
+    kyc = kyc_r.scalar_one_or_none()
+    if not kyc: raise HTTPException(404, "KYC not found")
+    kyc.status = "approved"; kyc.reviewed_at = datetime.utcnow()
+    user_r = await db.execute(select(User).where(User.id==user_id))
+    user = user_r.scalar_one_or_none()
+    if user:
+        user.kyc_verified = True
+        from app.services.notification_service import notify
+        await notify(db, user.id, "kyc_approved", "KYC approved",
+                     "Your identity verification was approved — you now have access to targeted campaigns.")
+    return {"message": "KYC approved"}
+
+@router.post("/kyc/{user_id}/reject")
+async def reject_kyc(user_id: uuid.UUID, reason: str, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    kyc_r = await db.execute(select(KycProfile).where(KycProfile.user_id==user_id))
+    kyc = kyc_r.scalar_one_or_none()
+    if not kyc: raise HTTPException(404, "KYC not found")
+    kyc.status = "rejected"; kyc.reviewed_at = datetime.utcnow()
+    from app.services.notification_service import notify
+    await notify(db, user_id, "kyc_rejected", "KYC rejected", reason)
+    return {"message": "KYC rejected", "reason": reason}
+
+@router.get("/rewards/pool")
+async def reward_pool_balance(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    wallet_r = await db.execute(select(PlatformWallet).where(PlatformWallet.wallet_key == "reward_pool"))
+    wallet = wallet_r.scalar_one_or_none()
+    if not wallet:
+        raise HTTPException(500, "Reward pool funding wallet is not configured")
+    return {"wallet_key": wallet.wallet_key, "balance_kobo": wallet.balance_kobo, "balance_ngn": wallet.balance_kobo / 100}
+
+@router.post("/rewards/pool/fund")
+async def fund_reward_pool(
+    reference: str,
+    amount_ngn: Decimal,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Record externally settled platform funding; never debits an admin wallet."""
+    if amount_ngn <= 0:
+        raise HTTPException(400, "Funding amount must be positive")
+    amount_kobo = int(amount_ngn * 100)
+    if amount_kobo <= 0:
+        raise HTTPException(400, "Funding amount must be at least ₦0.01")
+    from app.services import rewards_service
+    result = await rewards_service.fund_reward_pool(db, amount_kobo, reference)
+    await audit_service.record(
+        db, request, "reward_pool_funded", actor_user_id=admin.id,
+        resource_type="platform_wallet", resource_id="reward_pool",
+        metadata={"reference": reference, "amount_kobo": amount_kobo, "idempotent": result["idempotent"]},
+    )
+    return result
+
+@router.post("/rewards/distribute-pool")
+async def distribute_reward_pool(
+    track: str,
+    pool_ngn: Decimal,
+    reference: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Split a funded pooled prize equally among eligible Level-10 workers."""
+    if pool_ngn <= 0:
+        raise HTTPException(400, "Reward pool must be positive")
+    amount_kobo = int(pool_ngn * 100)
+    if amount_kobo <= 0:
+        raise HTTPException(400, "Reward pool must be at least ₦0.01")
+    from app.services import rewards_service
+    result = await rewards_service.distribute_reward_pool(db, track, amount_kobo, reference=reference)
+    await audit_service.record(
+        db, request, "reward_pool_distributed", actor_user_id=admin.id,
+        resource_type="platform_wallet", resource_id="reward_pool",
+        metadata={"track": track, "reference": reference, "amount_kobo": amount_kobo, "result": result},
+    )
+    return result
+
+@router.get("/stats")
+async def platform_stats(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    from sqlalchemy import func
+    users_r = await db.execute(select(func.count(User.id)))
+    camp_r = await db.execute(select(func.count(Campaign.id)).where(Campaign.status=="active"))
+    subs_r = await db.execute(select(func.count(Submission.id)).where(Submission.status=="pending"))
+    kyc_r = await db.execute(select(func.count(KycProfile.id)).where(KycProfile.status=="pending"))
+    return {"total_users": users_r.scalar(), "active_campaigns": camp_r.scalar(),
+            "pending_submissions": subs_r.scalar(), "pending_kyc": kyc_r.scalar()}

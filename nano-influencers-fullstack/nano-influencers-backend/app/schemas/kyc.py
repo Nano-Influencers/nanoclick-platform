@@ -1,0 +1,119 @@
+from urllib.parse import urlparse
+
+from pydantic import BaseModel, Field, field_validator
+
+
+class KycSubmitRequest(BaseModel):
+    """Mirrors app.models.user.KycProfile with validation.
+
+    Identity documents are represented by an opaque private-storage key,
+    never a public HTTP(S) URL. The storage layer can later resolve that key
+    to a short-lived signed URL without exposing the underlying object.
+    """
+
+    # Pillar 1: Demographics
+    gender: str | None = None
+    age_bracket: str | None = None
+    marital_status: str | None = None
+
+    # Pillar 2: Social / Cultural
+    religion: str | None = None
+    ethnicity_tribe: str | None = None
+    race: str | None = None
+    languages_spoken: list[str] = Field(default_factory=list)
+
+    # Pillar 3: Geographic
+    primary_city: str | None = None
+    primary_state: str | None = None
+    primary_country: str | None = "Nigeria"
+    secondary_locations: list[str] = Field(default_factory=list)
+    occupation_location: str | None = None
+    state_of_origin: str | None = None
+    town_of_origin: str | None = None
+
+    # Pillar 4: Economic
+    monthly_income_range: str | None = None
+    primary_income_source: str | None = None
+    secondary_income_source: str | None = None
+
+    # Pillar 5: Occupation
+    occupation_industry: str | None = None
+    is_self_employed: bool = False
+    self_employed_industry: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    school_name: str | None = None
+    department_of_study: str | None = None
+    study_location: str | None = None
+    trade_school_niche: str | None = None
+
+    # Pillar 6: Interests
+    interests_hobbies: list[str] = Field(default_factory=list)
+    music_genres: list[str] = Field(default_factory=list)
+
+    # Pillar 7: Behavior
+    content_niches_posted: list[str] = Field(default_factory=list)
+    content_types_interacted: list[str] = Field(default_factory=list)
+    account_types_followed: list[str] = Field(default_factory=list)
+
+    # Reach metrics
+    follower_count: int = Field(0, ge=0)
+    following_count: int = Field(0, ge=0)
+    avg_story_views: int = Field(0, ge=0)
+    avg_engagement_rate: float | None = Field(None, ge=0, le=100)
+    posting_frequency: str | None = None
+    majority_follower_location: str | None = None
+    follower_categories: list[str] = Field(default_factory=list)
+    follower_industries: list[str] = Field(default_factory=list)
+    follower_care_about: list[str] = Field(default_factory=list)
+
+    # Authority & Trust
+    account_age_years: float | None = Field(None, ge=0)
+    is_verified_on_platform: bool = False
+    uses_real_name: bool = False
+    uses_real_photo: bool = False
+
+    # Community / Group access
+    group_types: list[str] = Field(default_factory=list)
+    group_industries: list[str] = Field(default_factory=list)
+    group_descriptions: list[str] = Field(default_factory=list)
+    gender_group_membership: str | None = None
+    marital_group_keywords: list[str] = Field(default_factory=list)
+
+    # Social handles
+    instagram_handle: str | None = None
+    tiktok_handle: str | None = None
+    twitter_handle: str | None = None
+    facebook_handle: str | None = None
+    youtube_handle: str | None = None
+    whatsapp_number: str | None = None
+
+    # Identity documents are mandatory for a complete KYC submission.
+    document_type: str = Field(min_length=1, max_length=100)
+    document_url: str = Field(min_length=1, max_length=500)
+
+    @field_validator("document_type")
+    @classmethod
+    def validate_document_type(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Document type is required")
+        return value
+
+    @field_validator("document_url")
+    @classmethod
+    def validate_document_storage_key(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Document storage key is required")
+        parsed = urlparse(value)
+        if parsed.scheme or parsed.netloc or value.startswith("/"):
+            raise ValueError("Document must use a private storage key, not a URL")
+        if "\\" in value or ".." in value.split("/"):
+            raise ValueError("Invalid document storage key")
+        if not value.startswith("kyc/"):
+            raise ValueError("Document storage key must be under the private KYC prefix")
+        return value
+
+
+class KycStatusResponse(BaseModel):
+    status: str  # not_submitted | pending | approved | rejected

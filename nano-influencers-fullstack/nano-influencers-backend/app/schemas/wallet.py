@@ -1,0 +1,80 @@
+import uuid
+from datetime import datetime
+from decimal import Decimal
+from pydantic import BaseModel, Field
+
+class WalletResponse(BaseModel):
+    id: uuid.UUID
+    balance_kobo: int
+    balance_ngn: float
+    escrow_kobo: int
+    escrow_ngn: float
+    click_points: int
+    total_earned_kobo: int
+    total_withdrawn_kobo: int
+    total_spent_kobo: int
+    daily_one_off_single_kobo: int
+    daily_one_off_grouped_kobo: int
+    daily_repeating_single_kobo: int
+    daily_repeating_grouped_kobo: int
+    daily_trend_push_kobo: int
+    daily_skill_based_kobo: int
+    daily_unpaid_kobo: int
+    daily_one_off_single_cps: int
+    daily_one_off_grouped_cps: int
+    daily_repeating_single_cps: int
+    daily_repeating_grouped_cps: int
+    daily_trend_push_cps: int
+    daily_skill_based_cps: int
+    daily_unpaid_cps: int
+    total_one_off_single_kobo: int
+    total_one_off_grouped_kobo: int
+    total_repeating_single_kobo: int
+    total_repeating_grouped_kobo: int
+    total_trend_push_kobo: int
+    total_skill_based_kobo: int
+    total_unpaid_kobo: int
+    last_spin_at: datetime | None
+    last_checkin_at: datetime | None
+    checkin_streak: int
+    model_config = {"from_attributes": True}
+
+class TransactionResponse(BaseModel):
+    id: uuid.UUID
+    type: str
+    task_category: str | None
+    amount_kobo: int
+    amount_ngn: float
+    click_points_awarded: int
+    click_points_spent: int
+    status: str
+    description: str | None
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+class InitiateDepositRequest(BaseModel):
+    amount_ngn: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+
+class InitiateDepositResponse(BaseModel):
+    authorization_url: str
+    reference: str
+
+class WithdrawRequest(BaseModel):
+    amount_ngn: Decimal = Field(gt=0, max_digits=12, decimal_places=2)
+    bank_code: str
+    account_number: str
+
+class ResolveAccountResponse(BaseModel):
+    account_number: str
+    account_name: str
+    bank_code: str
+
+class SpinResultResponse(BaseModel):
+    kind: str          # click_points | cash_kobo
+    value: int
+    next_spin_at: str
+
+class CheckinResultResponse(BaseModel):
+    streak_day: int
+    reward_kobo: int
+    reward_ngn: float

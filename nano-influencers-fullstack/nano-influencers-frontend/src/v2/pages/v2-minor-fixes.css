@@ -1,0 +1,346 @@
+/* Small isolated fidelity fixes. Keep these scoped so completed screens are not disturbed. */
+
+/* Help & Support must use the same 240px sidebar footprint as the other V2 dashboard screens. */
+.v2-help-page,
+.v2-help-page * {
+  box-sizing: border-box;
+}
+
+@media (min-width: 901px) {
+  .v2-help-sidebar {
+    width: 240px;
+    max-width: 240px;
+    flex: 0 0 240px;
+    height: calc(100vh - 20px);
+    min-height: calc(100vh - 20px);
+    position: sticky;
+    top: 10px;
+  }
+}
+
+/* Exact Figma artwork for the four Single Task service cards (node 344:12715). */
+.v2-campaign-single-card:nth-child(1) img {
+  content: url("/assets/nano-v2-app/campaign-google-form.svg");
+}
+
+.v2-campaign-single-card:nth-child(2) img {
+  content: url("/assets/nano-v2/special-website.svg");
+}
+
+.v2-campaign-single-card:nth-child(3) img {
+  content: url("/assets/nano-v2/special-crypto.svg");
+}
+
+.v2-campaign-single-card:nth-child(4) img {
+  content: url("/assets/nano-v2/special-ideas.svg");
+}
+
+
+/* Mobile shell safe-area fix.
+   Keep controls inside their existing layout, but let the white top/bottom chrome
+   visually reach the physical edges of notched / gesture-navigation phones. */
+@media (max-width: 900px) {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background: #fff;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  .v2-dashboard-page,
+  .v2-wallet-page,
+  .v2-campaign-page,
+  .v2-settings-page,
+  .v2-help-page {
+    background: #fff;
+  }
+
+  .v2-dashboard-topbar,
+  .v2-wallet-topbar,
+  .v2-campaign-topbar,
+  .v2-settings-topbar,
+  .v2-help-topbar {
+    position: relative;
+    background: #fff;
+  }
+
+  /* Paint through the device's top safe area without moving the existing header controls. */
+  .v2-dashboard-topbar::before,
+  .v2-wallet-statusbar::before,
+  .v2-campaign-topbar::before,
+  .v2-settings-topbar::before,
+  .v2-help-topbar::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    left: -18px;
+    right: -18px;
+    top: calc(-1 * env(safe-area-inset-top));
+    height: env(safe-area-inset-top);
+    background: #fff;
+    pointer-events: none;
+  }
+
+  .v2-wallet-statusbar {
+    position: relative;
+    background: #fff;
+  }
+
+  /* Make the mobile bottom navigation background full-bleed while preserving
+     the exact horizontal positions of its existing icons. */
+  .v2-dashboard-bottom-nav {
+    left: 0;
+    right: 0;
+    height: calc(107px + env(safe-area-inset-bottom));
+    padding: 24px 36px calc(21px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+
+  .v2-wallet-bottom-nav {
+    left: 0;
+    right: 0;
+    width: 100%;
+    transform: none;
+    height: calc(107px + env(safe-area-inset-bottom));
+    padding: 24px 18px calc(21px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+
+  .v2-campaign-bottom-nav {
+    left: 0;
+    right: 0;
+    height: calc(107px + env(safe-area-inset-bottom));
+    padding: 24px 18px calc(21px + env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+
+  /* Keep scrolling content clear of the enlarged gesture-area background. */
+  .v2-dashboard-page,
+  .v2-wallet-page,
+  .v2-campaign-page {
+    padding-bottom: calc(110px + env(safe-area-inset-bottom));
+  }
+
+  .v2-wallet-home-indicator {
+    bottom: calc(8px + env(safe-area-inset-bottom));
+  }
+}
+
+/* safe-area deployment marker */
+
+
+/* Mobile chrome spacing correction from device QA screenshots.
+   The earlier safe-area pass only painted the exposed strips. This pass removes
+   the oversized layout whitespace itself so the header/nav sit against the
+   usable top and bottom edges while still respecting real device safe areas. */
+@media (max-width: 900px) {
+  .v2-dashboard-topbar,
+  .v2-settings-topbar {
+    height: calc(70px + env(safe-area-inset-top));
+    min-height: calc(70px + env(safe-area-inset-top));
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: 14px;
+    box-sizing: border-box;
+    align-items: flex-start;
+  }
+
+  .v2-dashboard-topbar > .v2-dashboard-brand,
+  .v2-settings-mobile-brand {
+    margin-top: 0;
+  }
+
+  /* The wallet Figma frame included a simulated phone status bar. In a real
+     browser/device it creates a second empty strip, so don't render it. */
+  .v2-wallet-statusbar {
+    display: none !important;
+  }
+
+  .v2-wallet-topbar {
+    height: calc(70px + env(safe-area-inset-top));
+    min-height: calc(70px + env(safe-area-inset-top));
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: 14px;
+    box-sizing: border-box;
+    align-items: flex-start;
+  }
+
+  .v2-help-main {
+    padding-top: 0;
+  }
+
+  .v2-help-topbar {
+    height: calc(70px + env(safe-area-inset-top));
+    min-height: calc(70px + env(safe-area-inset-top));
+    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-bottom: 14px;
+    box-sizing: border-box;
+    align-items: flex-start;
+  }
+
+  .v2-dashboard-bottom-nav,
+  .v2-wallet-bottom-nav,
+  .v2-campaign-bottom-nav {
+    height: calc(74px + env(safe-area-inset-bottom));
+    min-height: calc(74px + env(safe-area-inset-bottom));
+    padding-top: 12px;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    align-items: flex-start;
+    box-sizing: border-box;
+  }
+
+  .v2-dashboard-page,
+  .v2-wallet-page,
+  .v2-campaign-page {
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  .v2-dashboard-floating {
+    bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+
+  .v2-wallet-home-indicator {
+    bottom: calc(4px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 760px) {
+  .v2-campaign-main {
+    padding-top: calc(14px + env(safe-area-inset-top));
+  }
+}
+
+
+/* Shared authenticated-shell logout confirmation. */
+.v2-logout-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  font-family: var(--ni-font-body, "DM Sans", sans-serif);
+}
+
+.v2-logout-confirm[hidden] {
+  display: none;
+}
+
+.v2-logout-confirm__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.42);
+  cursor: default;
+}
+
+.v2-logout-confirm__card {
+  position: relative;
+  z-index: 1;
+  width: min(420px, 100%);
+  border-radius: 24px;
+  background: #fff;
+  padding: 28px 24px 24px;
+  box-shadow: 0 20px 60px rgba(4, 30, 58, 0.18);
+  text-align: center;
+}
+
+.v2-logout-confirm__icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: #fbe9e7;
+  color: #f42315;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.v2-logout-confirm__card h2 {
+  margin: 0;
+  color: #000;
+  font: 600 24px/1.2 var(--ni-font-heading, "Syne", sans-serif);
+  letter-spacing: -0.48px;
+}
+
+.v2-logout-confirm__card p {
+  margin: 8px auto 0;
+  max-width: 320px;
+  color: #71717a;
+  font: 400 14px/1.45 var(--ni-font-body, "DM Sans", sans-serif);
+  letter-spacing: -0.28px;
+}
+
+.v2-logout-confirm__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.v2-logout-confirm__actions button {
+  height: 48px;
+  border: 0;
+  border-radius: 80px;
+  cursor: pointer;
+  font: 500 14px/1 var(--ni-font-body, "DM Sans", sans-serif);
+}
+
+.v2-logout-confirm__cancel {
+  background: #f5f5f5;
+  color: #041e3a;
+}
+
+.v2-logout-confirm__submit {
+  background: #f42315;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .v2-logout-confirm {
+    align-items: end;
+    padding: 14px;
+  }
+
+  .v2-logout-confirm__card {
+    width: 100%;
+    border-radius: 24px;
+    padding: 24px 18px calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .v2-logout-confirm__card h2 {
+    font-size: 22px;
+  }
+}
+
+
+/* Wallet/Campaign mobile profile buttons use the same account menu behaviour as Dashboard. */
+.v2-wallet-profile,
+.v2-campaign-profile {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .v2-wallet-profile.is-open,
+  .v2-campaign-profile.is-open {
+    outline: 2px solid #fff;
+    outline-offset: 1px;
+    position: relative;
+    z-index: 31;
+  }
+}
+
+.v2-logout-confirm__icon img {
+  width: 26px;
+  height: 26px;
+  display: block;
+  object-fit: contain;
+}
