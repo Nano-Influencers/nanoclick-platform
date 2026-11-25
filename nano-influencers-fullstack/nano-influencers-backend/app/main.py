@@ -67,6 +67,9 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
     rules = {
         "/auth/login": ("auth-login", 10, 900),
         "/auth/register": ("auth-register", 5, 3600),
+        "/auth/otp/send": ("auth-otp-send", 3, 900),
+        "/auth/otp/resend": ("auth-otp-resend", 3, 900),
+        "/auth/otp/verify": ("auth-otp-verify", 10, 900),
         "/auth/refresh": ("auth-refresh", 30, 900),
         "/auth/forgot-password": ("auth-forgot-password", 5, 3600),
         "/auth/reset-password": ("auth-reset-password", 5, 3600),
