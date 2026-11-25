@@ -4,8 +4,8 @@ Complete advertiser platform for Nano Influencers.
 
 ## Structure
 
-- `nano-influencers-frontend/` — React + Vite frontend (from the provided zip, unchanged)
-- `nano-influencers-backend/` — Complete FastAPI backend (adapted from the NanoClick platform reference)
+- `nano-influencers-frontend/` — React + Vite frontend
+- `nano-influencers-backend/` — Complete FastAPI backend
 
 ## Quick Start
 
