@@ -27,6 +27,7 @@ class UserResponse(BaseModel):
     role: str
     referral_code: str
     kyc_verified: bool
+    email_verified: bool = False
     model_config = {"from_attributes": True}
 
 class ChangePasswordRequest(BaseModel):
@@ -39,3 +40,11 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+class SendOTPRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    code: str

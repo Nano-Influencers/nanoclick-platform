@@ -76,6 +76,9 @@ async function tryRefresh() {
 
 export const api = {
   async register({ email, password, full_name, referral_code }) { return request("/auth/register", { method: "POST", auth: false, body: { email, password, full_name, role: "advertiser", referral_code: referral_code || null } }); },
+  async sendOTP(email) { return request("/auth/otp/send", { method: "POST", auth: false, body: { email } }); },
+  async verifyOTP(email, code) { return request("/auth/otp/verify", { method: "POST", auth: false, body: { email, code } }); },
+  async resendOTP(email) { return request("/auth/otp/resend", { method: "POST", auth: false, body: { email } }); },
   async login(email, password) { const data = await request("/auth/login?platform=web", { method: "POST", auth: false, body: { email, password } }); setTokens(data.access_token); return data; },
   async exchangeOAuthCode(code) { const data = await request(`/auth/oauth/exchange?code=${encodeURIComponent(code)}&platform=web`, { method: "POST", auth: false }); setTokens(data.access_token); return data; },
   async restoreSession() { return tryRefresh(); },

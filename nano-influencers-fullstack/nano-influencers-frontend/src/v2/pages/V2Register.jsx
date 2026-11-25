@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "./v2-register.css";
+import { api } from "../../api.js";
 
 const assets = {
   brandIcon: "/assets/nano-v2/brand-mark.svg",
@@ -52,13 +53,30 @@ function RegisterField({ label, placeholder, type = "text", autoComplete, passwo
 
 export default function V2Register() {
   const [accepted, setAccepted] = useState(false);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    if (!accepted) return;
+    if (!accepted || submitting) return;
     const formData = new FormData(event.currentTarget);
-    const email = String(formData.get("email") || "adaeze@gmail.com").trim();
-    window.location.href = `/verify-email?email=${encodeURIComponent(email)}`;
+    const firstName = String(formData.get("first_name") || "").trim();
+    const lastName = String(formData.get("last_name") || "").trim();
+    const email = String(formData.get("email") || "").trim().toLowerCase();
+    const password = String(formData.get("password") || "");
+    const confirmPassword = String(formData.get("confirm_password") || "");
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (password !== confirmPassword) { setError("Passwords do not match."); return; }
+    setError("");
+    setSubmitting(true);
+    try {
+      await api.register({ email, password, full_name: [firstName, lastName].filter(Boolean).join(" ") });
+      window.location.href = `/verify-email?email=${encodeURIComponent(email)}`;
+    } catch (err) {
+      setError(err.message || "Unable to create your account. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -101,7 +119,8 @@ export default function V2Register() {
             </span>
           </label>
 
-          <button className="v2-register-submit" type="submit">Create Account</button>
+          {error && <p role="alert" className="v2-register-error">{error}</p>}
+          <button className="v2-register-submit" type="submit" disabled={submitting}>{submitting ? "Creating account..." : "Create Account"}</button>
         </form>
 
         <p className="v2-register-signin">

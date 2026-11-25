@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import logging
 import secrets
 import uuid
@@ -12,12 +14,13 @@ from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.auth_session import AuthSession, OAuthCode, OAuthState
+from app.models.email_otp import EmailOTP
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.schemas.auth import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse
+from app.schemas.auth import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest
 from app.services.auth_service import create_access_token, create_refresh_token, decode_token, generate_referral_code, hash_password, hash_token_identifier, new_oauth_state, token_jti, verify_password
-from app.services.email_service import send_password_reset_email
+from app.services.email_service import send_password_reset_email, send_verification_otp
 from app.services.oauth_service import exchange_facebook_code, exchange_google_code, facebook_auth_url, google_auth_url
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -81,10 +84,11 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
     if user:
         if not user.is_active:
             raise HTTPException(403, "Account disabled")
+        user.email_verified = True
         user.oauth_provider = provider_data["provider"]
         user.oauth_provider_id = provider_data["provider_id"]
         return user
-    user = User(email=provider_data["email"], password_hash=None, full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0], role=role, referral_code=generate_referral_code(), oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"])
+    user = User(email=provider_data["email"], password_hash=None, full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0], role=role, referral_code=generate_referral_code(), oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"], email_verified=True)
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
@@ -130,10 +134,17 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         ref = await db.execute(select(User).where(User.referral_code == body.referral_code))
         r = ref.scalar_one_or_none()
         if r: referred_by = r.id
-    user = User(email=body.email, password_hash=hash_password(body.password), full_name=body.full_name, role=body.role, referral_code=generate_referral_code(), referred_by=referred_by)
+    user = User(email=body.email, password_hash=hash_password(body.password), full_name=body.full_name, role=body.role, referral_code=generate_referral_code(), referred_by=referred_by, email_verified=False)
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
+    await db.commit()
+    try:
+        code = await _issue_email_otp(db, user)
+        await send_verification_otp(user.email, code)
+    except Exception:
+        logger.exception("Registration OTP delivery failed for user_id=%s", user.id)
+        raise HTTPException(503, "Account created, but the verification email could not be sent. Please use resend verification.")
     return user
 
 
@@ -145,6 +156,7 @@ async def login(body: LoginRequest, response: Response, platform: str = Query("a
     if user.password_hash is None: raise HTTPException(400, f"This account uses {user.oauth_provider or 'social'} login")
     if not verify_password(body.password, user.password_hash): raise HTTPException(401, "Invalid credentials")
     if not user.is_active: raise HTTPException(403, "Account disabled")
+    if not user.email_verified: raise HTTPException(403, "Please verify your email before signing in")
     tokens = await _issue_tokens(db, user)
     if _is_web_platform(platform):
         _set_refresh_cookie(response, tokens.refresh_token)
@@ -287,3 +299,80 @@ async def facebook_callback(code: str, state: str, db: AsyncSession = Depends(ge
     provider_data = await exchange_facebook_code(code, redirect_uri=record.redirect_uri)
     user = await _upsert_oauth_user(db, provider_data, role=record.role)
     return await _oauth_redirect(db, user, record.platform, record.redirect_uri)
+
+
+# Email verification OTPs
+def _otp_digest(code: str) -> str:
+    return hmac.new(settings.SECRET_KEY.encode(), code.encode(), hashlib.sha256).hexdigest()
+
+
+async def _issue_email_otp(db: AsyncSession, user: User) -> str:
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    now = datetime.utcnow()
+    await db.execute(
+        update(EmailOTP).where(EmailOTP.user_id == user.id, EmailOTP.used.is_(False)).values(used=True)
+    )
+    db.add(EmailOTP(
+        user_id=user.id,
+        code_hash=_otp_digest(code),
+        expires_at=now + timedelta(minutes=10),
+        attempts=0,
+    ))
+    await db.commit()
+    return code
+
+
+async def _send_otp_for_email(db: AsyncSession, email: str) -> None:
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    # Keep the same response for unknown, verified, and unverified addresses.
+    if not user or user.email_verified:
+        return
+    code = await _issue_email_otp(db, user)
+    await send_verification_otp(user.email, code)
+
+
+@router.post("/otp/send")
+async def send_otp(body: SendOTPRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        await _send_otp_for_email(db, body.email)
+    except Exception:
+        logger.exception("Verification OTP send failed")
+        raise HTTPException(503, "Unable to send verification email right now")
+    return {"detail": "If the account exists and needs verification, a code has been sent."}
+
+
+@router.post("/otp/resend")
+async def resend_otp(body: SendOTPRequest, db: AsyncSession = Depends(get_db)):
+    return await send_otp(body, db)
+
+
+@router.post("/otp/verify")
+async def verify_otp(body: VerifyOTPRequest, db: AsyncSession = Depends(get_db)):
+    if len(body.code) != 6 or not body.code.isdigit():
+        raise HTTPException(400, "Invalid or expired verification code")
+    result = await db.execute(select(User).where(User.email == body.email).with_for_update())
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(400, "Invalid or expired verification code")
+    otp_result = await db.execute(
+        select(EmailOTP)
+        .where(EmailOTP.user_id == user.id, EmailOTP.used.is_(False))
+        .order_by(EmailOTP.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    otp = otp_result.scalar_one_or_none()
+    if not otp or otp.expires_at < datetime.utcnow() or otp.attempts >= 5:
+        raise HTTPException(400, "Invalid or expired verification code")
+    otp.attempts += 1
+    if not hmac.compare_digest(_otp_digest(body.code), otp.code_hash):
+        await db.commit()
+        raise HTTPException(400, "Invalid or expired verification code")
+    otp.used = True
+    user.email_verified = True
+    await db.execute(
+        update(EmailOTP).where(EmailOTP.user_id == user.id, EmailOTP.id != otp.id, EmailOTP.used.is_(False)).values(used=True)
+    )
+    await db.commit()
+    return {"detail": "Email verified successfully."}

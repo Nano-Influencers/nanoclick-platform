@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./v2-verification.css";
+import { api } from "../../api.js";
 
 const assets = {
   brandIcon: "/assets/nano-v2/brand-mark.svg",
@@ -102,24 +103,40 @@ function ResendRow({ seconds, onResend }) {
 export function EmailVerificationPage() {
   const params = new URLSearchParams(window.location.search);
   const previewState = params.get("state") || "";
-  const email = params.get("email") || "adaeze@gmail.com";
+  const email = params.get("email") || "";
   const [code, setCode] = useState(() => previewState === "error" ? "652027" : previewState === "filled" ? "65202" : "");
   const [error, setError] = useState(previewState === "error" ? "invalid verification code" : "");
   const [seconds, restartCountdown] = useResendCountdown(40);
+  const [busy, setBusy] = useState(false);
 
-  const verify = () => {
-    if (code.length < 6) return;
-    if (code === "123456") {
+  const verify = async () => {
+    if (code.length !== 6 || busy) return;
+    if (!email) { setError("Email address is missing. Please register again."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await api.verifyOTP(email, code);
       window.location.href = "/verify-whatsapp";
-      return;
+    } catch (err) {
+      setError(err.message || "Invalid or expired verification code");
+    } finally {
+      setBusy(false);
     }
-    setError("invalid verification code");
   };
 
-  const resend = () => {
-    setCode("");
+  const resend = async () => {
+    if (!email || busy) return;
+    setBusy(true);
     setError("");
-    restartCountdown();
+    try {
+      await api.resendOTP(email);
+      setCode("");
+      restartCountdown();
+    } catch (err) {
+      setError(err.message || "Could not resend verification code");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -139,7 +156,7 @@ export function EmailVerificationPage() {
             {error && <p className="v2-code-error">{error}</p>}
           </div>
           <VerificationButtons
-            primaryLabel="Verify Code"
+            primaryLabel={busy ? "Please wait..." : "Verify Code"}
             secondaryLabel="Change Email"
             onPrimary={verify}
             onSecondary={() => { window.location.href = "/register"; }}

@@ -19,6 +19,7 @@ class User(Base):
     referred_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     kyc_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     oauth_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     oauth_provider_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
