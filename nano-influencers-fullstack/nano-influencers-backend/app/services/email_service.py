@@ -29,3 +29,25 @@ async def send_password_reset_email(recipient: str, token: str) -> None:
     """Send a reset link without blocking the async request loop."""
     reset_url = f"{settings.PASSWORD_RESET_URL.rstrip('/')}?token={token}"
     await asyncio.to_thread(_send_reset_email_sync, recipient, reset_url)
+
+def _send_verification_email_sync(recipient: str, code: str) -> None:
+    message = EmailMessage()
+    message["Subject"] = "Your Nano Influencers verification code"
+    message["From"] = settings.SMTP_FROM_EMAIL
+    message["To"] = recipient
+    message.set_content(
+        "Your verification code is:\n\n"
+        f"{code}\n\n"
+        "This code expires in 10 minutes. If you did not request it, ignore this email."
+    )
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as smtp:
+        if settings.SMTP_USE_TLS:
+            smtp.starttls()
+        if settings.SMTP_USERNAME:
+            smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+        smtp.send_message(message)
+
+
+async def send_verification_otp(recipient: str, code: str) -> None:
+    """Send an email verification code without blocking the async event loop."""
+    await asyncio.to_thread(_send_verification_email_sync, recipient, code)
