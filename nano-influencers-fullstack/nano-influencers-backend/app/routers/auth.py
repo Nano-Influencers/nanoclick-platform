@@ -92,13 +92,6 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
-    await db.commit()
-    try:
-        code = await _issue_email_otp(db, user)
-        await send_verification_otp(user.email, code)
-    except Exception:
-        logger.exception("Registration OTP delivery failed for user_id=%s", user.id)
-        raise HTTPException(503, "Account created, but the verification email could not be sent. Please use resend verification.")
     return user
 
 
@@ -141,10 +134,17 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         ref = await db.execute(select(User).where(User.referral_code == body.referral_code))
         r = ref.scalar_one_or_none()
         if r: referred_by = r.id
-    user = User(email=body.email, password_hash=hash_password(body.password), full_name=body.full_name, role=body.role, referral_code=generate_referral_code(), referred_by=referred_by)
+    user = User(email=body.email, password_hash=hash_password(body.password), full_name=body.full_name, role=body.role, referral_code=generate_referral_code(), referred_by=referred_by, email_verified=False)
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
+    await db.commit()
+    try:
+        code = await _issue_email_otp(db, user)
+        await send_verification_otp(user.email, code)
+    except Exception:
+        logger.exception("Registration OTP delivery failed for user_id=%s", user.id)
+        raise HTTPException(503, "Account created, but the verification email could not be sent. Please use resend verification.")
     return user
 
 
