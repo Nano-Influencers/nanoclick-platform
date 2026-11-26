@@ -8,7 +8,8 @@ from app.models.campaign import CampaignTargeting
 from app.models.task import Task
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.routers import campaigns as campaigns_router\nfrom app.routers.campaigns import create_campaign
+from app.routers import campaigns as campaigns_router
+from app.routers.campaigns import create_campaign
 from app.schemas.campaign import CampaignCreate, CampaignTargetingCreate
 
 
@@ -29,7 +30,8 @@ async def _user(db: AsyncSession) -> User:
 @pytest.mark.asyncio
 async def test_interest_only_targeting_is_marked_and_priced_as_targeted(db: AsyncSession, monkeypatch):
     from app.config import settings
-    monkeypatch.setattr(settings, "CAMPAIGN_LAUNCH_ENABLED", True)\n    monkeypatch.setattr(campaigns_router, "CAMPAIGN_LAUNCH_VERIFIED", True)
+    monkeypatch.setattr(settings, "CAMPAIGN_LAUNCH_ENABLED", True)
+    monkeypatch.setattr(campaigns_router, "CAMPAIGN_LAUNCH_VERIFIED", True)
     advertiser = await _user(db)
     body = CampaignCreate(
         title="Interest targeting",
