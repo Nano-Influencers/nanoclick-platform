@@ -80,11 +80,16 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         "/auth/forgot-password": ("auth-forgot-password", 5, 3600),
         "/auth/reset-password": ("auth-reset-password", 5, 3600),
         "/auth/change-password": ("auth-change-password", 5, 3600),
+        "/auth/me/avatar": ("profile-avatar-upload", 10, 3600),
+        "/auth/me/avatar/upload-url": ("profile-avatar-presign", 10, 3600),
+        "/auth/me/avatar/confirm": ("profile-avatar-confirm", 10, 3600),
         "/auth/oauth/exchange": ("auth-oauth-exchange", 20, 900),
         "/wallet/withdraw": ("wallet-withdraw", 10, 3600),
         "/wallet/deposit/initialize": ("wallet-deposit", 10, 3600),
         "/wallet/resolve-account": ("wallet-resolve-account", 30, 900),
         "/support/contact": ("support-contact", 5, 3600),
+        "/campaigns/creative-upload-url": ("campaign-creative-upload", 20, 3600),
+        "/campaigns/creative-confirm": ("campaign-creative-confirm", 30, 3600),
     }
     rule = rules.get(path)
     if rule:
