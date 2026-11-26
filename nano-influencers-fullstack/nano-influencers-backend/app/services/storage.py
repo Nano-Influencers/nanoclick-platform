@@ -162,6 +162,33 @@ def validate_uploaded_object(file_key: str, required_prefix: str) -> dict:
     content_type = (metadata.get("ContentType") or "").split(";")[0].strip().lower()
     if content_type not in CONTENT_TYPES[ext]:
         raise ValueError("Uploaded file type does not match its extension")
+    try:
+        sample_obj = _s3().get_object(Bucket=settings.S3_BUCKET_NAME, Key=file_key, Range="bytes=0-15")
+        signature = sample_obj["Body"].read(16)
+    except Exception as exc:
+        raise ValueError("Unable to inspect uploaded file content") from exc
+    signatures = {
+        "jpg": signature.startswith(b"\\xff\\xd8\\xff"),
+        "jpeg": signature.startswith(b"\\xff\\xd8\\xff"),
+        "png": signature.startswith(b"\\x89PNG\\r\\n\\x1a\\n"),
+        "webp": len(signature) >= 12 and signature[:4] == b"RIFF" and signature[8:12] == b"WEBP",
+        "pdf": signature.startswith(b"%PDF-"),
+        "mp4": len(signature) >= 8 and signature[4:8] == b"ftyp",
+    }
+    if not signatures.get(ext, False):
+        raise ValueError("Uploaded file content does not match its declared file type")
+    if ext in {"jpg", "jpeg", "png", "webp"}:
+        try:
+            obj = _s3().get_object(Bucket=settings.S3_BUCKET_NAME, Key=file_key)
+            image_bytes = obj["Body"].read(MAX_FILE_SIZE_BYTES + 1)
+            if len(image_bytes) > MAX_FILE_SIZE_BYTES:
+                raise ValueError("Uploaded image exceeds the maximum file size")
+            image = Image.open(io.BytesIO(image_bytes))
+            image.verify()
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("Uploaded image is not a valid image file") from exc
     return {
         "file_key": file_key,
         "size": size,
