@@ -91,6 +91,35 @@ def generate_presigned_download_url(file_key: str, expires_in: int = 300) -> dic
     return {"download_url": url, "expires_in_seconds": expires_in}
 
 
+def store_profile_avatar(file_bytes: bytes, user_id: str, max_bytes: int = 5 * 1024 * 1024) -> str:
+    """Validate and store a profile image server-side, avoiding browser bucket CORS."""
+    if not file_bytes or len(file_bytes) > max_bytes:
+        raise ValueError("Profile photos must be non-empty and 5 MB or smaller")
+    try:
+        image = Image.open(io.BytesIO(file_bytes))
+        image_format = (image.format or "").upper()
+        if image.width * image.height > 20_000_000:
+            raise ValueError("Profile photo dimensions are too large")
+        image.verify()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("Choose a valid JPG, PNG, or WebP image") from exc
+    extensions = {"JPEG": ("jpg", "image/jpeg"), "PNG": ("png", "image/png"), "WEBP": ("webp", "image/webp")}
+    if image_format not in extensions:
+        raise ValueError("Profile photos must be JPG, PNG, or WebP images")
+    extension, content_type = extensions[image_format]
+    key = f"avatars/{user_id}/{uuid.uuid4()}.{extension}"
+    _s3().put_object(
+        Bucket=settings.S3_BUCKET_NAME,
+        Key=key,
+        Body=file_bytes,
+        ContentType=content_type,
+        CacheControl="private, max-age=300",
+    )
+    return key
+
+
 def validate_uploaded_image(file_key: str, required_prefix: str, max_bytes: int = 5 * 1024 * 1024) -> dict:
     """Validate an uploaded avatar's ownership, size, metadata and actual image data."""
     details = validate_uploaded_object(file_key, required_prefix)
