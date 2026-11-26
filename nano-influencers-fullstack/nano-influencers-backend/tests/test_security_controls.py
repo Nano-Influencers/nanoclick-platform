@@ -43,10 +43,10 @@ async def test_rate_limiter_fails_closed_when_redis_is_unavailable_in_production
 async def test_security_headers_are_returned_on_api_responses():
     async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/health")
+        private = await client.get("/auth/me")
     assert response.status_code == 200
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    private = await client.get("/auth/me")
     assert private.status_code == 401
     assert private.headers["cache-control"] == "no-store"
