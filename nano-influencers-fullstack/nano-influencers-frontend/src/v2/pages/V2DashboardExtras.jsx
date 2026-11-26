@@ -233,25 +233,25 @@ export function V2ReferAndEarn() {
     <main className="ni-v2 v2-extra-page v2-refer-page">
       <div className="v2-extra-main">
         <BackHeader />
-        <PageIntro title="Refer & Earn" subtitle="Invite friends to Nano Influencers and earn rewards when they launch campaigns." />
+        <PageIntro title="Refer & Earn" subtitle="Invite friends to Nano Influencers and earn a referral bonus when they complete their first approved task." />
         <section className="v2-extra-panel v2-refer-hero">
           <span className="v2-extra-icon"><img src={assets.refer} alt="" /></span>
           <h2>Share Nano Influencers</h2>
-          <p>Earn 2% on every eligible campaign your referral starts. Share your personal link to get started.</p>
+          <p>Share your personal link. You receive the configured referral bonus after your referred worker completes their first approved task.</p>
           {loading ? <p>Loading your referral link…</p> : error ? <p role="alert">{error}</p> : (
             <div className="v2-refer-link-row">
               <input aria-label="Your referral link" readOnly value={referralLink || "Referral link unavailable"} />
               <button type="button" onClick={copy} disabled={!referralLink}>{copied ? "Copied" : "Copy link"}</button>
             </div>
           )}
-          {user?.referral_code && <p className="v2-refer-code">Your referral code: <strong>{user.referral_code}</strong></p>}
+          {user?.referral_code && <p className="v2-refer-code">Your referral code: <strong>{user.referral_code}</strong></p>}\n          {!loading && stats && <p className="v2-refer-stats">People referred: <strong>{Number(stats.referral_count || 0).toLocaleString()}</strong> · Referral earnings: <strong>₦{Number(stats.total_referral_earnings_ngn || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></p>}
         </section>
         <section className="v2-extra-panel v2-refer-steps">
           <div className="v2-extra-section-heading"><h2>How it works</h2><p>Three simple steps to earn referral rewards.</p></div>
           <div className="v2-extra-requirements">
             <RequirementCard number="01" icon={assets.share} title="Share your link">Send your personal referral link to friends, clients, and your business network.</RequirementCard>
             <RequirementCard number="02" icon={assets.eye} title="Your friend joins">Your friend creates an account using your referral link.</RequirementCard>
-            <RequirementCard number="03" icon={assets.award} title="Earn rewards">Receive 2% on eligible campaigns started by your referral.</RequirementCard>
+            <RequirementCard number="03" icon={assets.award} title="Earn rewards">Receive the configured referral bonus after your referred worker completes their first approved task.</RequirementCard>
           </div>
         </section>
       </div>
