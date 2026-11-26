@@ -27,7 +27,7 @@ async def _user(db: AsyncSession) -> User:
 
 
 @pytest.mark.asyncio
-async def test_interest_only_targeting_is_marked_and_priced_as_targeted(db: AsyncSession):
+async def test_interest_only_targeting_is_marked_and_priced_as_targeted(db: AsyncSession, monkeypatch):\n    from app.config import settings\n    monkeypatch.setattr(settings, "CAMPAIGN_LAUNCH_ENABLED", True)
     advertiser = await _user(db)
     body = CampaignCreate(
         title="Interest targeting",
