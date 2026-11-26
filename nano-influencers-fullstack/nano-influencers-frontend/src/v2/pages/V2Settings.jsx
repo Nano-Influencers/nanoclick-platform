@@ -377,8 +377,8 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
   );
 }
 
-function SettingsActions({ onSave, saving = false }) {
-  return <div className="v2-settings-actions"><Button variant="secondary" disabled={saving}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button></div>;
+function SettingsActions({ onSave, onCancel, saving = false }) {
+  return <div className="v2-settings-actions"><Button variant="secondary" onClick={onCancel} disabled={saving || !onCancel}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button></div>;
 }
 
 function DeleteModal({ open, onClose, onConfirm, busy = false, error = "" }) {
