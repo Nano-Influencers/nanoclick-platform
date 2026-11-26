@@ -291,7 +291,7 @@ async def test_profile_avatar_upload_uses_backend_storage_and_persists(db_factor
         user = await _add_user(db, role="advertiser")
         await db.commit()
         user_id = user.id
-        access_token = create_access_token(str(user.id), user.role)
+        access_token = await _test_access_token(db, user)
 
     monkeypatch.setattr(
         auth_router,
