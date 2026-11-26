@@ -405,9 +405,10 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
     result = await db.execute(select(User).where(func.lower(User.email) == str(body.email).strip().lower()))
     user = result.scalar_one_or_none()
     if user and user.password_hash is not None:
-        # Six-digit, single-use reset code; only its digest is stored.
-        token = f"{secrets.randbelow(1_000_000):06d}"
-        db.add(PasswordResetToken(user_id=user.id, token=hash_token_identifier(token), expires_at=datetime.utcnow() + timedelta(minutes=10)))
+        # High-entropy, single-use reset token; only its digest is stored.
+        await db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used.is_(False)).values(used=True))
+        token = secrets.token_urlsafe(32)
+        db.add(PasswordResetToken(user_id=user.id, token=hash_token_identifier(token), expires_at=datetime.utcnow() + timedelta(minutes=15)))
         await db.flush()
         try:
             await send_password_reset_email(user.email, token)
@@ -420,11 +421,15 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
 async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == hash_token_identifier(body.token)).with_for_update())
     reset_token = result.scalar_one_or_none()
-    if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow(): raise HTTPException(400, "This reset code is invalid or has expired")
+    if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow(): raise HTTPException(400, "This reset token is invalid or has expired")
+    if reset_token.attempts >= 5: raise HTTPException(429, "Too many reset attempts. Request a new reset token.")
+    reset_token.attempts += 1
     if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
     user_result = await db.execute(select(User).where(User.id == reset_token.user_id)); user = user_result.scalar_one_or_none()
     if not user: raise HTTPException(404, "Account no longer exists")
-    user.password_hash = hash_password(body.new_password)\n    await db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used.is_(False)).values(used=True))\n    await _revoke_user_sessions(db, user.id)
+    user.password_hash = hash_password(body.new_password)
+    await db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used.is_(False)).values(used=True))
+    await _revoke_user_sessions(db, user.id)
     return {"message": "Password reset — you can now log in with your new password"}
 
 
