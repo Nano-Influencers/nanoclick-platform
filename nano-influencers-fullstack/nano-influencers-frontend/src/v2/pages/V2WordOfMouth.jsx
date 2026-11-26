@@ -236,10 +236,13 @@ function SummaryInfo({ icon, label, value, description }) {
 }
 
 export function V2WordOfMouthPreview() {
-  const draft = useMemo(readDraft, []);
+  const [draft, setDraft] = useState(() => readDraft());
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState("");
+  useEffect(() => { const id = new URLSearchParams(window.location.search).get("draft"); if (!id) return; let active = true; setDraftLoading(true); api.getCampaignDraft(id).then((saved) => { if (active && saved?.payload) setDraft(saved.payload); }).catch((error) => { if (active) setDraftError(error.message || "Unable to load saved draft."); }).finally(() => { if (active) setDraftLoading(false); }); return () => { active = false; }; }, []);
   const [accepted, setAccepted] = useState(() => window.innerWidth <= 700);
   const budget = Number(draft.budget || 5000);
-  const total = budget + 500;
+  const total = budget;
   const location = draft.targeting?.location || defaultDraft.targeting.location;
   const demographics = draft.targeting?.demographics || defaultDraft.targeting.demographics;
   const niche = draft.targeting?.niche || defaultDraft.targeting.niche;
@@ -248,15 +251,14 @@ export function V2WordOfMouthPreview() {
   const campaignName = draft.campaignName || defaultDraft.campaignName;
 
   const confirm = () => {
-    const success = new URLSearchParams(window.location.search).get("payment") === "success";
-    go(success ? "/campaigns/word-of-mouth/subscription-success" : "/campaigns/word-of-mouth/insufficient-balance");
+    setDraftError("Your draft is saved, but campaign launch is paused until the backend quote and verified wallet-debit workflow is available. No funds have been charged.");
   };
 
   return (
     <main className="ni-v2 v2-wom-preview-page">
       <div className="v2-wom-preview-shell">
         <header className="v2-wom-backbar"><button type="button" onClick={() => go("/campaigns/word-of-mouth")}><img src={assets.arrowLeft} alt="" /><span>Go Back</span></button></header>
-        <h1 className="v2-wom-summary-title">Order Summary</h1>
+        <h1 className="v2-wom-summary-title">Order Summary</h1>{draftLoading && <p role="status">Loading saved draft…</p>}{draftError && <p role="alert">{draftError}</p>}
 
         <section className="v2-wom-summary-panel v2-wom-ad-summary">
           <h2>Ad Overview</h2>
@@ -266,12 +268,12 @@ export function V2WordOfMouthPreview() {
           <div className="v2-wom-summary-section"><div className="v2-wom-summary-grid"><SummaryInfo icon={assets.schedule} label="Schedule" value={schedule} /><SummaryInfo icon={assets.budget} label="Budget" value={`₦${budget.toLocaleString("en-NG")}`} /></div></div>
         </section>
 
-        <section className="v2-wom-summary-panel v2-wom-performance"><h2>Estimated Ads Performance</h2><div className="v2-wom-summary-grid"><SummaryInfo icon={assets.reach} label="Potential Reach" description="people would see this ad" value="1,785 – 14,252" /><SummaryInfo icon={assets.impressions} label="Impressions" description="times your ad is shown" value="15,820 – 28,235" /></div><div className="v2-wom-delivery"><h2>Delivery Mode</h2><p className="is-green"><i /> <strong>WhatsApp</strong> — DMs, Status, and Group Chats</p><p className="is-orange"><i /> <strong>Instagram</strong> — DMs, Story, Post, Comment Session and Group Chats</p><p className="is-blue"><i /> <strong>Facebook</strong> — DMs, Messenger, Story, Post, Comment Sessions &amp; Groups</p></div><div className="v2-wom-warning">⚠️ <span>If targeting is too narrow it might take longer to exhaust the ad cost. Expand your target audience a bit to get the best reach.</span></div></section>
+        <section className="v2-wom-summary-panel v2-wom-performance"><h2>Estimated Ads Performance</h2><div className="v2-wom-summary-grid"><SummaryInfo icon={assets.reach} label="Potential Reach" description="people would see this ad" value="Awaiting live quote" /><SummaryInfo icon={assets.impressions} label="Impressions" description="times your ad is shown" value="Awaiting live quote" /></div><div className="v2-wom-delivery"><h2>Delivery Mode</h2><p className="is-green"><i /> <strong>WhatsApp</strong> — DMs, Status, and Group Chats</p><p className="is-orange"><i /> <strong>Instagram</strong> — DMs, Story, Post, Comment Session and Group Chats</p><p className="is-blue"><i /> <strong>Facebook</strong> — DMs, Messenger, Story, Post, Comment Sessions &amp; Groups</p></div><div className="v2-wom-warning">⚠️ <span>If targeting is too narrow it might take longer to exhaust the ad cost. Expand your target audience a bit to get the best reach.</span></div></section>
 
-        <section className="v2-wom-summary-panel v2-wom-payment"><h2>Payment Summary</h2><div className="v2-wom-total-mobile"><span>Total Cost</span><strong>₦{total.toLocaleString("en-NG")}</strong></div><div><span>Campaign</span><strong>{campaignName}</strong></div><div><span>Charged from</span><strong className="v2-wom-wallet"><i><img src={assets.wallet} alt="" /></i>Wallet</strong></div><div className="is-invoice"><span>Invoice ID</span><code>#Z4KF3VJG9A9Y</code></div></section>
+        <section className="v2-wom-summary-panel v2-wom-payment"><h2>Payment Summary</h2><div className="v2-wom-total-mobile"><span>Total Cost</span><strong>₦{total.toLocaleString("en-NG")}</strong></div><div><span>Campaign</span><strong>{campaignName}</strong></div><div><span>Charged from</span><strong className="v2-wom-wallet"><i><img src={assets.wallet} alt="" /></i>Wallet</strong></div><div className="is-invoice"><span>Invoice ID</span><code>Generated after campaign launch</code></div></section>
 
         <section className="v2-wom-summary-panel v2-wom-terms"><h2>Terms &amp; Conditions</h2><label><input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} /><span>{accepted ? "✓" : ""}</span><p>I have read and agreed to the terms &amp; conditions of this service. Read terms and conditions here</p></label></section>
-        <button className="v2-wom-confirm" type="button" onClick={confirm}>Confirm Payment</button>
+        <button className="v2-wom-confirm" type="button" onClick={confirm} disabled={draftLoading}>Save Draft / Launch Unavailable</button>
       </div>
     </main>
   );
