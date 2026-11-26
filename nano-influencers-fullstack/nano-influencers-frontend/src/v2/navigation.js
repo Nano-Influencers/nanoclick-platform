@@ -213,13 +213,6 @@ export function installV2Navigation() {
   document.addEventListener("submit", (event) => {
     const form = event.target;
 
-    if (form?.matches?.(".v2-auth-login .v2-auth-form")) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      go("/dashboard");
-      return;
-    }
-
     if (form?.matches?.(".v2-ct-form")) {
       const params = new URLSearchParams(window.location.search);
       if (params.get("payment") === "success") {
