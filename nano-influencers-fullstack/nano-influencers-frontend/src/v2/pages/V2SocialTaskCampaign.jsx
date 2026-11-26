@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from "react";
+import { api } from "../../api.js";
 const ASSET_BASE = "/assets/nano-v2-app/";
 import "./v2-social-task-campaign.css";
 
@@ -772,6 +773,8 @@ export default function V2SocialTaskCampaign() {
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const setValue = (key, value) => setValues((current) => ({ ...current, [key]: value }));
 
@@ -814,33 +817,26 @@ export default function V2SocialTaskCampaign() {
     }
   };
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError("");
     const draft = {
-      platform: platform.slug,
-      task: selectedTask.label,
-      pageAbout,
-      link,
-      quantity,
-      unitCost,
-      totalCost,
-      country,
-      targetState,
-      delivery,
-      startDate,
-      startTime,
-      instruction,
-      instructionFile,
-      taskMedia,
-      cashbackEvidence,
-      selectedReactions,
-      taskValues: values,
-      privacyAccepted,
-      termsAccepted,
+      platform: platform.slug, task: selectedTask.label, pageAbout, link, quantity,
+      country, targetState, delivery, startDate, startTime, instruction,
+      instructionFile, taskMedia, cashbackEvidence, selectedReactions,
+      taskValues: values, privacyAccepted, termsAccepted,
+      priceQuoteStatus: "unavailable",
     };
-    sessionStorage.setItem("v2SocialTaskCampaignDraft", JSON.stringify(draft));
-    const destination = query.get("payment") === "success" ? "/campaigns/subscription-success" : "/campaigns/insufficient-balance";
-    window.location.assign(destination);
+    try {
+      const saved = await api.saveCampaignDraft({ payload: draft, creative_key: null });
+      window.sessionStorage.setItem("v2SocialTaskCampaignDraft", JSON.stringify(draft));
+      window.location.assign(`/campaigns/preview-selections?draft=${encodeURIComponent(saved.id)}`);
+    } catch (error) {
+      setSubmitError(error.message || "Unable to save campaign draft.");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -888,12 +884,12 @@ export default function V2SocialTaskCampaign() {
               <div className="v2-stc-field"><FieldHeader title="Start Date" /><input className="v2-stc-input" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
               <div className="v2-stc-field"><FieldHeader title="Start time" /><input className="v2-stc-input" value={startTime} onChange={(event) => setStartTime(event.target.value)} /></div>
             </div>
-            <p className="v2-stc-total-line">Total Cost (Cost × Delivery Speed) × 1 <strong>= {money(totalCost)}</strong></p>
+            <p className="v2-stc-total-line">Pricing <strong>Unavailable until a verified server-side quote is configured</strong></p>
           </section>
 
           <section className="v2-stc-panel">
             <div className="v2-stc-cashback">
-              <div className="v2-stc-section-head"><h2>(Optional)</h2><p>Share the link and image below on your whatsapp status to get 1% cash back on your payment = {money(totalCost * 0.01)} money back.</p></div>
+              <div className="v2-stc-section-head"><h2>(Optional)</h2><p>Cashback rewards and proof submissions are paused until programme rules and verification are connected.</p></div>
               <div className="v2-stc-cashback-actions">
                 <button type="button" onClick={copyCashback}><i>↗</i><span>{copied ? "link copied" : "click on the icon\nto copy link"}</span></button>
                 <button type="button"><i>↓</i><span>click on the icon to\ndownload image</span></button>
@@ -908,7 +904,7 @@ export default function V2SocialTaskCampaign() {
             <Consent checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)}>I have read and agreed to terms and condition.</Consent>
           </section>
 
-          <button className="v2-stc-proceed" type="submit">Proceed</button>
+          {submitError && <p role="alert" className="v2-stc-submit-error">{submitError}</p>}<button className="v2-stc-proceed" type="submit" disabled={submitting}>{submitting ? "Saving draft..." : "Save Draft"}</button>
         </form>
       </div>
     </main>
