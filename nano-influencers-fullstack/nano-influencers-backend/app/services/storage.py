@@ -91,6 +91,33 @@ def generate_presigned_download_url(file_key: str, expires_in: int = 300) -> dic
     return {"download_url": url, "expires_in_seconds": expires_in}
 
 
+def validate_uploaded_image(file_key: str, required_prefix: str, max_bytes: int = 5 * 1024 * 1024) -> dict:
+    """Validate an uploaded avatar's ownership, size, metadata and actual image data."""
+    details = validate_uploaded_object(file_key, required_prefix)
+    if details["extension"] not in {"jpg", "jpeg", "png", "webp"}:
+        raise ValueError("Profile photos must be JPG, PNG, or WebP images")
+    if details["size"] > max_bytes:
+        raise ValueError("Profile photos must be 5 MB or smaller")
+    try:
+        obj = _s3().get_object(Bucket=settings.S3_BUCKET_NAME, Key=file_key)
+        body = obj["Body"].read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise ValueError("Profile photos must be 5 MB or smaller")
+        image = Image.open(io.BytesIO(body))
+        image.verify()
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("The uploaded file is not a valid image") from exc
+    return details
+
+
+def delete_storage_object(file_key: str) -> None:
+    """Delete an object using a validated opaque storage key."""
+    _validate_key(file_key)
+    _s3().delete_object(Bucket=settings.S3_BUCKET_NAME, Key=file_key)
+
+
 def validate_uploaded_object(file_key: str, required_prefix: str) -> dict:
     """Verify existence, caller namespace, size and content type server-side."""
     ext = _validate_key(file_key)

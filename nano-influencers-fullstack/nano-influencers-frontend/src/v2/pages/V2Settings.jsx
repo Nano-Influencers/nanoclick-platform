@@ -82,7 +82,7 @@ function TopHeader({ user }) {
       <p className="v2-settings-welcome">Welcome Back 👋</p>
       <div className="v2-settings-user">
         <button className="v2-settings-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
-        <div className="v2-settings-profile-chip"><img src={assets.profileSmall} alt="" /><span>{user?.full_name || user?.email || "My Account"}</span></div>
+        <div className="v2-settings-profile-chip"><img src={user?.avatar_url || assets.profileSmall} alt="" /><span>{user?.full_name || user?.email || "My Account"}</span></div>
       </div>
     </header>
   );
@@ -134,7 +134,7 @@ function PasswordField({ label, value, onChange, placeholder }) {
 
 function ProfileSettings({ user, onUserUpdate }) {
   const uploadRef = useRef(null);
-  const [avatar, setAvatar] = useState(null);
+  const [avatar, setAvatar] = useState(user?.avatar_url || null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
@@ -149,6 +149,7 @@ function ProfileSettings({ user, onUserUpdate }) {
       phone: user?.phone_number || "",
     }));
   }, [user]);
+  useEffect(() => { setAvatar(user?.avatar_url || null); }, [user?.avatar_url]);
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const saveProfile = async () => {
     const fullName = [form.first, form.last].map((part) => part.trim()).filter(Boolean).join(" ");
@@ -166,10 +167,42 @@ function ProfileSettings({ user, onUserUpdate }) {
       setSaving(false);
     }
   };
-  const onPhoto = (event) => {
+  const onPhoto = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    setAvatar(URL.createObjectURL(file));
+    setSaving(true);
+    setSaveError("");
+    setSaveSuccess("");
+    const previewUrl = URL.createObjectURL(file);
+    setAvatar(previewUrl);
+    try {
+      const updated = await api.uploadAvatar(file);
+      onUserUpdate?.(updated);
+      setAvatar(updated.avatar_url || null);
+      setSaveSuccess("Profile photo saved successfully.");
+    } catch (error) {
+      setAvatar(user?.avatar_url || null);
+      setSaveError(error.message || "Unable to save profile photo.");
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+      setSaving(false);
+      event.target.value = "";
+    }
+  };
+  const onRemovePhoto = async () => {
+    setSaving(true);
+    setSaveError("");
+    setSaveSuccess("");
+    try {
+      const updated = await api.removeAvatar();
+      onUserUpdate?.(updated);
+      setAvatar(null);
+      setSaveSuccess("Profile photo removed.");
+    } catch (error) {
+      setSaveError(error.message || "Unable to remove profile photo.");
+    } finally {
+      setSaving(false);
+    }
   };
   return (
     <div className="v2-settings-primary v2-settings-profile-panel">
@@ -181,8 +214,8 @@ function ProfileSettings({ user, onUserUpdate }) {
           </div>
           <div className="v2-settings-photo-actions">
             <input ref={uploadRef} type="file" accept="image/*" hidden onChange={onPhoto} />
-            <button type="button" className="is-change" onClick={() => uploadRef.current?.click()}><img src={assets.edit} alt="" />Change Photo</button>
-            <button type="button" className="is-remove" onClick={() => setAvatar(null)}><img src={assets.trash} alt="" />Remove Photo</button>
+            <button type="button" className="is-change" disabled={saving} onClick={() => uploadRef.current?.click()}><img src={assets.edit} alt="" />Change Photo</button>
+            <button type="button" className="is-remove" disabled={saving || !avatar} onClick={onRemovePhoto}><img src={assets.trash} alt="" />Remove Photo</button>
           </div>
         </div>
       </SectionCard>

@@ -124,6 +124,16 @@ export const api = {
   async restoreSession() { return accessToken ? { ok: true, reason: "access_token" } : tryRefresh(); },
   async me() { return request("/auth/me"); },
   async updateProfile(payload) { return request("/auth/me/profile", { method: "PATCH", body: payload }); },
+  async uploadAvatar(file) {
+    const extension = String(file?.name || "").split(".").pop().toLowerCase();
+    if (!file || !["jpg", "jpeg", "png", "webp"].includes(extension)) throw new ApiError("Choose a JPG, PNG, or WebP image.", 400);
+    if (file.size > 5 * 1024 * 1024) throw new ApiError("Profile photos must be 5 MB or smaller.", 400);
+    const upload = await request("/auth/me/avatar/upload-url", { method: "POST", body: { file_extension: extension } });
+    const uploaded = await fetchWithTimeout(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: file });
+    if (!uploaded.ok) throw new ApiError("The profile photo could not be uploaded. Please try again.", uploaded.status);
+    return request("/auth/me/avatar/confirm", { method: "POST", body: { file_key: upload.file_key } });
+  },
+  async removeAvatar() { return request("/auth/me/avatar", { method: "DELETE" }); },
   async changePassword(current_password, new_password) { return request("/auth/change-password", { method: "POST", body: { current_password, new_password } }); },
   async forgotPassword(email) { return request("/auth/forgot-password", { method: "POST", auth: false, body: { email } }); },
   async resetPassword(token, new_password) { return request("/auth/reset-password", { method: "POST", auth: false, body: { token, new_password } }); },

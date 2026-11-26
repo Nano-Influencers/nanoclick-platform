@@ -10,8 +10,10 @@ from app.main import app
 from app.models.auth_session import AuthSession, OAuthCode, OAuthState
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.routers.auth import _consume_oauth_state, _create_refresh_session
+from app.routers.auth import _consume_oauth_state, _create_refresh_session, _set_refresh_cookie
+from app.config import settings
 from app.services.auth_service import (
+    create_access_token,
     create_refresh_token,
     hash_token_identifier,
     new_oauth_state,
@@ -219,3 +221,62 @@ async def test_login_matches_email_case_insensitively_and_rejects_wrong_password
         wrong_password = await client.post("/auth/login?platform=app", json={"email": login_email, "password": "Definitely-Wrong-123!"})
         assert wrong_password.status_code == 401
         assert wrong_password.json()["detail"] == "Invalid credentials"
+
+
+
+def test_secure_refresh_cookie_supports_cross_site_web_frontend(monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_COOKIE_SECURE", True)
+    response = __import__("starlette.responses", fromlist=["Response"]).Response()
+    _set_refresh_cookie(response, "refresh-token-test")
+    cookie = response.headers["set-cookie"].lower()
+    assert "samesite=none" in cookie
+    assert "secure" in cookie
+    assert "httponly" in cookie
+
+
+@pytest.mark.asyncio
+async def test_profile_avatar_key_persists_and_is_returned_by_me(db_factory, monkeypatch):
+    import app.routers.auth as auth_router
+
+    async with db_factory() as db:
+        user = await _add_user(db, role="advertiser")
+        await db.commit()
+        user_id = user.id
+        access_token = create_access_token(str(user.id), user.role)
+
+    monkeypatch.setattr(
+        auth_router,
+        "validate_uploaded_image",
+        lambda file_key, required_prefix: {
+            "file_key": file_key,
+            "size": 1234,
+            "content_type": "image/png",
+            "extension": "png",
+        },
+    )
+    monkeypatch.setattr(
+        auth_router,
+        "generate_presigned_download_url",
+        lambda file_key, expires_in=300: {"download_url": "https://storage.example/avatar.png"},
+    )
+
+    avatar_key = f"avatars/{user_id}/avatar.png"
+    async with _client() as client:
+        response = await client.post(
+            "/auth/me/avatar/confirm",
+            json={"file_key": avatar_key},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["avatar_url"] == "https://storage.example/avatar.png"
+
+        profile = await client.get(
+            "/auth/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert profile.status_code == 200
+        assert profile.json()["avatar_url"] == "https://storage.example/avatar.png"
+
+    async with db_factory() as db:
+        stored_user = await db.get(User, user_id)
+        assert stored_user.avatar_key == avatar_key
