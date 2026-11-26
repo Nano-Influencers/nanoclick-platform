@@ -129,8 +129,23 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     email = str(body.email).strip()
     full_name = body.full_name.strip()
     existing = await db.execute(select(User).where(func.lower(User.email) == email.lower()))
-    if existing.scalar_one_or_none():
-        raise HTTPException(409, "Email already registered")
+    existing_user = existing.scalar_one_or_none()
+    if existing_user:
+        if existing_user.email_verified:
+            raise HTTPException(409, "Email already registered")
+        # Accounts left unverified by the previous release are already stored
+        # in PostgreSQL. Keep them recoverable without creating another user.
+        legacy_code = await _issue_email_otp(db, existing_user)
+        legacy_email_sent = True
+        try:
+            await send_verification_otp(existing_user.email, legacy_code)
+        except Exception:
+            legacy_email_sent = False
+            logger.exception("Legacy account verification email delivery failed")
+        return {
+            "detail": "An existing unverified account is waiting for email verification.",
+            "email_sent": legacy_email_sent,
+        }
 
     referred_by = None
     if body.referral_code:
