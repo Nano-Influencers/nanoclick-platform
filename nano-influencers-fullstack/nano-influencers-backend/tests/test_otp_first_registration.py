@@ -116,7 +116,7 @@ async def test_profile_phone_update_requires_auth_and_persists_name_and_phone(db
     await db.flush()
     db.add(Wallet(user_id=user.id))
     await db.flush()
-    token = create_access_token(str(user.id), user.role)
+    refresh = create_refresh_token(str(user.id))\n    await _create_refresh_session(db, user.id, refresh)\n    token = create_access_token(str(user.id), user.role, session_jti=token_jti(refresh))
 
     async def override_db():
         yield db
