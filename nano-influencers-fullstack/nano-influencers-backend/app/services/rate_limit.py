@@ -55,7 +55,8 @@ async def check_rate_limit(request: Request, name: str, limit: int, window_secon
     identity_key = hashlib.sha256(str(identity).strip().lower().encode("utf-8")).hexdigest()[:32] if identity else "anonymous"
     redis = _get_redis()
     try:
-        for dimension, digest in (("ip", ip_key), ("account", identity_key)):
+        dimensions = [("ip", ip_key)] + ([("account", identity_key)] if identity else [])
+        for dimension, digest in dimensions:
             key = f"nanoclick:rl:{name}:{dimension}:{digest}"
             count, ttl = await redis.eval(_FIXED_WINDOW_SCRIPT, 1, key, window_seconds)
             if int(count) > limit:
