@@ -90,6 +90,8 @@ async def confirm_campaign_creative(body: CampaignCreativeConfirmRequest, curren
         return {"file_key": details["file_key"], "content_type": details["content_type"], "size": details["size"]}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Campaign storage is temporarily unavailable") from exc
 
 
 @router.post("/drafts")
@@ -100,6 +102,8 @@ async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = 
             validate_uploaded_object(file_key, f"campaigns/{current_user.id}")
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(503, "Campaign storage is temporarily unavailable") from exc
     old_keys = set()
     if body.draft_id:
         result = await db.execute(select(CampaignDraft).where(CampaignDraft.id == body.draft_id, CampaignDraft.owner_id == current_user.id).with_for_update())
