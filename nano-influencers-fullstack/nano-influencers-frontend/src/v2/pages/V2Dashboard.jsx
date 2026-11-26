@@ -213,7 +213,7 @@ function LatestActivity({ rows = [], loading = false, error = "" }) {
   </section>;
 }
 
-function ReferralSupport({ user }) {
+function ReferralSupport({ user, referrals }) {
   const [copied, setCopied] = useState(false);
   const referral = user?.referral_code ? new URL(`/ref/${encodeURIComponent(user.referral_code)}`, window.location.origin).toString() : "Referral link unavailable";
   const copy = async () => {
@@ -225,7 +225,7 @@ function ReferralSupport({ user }) {
         <img className="decor-a" src={assets.referralDecorA} alt="" /><img className="decor-b" src={assets.referralDecorB} alt="" />
         <span className="v2-dashboard-icon-circle is-orange"><img src={assets.floatingRefer} alt="" /></span>
         <h2>Refer a Friend</h2>
-        <p>Earn a referral bonus when your referred worker completes their first approved task.</p>
+        <p>Earn a referral bonus when your referred worker completes their first approved task. Referred: {Number(referrals?.referral_count || 0)} · Earned: ₦{Number(referrals?.total_referral_earnings_ngn || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
         <button type="button" onClick={copy}><span>{referral}</span><strong>{copied ? "Copied" : "Copy"}</strong></button>
       </section>
       <section className="v2-dashboard-support-card"><span className="v2-dashboard-icon-circle is-white"><img src={assets.help} alt="" /></span><h2>Dispute &amp; Support</h2><p>Any issues with your campaigns or account? Our support team is ready to help.</p><Button variant="nav">Contact Support</Button></section>
@@ -297,7 +297,7 @@ export default function V2Dashboard() {
         <div className="v2-dashboard-metrics-scroll">{dashboardLoading ? <p role="status">Loading dashboard…</p> : dashboardMetrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
         <LaunchBanner />
         <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} hasCampaigns={campaigns.length > 0} /><QuickActions /></div>
-        <div className="v2-dashboard-lower"><LatestActivity rows={transactions} loading={dashboardLoading} error={dashboardError} /><ReferralSupport user={user} /></div>
+        <div className="v2-dashboard-lower"><LatestActivity rows={transactions} loading={dashboardLoading} error={dashboardError} /><ReferralSupport user={user} referrals={referrals} /></div>
       </div>
       <div className="v2-dashboard-floating mobile-only"><a className="is-refer" href="/refer" aria-label="Refer and earn"><img src={assets.floatingRefer} alt="" /></a><a className="is-help" href="/support" aria-label="Help and support"><img src={assets.help} alt="" /></a></div>
       <MobileBottomNav />
