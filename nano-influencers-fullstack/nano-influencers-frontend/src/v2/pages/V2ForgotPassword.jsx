@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../../../api";
+import { api } from "../../api";
 import "./v2-auth.css";
 import "./v2-forgot-password.css";
 
@@ -95,7 +95,7 @@ export default function V2ForgotPassword() {
 
 export function V2ForgotPasswordCode() {
   const params = new URLSearchParams(window.location.search);
-  const email = params.get("email") || "adaeze@gmail.com";
+  const email = params.get("email") || "";
   const state = params.get("state") || "";
   const [code, setCode] = useState("");
   const [error, setError] = useState(state === "error" ? "Invalid verification code" : "");
@@ -124,13 +124,18 @@ function PasswordField({ label, value, onChange }) {
 
 export function V2ForgotPasswordReset() {
   const params = new URLSearchParams(window.location.search);
-  const previewError = params.get("state") === "error";
+  const email = params.get("email") || "";
   const code = params.get("code") || "";
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [seconds, restart] = useCountdown();
+  const resend = async () => {
+    if (!email) { setError("Please request a new reset code."); return; }
+    try { await api.forgotPassword(email); setError(""); restart(); }
+    catch (err) { setError(err.message || "Unable to resend code."); }
+  };
   const submit = async (event) => {
     event.preventDefault();
     if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
@@ -143,14 +148,14 @@ export function V2ForgotPasswordReset() {
   };
   return (
     <ForgotShell>
-      <Heading title="Create new password">Your identity has been verified. Set a new secure password.</Heading>
+      <Heading title="Create new password">Enter your new password to complete the reset-code verification.</Heading>
       <form className="v2-forgot-form" onSubmit={submit}>
         <PasswordField label="New Password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} />
         <PasswordField label="Confirm New Password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setError(""); }} />
         {error && <p className="v2-forgot-error">{error}</p>}
         <button className="v2-forgot-primary" type="submit" disabled={busy}>{busy ? "Resetting..." : "Reset Password"}</button>
       </form>
-      <Resend seconds={seconds} onResend={restart} />
+      <Resend seconds={seconds} onResend={resend} />
     </ForgotShell>
   );
 }
