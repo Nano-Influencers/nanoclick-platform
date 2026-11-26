@@ -5,9 +5,9 @@ import pyotp
 import pytest
 from httpx import ASGITransport
 
-from app.dependencies import get_current_user, get_db
+from app.dependencies import get_current_user, get_db, require_admin
 from app.main import app
-from app.models.user import User
+from app.models.user import User\nfrom starlette.requests import Request
 from app.services.secret_encryption import decrypt_secret, encrypt_secret
 
 
@@ -41,7 +41,7 @@ async def test_admin_mfa_secret_is_encrypted_at_rest_and_verifiable(db):
         assert response.status_code == 200
         assert admin.mfa_enabled is True
         assert admin.mfa_secret != secret
-        assert decrypt_secret(admin.mfa_secret) == secret
+        assert decrypt_secret(admin.mfa_secret) == secret\n        scope = {"type": "http", "method": "GET", "path": "/admin/dashboard", "headers": [(b"x-admin-mfa-code", pyotp.TOTP(secret).now().encode())], "query_string": b"", "scheme": "https", "server": ("api.example.com", 443), "client": ("127.0.0.1", 12345)}\n        authorized = await require_admin(Request(scope), current_user=admin)\n        assert authorized.id == admin.id
     finally:
         app.dependency_overrides.pop(get_current_user, None)
         app.dependency_overrides.pop(get_db, None)
