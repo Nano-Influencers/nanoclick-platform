@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 import uuid
@@ -77,11 +78,26 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         "/auth/change-password": ("auth-change-password", 5, 3600),
         "/auth/oauth/exchange": ("auth-oauth-exchange", 20, 900),
         "/wallet/withdraw": ("wallet-withdraw", 10, 3600),
-        "/wallet/deposit": ("wallet-deposit", 20, 3600),
+        "/wallet/deposit/initialize": ("wallet-deposit", 10, 3600),
         "/wallet/resolve-account": ("wallet-resolve-account", 30, 900),
     }
     rule = rules.get(path)
     if rule:
+        authorization = request.headers.get("authorization", "")
+        if authorization.lower().startswith("bearer "):
+            payload = decode_token(authorization[7:].strip())
+            if payload:
+                request.state.rate_limit_identity = payload.get("sub")
+        elif request.method == "POST" and path.startswith("/auth/"):
+            raw = await request.body()
+            try:
+                identity_data = json.loads(raw or b"{}")
+                request.state.rate_limit_identity = identity_data.get("email")
+            except (ValueError, AttributeError):
+                request.state.rate_limit_identity = None
+            async def receive():
+                return {"type": "http.request", "body": raw, "more_body": False}
+            request._receive = receive
         await check_rate_limit(request, *rule)
     return await call_next(request)
 
