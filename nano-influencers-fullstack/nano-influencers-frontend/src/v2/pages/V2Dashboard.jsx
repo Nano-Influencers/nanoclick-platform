@@ -38,15 +38,18 @@ const assets = {
   floatingRefer: `${ASSET_BASE}dashboard-floating-refer.svg`,
 };
 
-const metrics = [
-  { title: "Active Campaigns", value: "0", note: "No campaigns running", button: "View Campaigns", tone: "blue", icon: assets.campaign },
-  { title: "Total Spend", value: "₦0", note: "This month", button: "Spend Report", tone: "green", icon: assets.spend },
-  { title: "Total Reach", value: "0", note: "People reached", button: "View Analytics", tone: "yellow", icon: assets.reach },
-  { title: "Total Refferal", value: "0", note: "People reffered", button: "View Refferals", tone: "lavender", icon: assets.people },
-];
+function buildMetrics(wallet, campaigns, referrals) {
+  const active = campaigns.filter((c) => ["active", "awaiting_workers"].includes(c.status)).length;
+  return [
+    { title: "Active Campaigns", value: String(active), note: "Currently running", button: "View Campaigns", tone: "blue", icon: assets.campaign, href: "/campaigns" },
+    { title: "Total Spend", value: "₦" + (Number(wallet?.total_spent_kobo || 0) / 100).toLocaleString("en-NG"), note: "Lifetime spend", button: "Spend Report", tone: "green", icon: assets.spend, href: "/analytics" },
+    { title: "Campaign Reach", value: "—", note: "Reach reporting unavailable", button: "View Analytics", tone: "yellow", icon: assets.reach, href: "/analytics" },
+    { title: "Total Referrals", value: String(referrals?.referral_count || 0), note: "People referred", button: "View Referrals", tone: "lavender", icon: assets.people, href: "/refer" },
+  ];
+}
 
 const quickActions = [
-  { title: "Add Funds", desc: "Top up your wallet", tone: "orange", icon: assets.add },
+  { title: "Add Funds", desc: "Top up your wallet", tone: "orange", icon: assets.add, href: "/wallet" },
   { title: "Refer & Earn", desc: "Earn 2% per referral", tone: "green", icon: assets.refer, href: "/refer" },
   { title: "Win Gifts", desc: "1% cashback + weekly raffle", tone: "yellow", icon: assets.gift, href: "/dashboard/giveaway" },
   { title: "Try for Free", desc: "2 free trial weekly", tone: "lavender", icon: assets.unlock, href: "/dashboard/free-trial" },
@@ -131,7 +134,7 @@ function TopHeader({ profileOpen, onProfileClick, user }) {
   );
 }
 
-function BalanceCard() {
+function BalanceCard({ balance }) {
   return (
     <section className="v2-dashboard-balance-card">
       <img className="v2-dashboard-balance-decor" src={assets.balanceDecor} alt="" />
@@ -140,10 +143,10 @@ function BalanceCard() {
           <span className="v2-dashboard-icon-circle is-orange"><img src={assets.balance} alt="" /></span>
           <p>Current Balance</p>
         </div>
-        <strong>₦0.00</strong>
+        <strong>₦{(Number(balance?.balance_ngn || 0)).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
         <small>No pending transactions</small>
       </div>
-      <Button className="v2-dashboard-balance-button">Add Funds</Button>
+      <Button className="v2-dashboard-balance-button" to="/wallet">Add Funds</Button>
     </section>
   );
 }
@@ -155,7 +158,7 @@ function MetricCard({ metric }) {
       <div className="v2-dashboard-metric-text">
         <p>{metric.title}</p><strong>{metric.value}</strong><small>{metric.note}</small>
       </div>
-      <button type="button">{metric.button}</button>
+      <a href={metric.href}>{metric.button}</a>
     </article>
   );
 }
@@ -167,14 +170,14 @@ function LaunchBanner() {
       <div className="v2-dashboard-launch-copy">
         <h2>Launch Your Campaign</h2>
         <p>Get real people to promote your brand. They engage with your content in DMs &amp; groups where trust lives.</p>
-        <div className="v2-dashboard-launch-buttons"><Button>Start Now</Button><Button variant="nav">Manage</Button></div>
+        <div className="v2-dashboard-launch-buttons"><Button to="/campaigns">Start Now</Button><Button variant="nav" to="/campaigns/manage">Manage</Button></div>
       </div>
       <div className="v2-dashboard-launch-art desktop-only"><img src={assets.megaphone} alt="" /></div>
     </section>
   );
 }
 
-function AnalyticsChart({ emptyState = false }) {
+function AnalyticsChart({ emptyState = false, hasCampaigns = false }) {
   const [period, setPeriod] = useState("Weekly");
   return (
     <section className="v2-dashboard-analytics-card desktop-only">
@@ -186,10 +189,10 @@ function AnalyticsChart({ emptyState = false }) {
       </div>
       <div className="v2-dashboard-chart">
         <div className="v2-dashboard-y-axis"><span>2200</span><span>1650</span><span>1100</span><span>550</span><span>0</span></div>
-        <div className="v2-dashboard-chart-plot"><img className="grid" src={assets.chartGrid} alt="" /><img className={`lines${emptyState ? " is-empty" : ""}`} src={emptyState ? assets.emptyChartLines : assets.chartLines} alt="Campaign analytics lines" /></div>
+        <div className="v2-dashboard-chart-plot"><img className="grid" src={assets.chartGrid} alt="" /><img className="lines is-empty" src={assets.emptyChartLines} alt="" /></div>
         <div className="v2-dashboard-x-axis">{[1,2,3,4,5,6,7].map((day) => <span key={day}>Day {day}</span>)}</div>
       </div>
-      <div className="v2-dashboard-chart-legend"><span><i className="yellow" />Engagements</span><span><i className="green" />Impressions</span><span><i className="red" />Reach</span></div>
+      <p className="v2-dashboard-chart-legend">{hasCampaigns ? "Trend charts will appear when campaign time-series reporting is available." : "Create a campaign to see performance trends."}</p>
     </section>
   );
 }
@@ -217,7 +220,7 @@ function QuickActions() {
   );
 }
 
-function LatestActivity({ emptyState = false }) {
+function LatestActivity({ rows = [], loading = false, error = "" }) {
   return (
     <section className={`v2-dashboard-activity-card${emptyState ? " is-empty" : ""}`}>
       <div className="v2-dashboard-section-heading"><h2>Latest Activity</h2><button className={emptyState ? "is-muted" : ""} type="button">Show all</button></div>
@@ -278,7 +281,7 @@ function MobileProfileMenu({ open, onClose }) {
     <div className="v2-dashboard-profile-modal mobile-only" role="dialog" aria-modal="true" aria-label="Profile menu">
       <button className="v2-dashboard-profile-backdrop" type="button" aria-label="Close profile menu" onClick={onClose} />
       <div className="v2-dashboard-profile-dropdown">
-        <a href="#settings"><img src={assets.settings} alt="" /><span>Settings</span></a>
+        <a href="/settings"><img src={assets.settings} alt="" /><span>Settings</span></a>
         <button type="button" onClick={logoutAndRedirect}><img src={assets.logout} alt="" /><span>Log Out</span></button>
       </div>
     </div>
@@ -287,7 +290,7 @@ function MobileProfileMenu({ open, onClose }) {
 
 export default function V2Dashboard() {
   const [user, setUser] = useState(null);
-  const [profileError, setProfileError] = useState("");
+  const [profileError, setProfileError] = useState("");\n  const [wallet, setWallet] = useState(null);\n  const [campaigns, setCampaigns] = useState([]);\n  const [transactions, setTransactions] = useState([]);\n  const [referrals, setReferrals] = useState(null);\n  const [dashboardLoading, setDashboardLoading] = useState(true);\n  const [dashboardError, setDashboardError] = useState("");
   useEffect(() => {
     let active = true;
     (async () => {
@@ -310,7 +313,7 @@ export default function V2Dashboard() {
   }, []);
   const params = new URLSearchParams(window.location.search);
   const previewState = params.get("state") || "";
-  const emptyState = previewState === "empty";
+  const emptyState = !campaigns.length;\n  const dashboardMetrics = buildMetrics(wallet, campaigns, referrals);
   const [profileOpen, setProfileOpen] = useState(previewState === "profile");
 
   return (
@@ -321,11 +324,11 @@ export default function V2Dashboard() {
         {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <p className="v2-dashboard-welcome mobile-only">Welcome Back 👋</p>
         <div className="v2-dashboard-title-row desktop-only"><h1>Dashboard</h1><button className="v2-dashboard-date" type="button">Last 30 days <img src={assets.dateChevron} alt="" /></button></div>
-        <BalanceCard />
-        <div className="v2-dashboard-metrics-scroll">{metrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
+        <BalanceCard balance={wallet} />
+        <div className="v2-dashboard-metrics-scroll">{dashboardLoading ? <p role="status">Loading dashboard…</p> : dashboardMetrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
         <LaunchBanner />
-        <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} /><QuickActions /></div>
-        <div className="v2-dashboard-lower"><LatestActivity emptyState={emptyState} /><ReferralSupport user={user} /></div>
+        <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} hasCampaigns={campaigns.length > 0} /><QuickActions /></div>
+        <div className="v2-dashboard-lower"><LatestActivity rows={transactions} loading={dashboardLoading} error={dashboardError} /><ReferralSupport user={user} /></div>
       </div>
       <div className="v2-dashboard-floating mobile-only"><a className="is-refer" href="/refer" aria-label="Refer and earn"><img src={assets.floatingRefer} alt="" /></a><button className="is-help" type="button"><img src={assets.help} alt="" /></button></div>
       <MobileBottomNav />
