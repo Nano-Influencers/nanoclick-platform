@@ -72,7 +72,7 @@ function AppSidebar() {
         </div>
       </div>
       <button className="v2-settings-logout" type="button" onClick={logoutAndRedirect}><span>Log Out</span><img src={assets.logout} alt="" /></button>
-      <button className="v2-settings-collapse" type="button" aria-label="Collapse sidebar"><img src={assets.collapse} alt="" /></button>
+      <span className="v2-settings-collapse" aria-hidden="true"><img src={assets.collapse} alt="" /></span>
     </aside>
   );
 }
