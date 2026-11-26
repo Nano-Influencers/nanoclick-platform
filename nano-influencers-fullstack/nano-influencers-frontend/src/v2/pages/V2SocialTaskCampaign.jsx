@@ -883,7 +883,7 @@ export default function V2SocialTaskCampaign() {
       <div className="v2-stc-shell">
         <header className="v2-stc-backbar">
           <a href="/campaigns"><BackIcon /><span>Go Back</span></a>
-          <div className="v2-stc-user"><span className="v2-stc-user-avatar">{String(user?.full_name || user?.email || "U").trim().split(/\\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</span><span className="v2-stc-user-copy"><strong>{user?.full_name || user?.email || "My Account"}</strong><small>{user?.role ? user.role[0].toUpperCase() + user.role.slice(1) : "Account"}</small></span></div>
+          <div className="v2-stc-user"><span className="v2-stc-user-avatar">{String(user?.full_name || user?.email || "U").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</span><span className="v2-stc-user-copy"><strong>{user?.full_name || user?.email || "My Account"}</strong><small>{user?.role ? user.role[0].toUpperCase() + user.role.slice(1) : "Account"}</small></span></div>
         </header>
 
         <header className="v2-stc-heading"><h1>{platform.title}</h1></header>
