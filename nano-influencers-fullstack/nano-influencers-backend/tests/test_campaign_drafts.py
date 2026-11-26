@@ -108,3 +108,29 @@ async def test_campaign_creative_upload_and_confirmation_are_owner_scoped(db, mo
 
         invalid = await client.post("/campaigns/creative-upload-url", json={"file_extension": "exe"})
         assert invalid.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_campaign_draft_rejects_attachment_key_from_another_account(db, monkeypatch, reset_overrides):
+    owner = await make_advertiser(db)
+
+    async def current_user():
+        return owner
+
+    async def db_session():
+        yield db
+
+    def validate(key, prefix):
+        if not key.startswith(prefix + "/"):
+            raise ValueError("Storage object does not belong to this account")
+        return {"file_key": key}
+
+    monkeypatch.setattr(campaigns_router, "validate_uploaded_object", validate)
+    app.dependency_overrides[require_advertiser] = current_user
+    app.dependency_overrides[get_db] = db_session
+    async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/campaigns/drafts", json={
+            "payload": {"taskMediaKey": f"campaigns/{uuid.uuid4()}/foreign.png"},
+        })
+    assert response.status_code == 400
+    assert "does not belong" in response.json()["detail"]
