@@ -169,7 +169,7 @@ def validate_uploaded_object(file_key: str, required_prefix: str) -> dict:
         raise ValueError("Unable to inspect uploaded file content") from exc
     signatures = {
         "jpg": signature.startswith(b"\xff\xd8\xff"),
-        "jpeg": signature.startswith(b"\\xff\\xd8\\xff"),
+        "jpeg": signature.startswith(b"\xff\xd8\xff"),
         "png": signature.startswith(b"\x89PNG\r\n\x1a\n"),
         "webp": len(signature) >= 12 and signature[:4] == b"RIFF" and signature[8:12] == b"WEBP",
         "pdf": signature.startswith(b"%PDF-"),
