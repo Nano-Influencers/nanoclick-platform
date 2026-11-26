@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import "./v2-help-support.css";
 
@@ -73,14 +73,18 @@ function Sidebar() {
 }
 
 function Header() {
+  const [user, setUser] = useState(null);
+  useEffect(() => { let active = true; api.me().then((profile) => { if (active) setUser(profile); }).catch(() => {}); return () => { active = false; }; }, []);
+  const displayName = user?.full_name || user?.email || "My Account";
+  const initials = displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
   return (
     <>
       <header className="v2-help-topbar">
         <div className="v2-help-mobile-brand"><Brand /></div>
         <p className="v2-help-welcome">Welcome Back 👋</p>
         <div className="v2-help-user">
-          <button className="v2-help-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
-          <div className="v2-help-profile"><img src={assets.profile} alt="Adaeze O." /><span>Adaeze O.</span></div>
+          <a className="v2-help-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
+          <div className="v2-help-profile">{user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <span>{initials}</span>}<span>{displayName}</span></div>
         </div>
       </header>
       <div className="v2-help-title-row">
