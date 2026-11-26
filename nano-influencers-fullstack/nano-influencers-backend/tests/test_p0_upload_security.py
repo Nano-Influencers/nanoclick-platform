@@ -100,27 +100,27 @@ async def test_proof_download_url_rejects_foreign_key(monkeypatch):
 
 
 @pytest.mark.parametrize("extension,content_type,signature", [
-    ("png", "image/png", b"\\x89PNG\\r\\n\\x1a\\n"),
-    ("jpg", "image/jpeg", b"\\xff\\xd8\\xff"),
-    ("jpeg", "image/jpeg", b"\\xff\\xd8\\xff"),
+    ("png", "image/png", b"\x89PNG\r\n\x1a\n"),
+    ("jpg", "image/jpeg", b"\xff\xd8\xff"),
+    ("jpeg", "image/jpeg", b"\xff\xd8\xff"),
 ])
 def test_storage_signature_constants_are_real_binary_bytes(extension, content_type, signature):
     expected = {
-        "png": b"\\x89PNG\\r\\n\\x1a\\n",
-        "jpg": b"\\xff\\xd8\\xff",
-        "jpeg": b"\\xff\\xd8\\xff",
+        "png": b"\x89PNG\r\n\x1a\n",
+        "jpg": b"\xff\xd8\xff",
+        "jpeg": b"\xff\xd8\xff",
     }[extension]
     assert signature == expected
     assert content_type in storage.CONTENT_TYPES[extension]
 
 
 @pytest.mark.parametrize("extension,signature", [
-    ("jpg", b"\\xff\\xd8\\xff"),
-    ("jpeg", b"\\xff\\xd8\\xff"),
-    ("png", b"\\x89PNG\\r\\n\\x1a\\n"),
-    ("webp", b"RIFF\\x00\\x00\\x00\\x00WEBP"),
+    ("jpg", b"\xff\xd8\xff"),
+    ("jpeg", b"\xff\xd8\xff"),
+    ("png", b"\x89PNG\r\n\x1a\n"),
+    ("webp", b"RIFF\x00\x00\x00\x00WEBP"),
     ("pdf", b"%PDF-1.7"),
-    ("mp4", b"\\x00\\x00\\x00\\x18ftyp"),
+    ("mp4", b"\x00\x00\x00\x18ftyp"),
 ])
 def test_storage_signature_validator_accepts_real_file_signatures(extension, signature):
     assert storage._matches_signature(extension, signature)
