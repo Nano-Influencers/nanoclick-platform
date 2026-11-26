@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { api } from "../../api.js";
 import "./v2-auth.css";
 
 const assets = {
@@ -18,9 +19,9 @@ function AuthBrand() {
   );
 }
 
-function OAuthButton({ icon, children }) {
+function OAuthButton({ icon, children, provider }) {
   return (
-    <button className="v2-auth-oauth-button" type="button" onClick={() => { window.location.href = "/dashboard"; }}>
+    <button className="v2-auth-oauth-button" type="button" onClick={() => { window.location.href = api.oauthUrl(provider); }}>
       <img src={icon} alt="" />
       <span>{children}</span>
     </button>
@@ -28,7 +29,26 @@ function OAuthButton({ icon, children }) {
 }
 
 export default function V2Login() {
+  const navigate = useNavigate();
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      await api.login(email.trim(), password);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(err?.message || "Unable to sign in. Please check your details and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <main className="ni-v2 v2-auth-page v2-auth-login">
@@ -42,8 +62,8 @@ export default function V2Login() {
         </header>
 
         <div className="v2-auth-oauth">
-          <OAuthButton icon={assets.google}>Continue with Google</OAuthButton>
-          <OAuthButton icon={assets.facebook}>Continue with Facebook</OAuthButton>
+          <OAuthButton icon={assets.google} provider="google">Continue with Google</OAuthButton>
+          <OAuthButton icon={assets.facebook} provider="facebook">Continue with Facebook</OAuthButton>
         </div>
 
         <div className="v2-auth-divider" aria-hidden="true">
@@ -52,11 +72,12 @@ export default function V2Login() {
           <i />
         </div>
 
-        <form className="v2-auth-form" onSubmit={(event) => event.preventDefault()}>
+        {error && <p className="v2-auth-error" role="alert">{error}</p>}
+        <form className="v2-auth-form" onSubmit={submit}>
           <label className="v2-auth-field">
             <span className="v2-auth-field-label">Email</span>
             <span className="v2-auth-input-shell">
-              <input type="email" placeholder="you@example.com" autoComplete="email" />
+              <input type="email" placeholder="you@example.com" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
             </span>
           </label>
 
@@ -70,6 +91,9 @@ export default function V2Login() {
                 type={passwordVisible ? "text" : "password"}
                 placeholder="Min. 8 characters"
                 autoComplete="current-password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
               />
               <button
                 className="v2-auth-eye"
@@ -82,7 +106,7 @@ export default function V2Login() {
             </span>
           </label>
 
-          <button className="v2-auth-submit" type="submit">Sign in</button>
+          <button className="v2-auth-submit" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
         </form>
 
         <p className="v2-auth-switch">
