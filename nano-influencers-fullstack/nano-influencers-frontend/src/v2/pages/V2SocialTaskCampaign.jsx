@@ -809,11 +809,15 @@ export default function V2SocialTaskCampaign() {
 
   const copyCashback = async () => {
     try {
-      await navigator.clipboard.writeText("https://nanoinfluencer.ng/ref/adaeze");
+      const profile = await api.me();
+      if (!profile?.referral_code) throw new Error("Referral link is unavailable.");
+      const link = new URL(`/ref/${encodeURIComponent(profile.referral_code)}`, window.location.origin).toString();
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
       setCopied(false);
+      setSubmitError("Unable to copy your referral link. Visit Refer & Earn to view it.");
     }
   };
 
@@ -889,13 +893,13 @@ export default function V2SocialTaskCampaign() {
 
           <section className="v2-stc-panel">
             <div className="v2-stc-cashback">
-              <div className="v2-stc-section-head"><h2>(Optional)</h2><p>Cashback rewards and proof submissions are paused until programme rules and verification are connected.</p></div>
+              <div className="v2-stc-section-head"><h2>Referral Link (Optional)</h2><p>Invite a worker with your personal referral link. Referral rewards follow the published eligibility rules.</p></div>
               <div className="v2-stc-cashback-actions">
-                <button type="button" onClick={copyCashback}><i>↗</i><span>{copied ? "link copied" : "click on the icon\nto copy link"}</span></button>
-                <button type="button"><i>↓</i><span>click on the icon to\ndownload image</span></button>
+                <button type="button" onClick={copyCashback}><i>↗</i><span>{copied ? "link copied" : "copy referral link"}</span></button>
+                <button type="button" onClick={() => window.location.assign("/refer")}><i>↗</i><span>view referral details</span></button>
               </div>
             </div>
-            <div className="v2-stc-upload-block"><h2>Upload the Evidence (Screen Shot) of Image and link shared on your whatsapp status</h2><UploadBox fileName={cashbackEvidence} onFile={setCashbackEvidence} /></div>
+            
           </section>
 
           <section className="v2-stc-panel v2-stc-terms">
