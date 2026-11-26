@@ -179,7 +179,7 @@ jobs:
           set -euo pipefail
           HEADS="$(alembic heads 2>&1)"
           printf '%s\n' "$HEADS"
-          HEAD_COUNT="$(grep -Ec '\\(head\\)
+          HEAD_COUNT="$(grep -Ec '\(head\)$' <<< "$HEADS" || true)"
           if [ "$HEAD_COUNT" -ne 1 ]; then
             echo "Expected exactly one deployed Alembic head; found $HEAD_COUNT"
             exit 1
