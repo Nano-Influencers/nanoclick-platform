@@ -10,7 +10,8 @@ from app.models.email_otp import EmailOTP
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.routers import auth as auth_router
-from app.services.auth_service import create_access_token
+from app.routers.auth import _create_refresh_session
+from app.services.auth_service import create_access_token, create_refresh_token, token_jti
 
 
 @pytest.mark.asyncio
@@ -116,7 +117,9 @@ async def test_profile_phone_update_requires_auth_and_persists_name_and_phone(db
     await db.flush()
     db.add(Wallet(user_id=user.id))
     await db.flush()
-    token = create_access_token(str(user.id), user.role)
+    refresh = create_refresh_token(str(user.id))
+    await _create_refresh_session(db, user.id, refresh)
+    token = create_access_token(str(user.id), user.role, session_jti=token_jti(refresh))
 
     async def override_db():
         yield db

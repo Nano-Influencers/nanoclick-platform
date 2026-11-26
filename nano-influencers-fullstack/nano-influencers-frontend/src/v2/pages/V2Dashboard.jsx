@@ -38,18 +38,21 @@ const assets = {
   floatingRefer: `${ASSET_BASE}dashboard-floating-refer.svg`,
 };
 
-const metrics = [
-  { title: "Active Campaigns", value: "0", note: "No campaigns running", button: "View Campaigns", tone: "blue", icon: assets.campaign },
-  { title: "Total Spend", value: "₦0", note: "This month", button: "Spend Report", tone: "green", icon: assets.spend },
-  { title: "Total Reach", value: "0", note: "People reached", button: "View Analytics", tone: "yellow", icon: assets.reach },
-  { title: "Total Refferal", value: "0", note: "People reffered", button: "View Refferals", tone: "lavender", icon: assets.people },
-];
+function buildMetrics(wallet, campaigns, referrals) {
+  const active = campaigns.filter((c) => ["active", "awaiting_workers"].includes(c.status)).length;
+  return [
+    { title: "Active Campaigns", value: String(active), note: "Currently running", button: "View Campaigns", tone: "blue", icon: assets.campaign, href: "/campaigns" },
+    { title: "Total Spend", value: "₦" + (Number(wallet?.total_spent_kobo || 0) / 100).toLocaleString("en-NG"), note: "Lifetime spend", button: "Spend Report", tone: "green", icon: assets.spend, href: "/analytics" },
+    { title: "Campaign Reach", value: "—", note: "Reach reporting unavailable", button: "View Analytics", tone: "yellow", icon: assets.reach, href: "/analytics" },
+    { title: "Total Referrals", value: String(referrals?.referral_count || 0), note: "People referred", button: "View Referrals", tone: "lavender", icon: assets.people, href: "/refer" },
+  ];
+}
 
 const quickActions = [
-  { title: "Add Funds", desc: "Top up your wallet", tone: "orange", icon: assets.add },
-  { title: "Refer & Earn", desc: "Earn 2% per referral", tone: "green", icon: assets.refer, href: "/refer" },
-  { title: "Win Gifts", desc: "1% cashback + weekly raffle", tone: "yellow", icon: assets.gift, href: "/dashboard/giveaway" },
-  { title: "Try for Free", desc: "2 free trial weekly", tone: "lavender", icon: assets.unlock, href: "/dashboard/free-trial" },
+  { title: "Add Funds", desc: "Top up your wallet", tone: "orange", icon: assets.add, href: "/wallet" },
+  { title: "Refer & Earn", desc: "View referral count and earned bonuses", tone: "green", icon: assets.refer, href: "/refer" },
+  { title: "Win Gifts", desc: "Check published giveaway information", tone: "yellow", icon: assets.gift, href: "/dashboard/giveaway" },
+  { title: "Try for Free", desc: "See available free campaigns", tone: "lavender", icon: assets.unlock, href: "/dashboard/free-trial" },
 ];
 
 const activities = [
@@ -73,13 +76,8 @@ function Brand() {
   );
 }
 
-function SidebarItem({ icon, label, active = false }) {
-  return (
-    <a className={`v2-dashboard-sidebar-item${active ? " is-active" : ""}`} href="#">
-      <img src={icon} alt="" />
-      <span>{label}</span>
-    </a>
-  );
+function SidebarItem({ icon, label, href, active = false }) {
+  return <a className={`v2-dashboard-sidebar-item${active ? " is-active" : ""}`} href={href}><img src={icon} alt="" /><span>{label}</span></a>;
 }
 
 function Sidebar() {
@@ -90,21 +88,19 @@ function Sidebar() {
         <nav className="v2-dashboard-sidebar-nav" aria-label="Dashboard navigation">
           <section>
             <p className="v2-dashboard-nav-label">Main Menu</p>
-            <SidebarItem icon={assets.dashboard} label="Dashboard" active />
-            <SidebarItem icon={assets.wallet} label="Wallet" />
-            <SidebarItem icon={assets.campaign} label="Campaigns" />
-            <SidebarItem icon={assets.analytics} label="Analytics" />
+            <SidebarItem icon={assets.dashboard} label="Dashboard" href="/dashboard" active />
+            <SidebarItem icon={assets.wallet} label="Wallet" href="/wallet" />
+            <SidebarItem icon={assets.campaign} label="Campaigns" href="/campaigns" />
+            <SidebarItem icon={assets.analytics} label="Analytics" href="/analytics" />
           </section>
           <section className="v2-dashboard-support-nav">
             <p className="v2-dashboard-nav-label">Support</p>
-            <SidebarItem icon={assets.settings} label="Settings" />
-            <SidebarItem icon={assets.help} label="Help & Support" />
+            <SidebarItem icon={assets.settings} label="Settings" href="/settings" />
+            <SidebarItem icon={assets.help} label="Help & Support" href="/support" />
           </section>
         </nav>
       </div>
-      <button className="v2-dashboard-logout" type="button" onClick={logoutAndRedirect}>
-        <span>Log Out</span><img src={assets.logout} alt="" />
-      </button>
+      <button className="v2-dashboard-logout" type="button" onClick={logoutAndRedirect}><span>Log Out</span><img src={assets.logout} alt="" /></button>
     </aside>
   );
 }
@@ -116,7 +112,7 @@ function TopHeader({ profileOpen, onProfileClick, user }) {
       <Brand />
       <p className="v2-dashboard-welcome desktop-welcome">Welcome Back 👋</p>
       <div className="v2-dashboard-user">
-        <button className="v2-dashboard-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
+        <a className="v2-dashboard-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
         <button
           className={`v2-dashboard-profile${profileOpen ? " is-open" : ""}`}
           type="button"
@@ -131,7 +127,7 @@ function TopHeader({ profileOpen, onProfileClick, user }) {
   );
 }
 
-function BalanceCard() {
+function BalanceCard({ balance, loading = false }) {
   return (
     <section className="v2-dashboard-balance-card">
       <img className="v2-dashboard-balance-decor" src={assets.balanceDecor} alt="" />
@@ -140,10 +136,10 @@ function BalanceCard() {
           <span className="v2-dashboard-icon-circle is-orange"><img src={assets.balance} alt="" /></span>
           <p>Current Balance</p>
         </div>
-        <strong>₦0.00</strong>
-        <small>No pending transactions</small>
+        <strong>₦{(Number(balance?.balance_ngn || 0)).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        <small>Available wallet balance</small>
       </div>
-      <Button className="v2-dashboard-balance-button">Add Funds</Button>
+      <Button className="v2-dashboard-balance-button" to="/wallet">Add Funds</Button>
     </section>
   );
 }
@@ -155,7 +151,7 @@ function MetricCard({ metric }) {
       <div className="v2-dashboard-metric-text">
         <p>{metric.title}</p><strong>{metric.value}</strong><small>{metric.note}</small>
       </div>
-      <button type="button">{metric.button}</button>
+      <a href={metric.href}>{metric.button}</a>
     </article>
   );
 }
@@ -167,29 +163,21 @@ function LaunchBanner() {
       <div className="v2-dashboard-launch-copy">
         <h2>Launch Your Campaign</h2>
         <p>Get real people to promote your brand. They engage with your content in DMs &amp; groups where trust lives.</p>
-        <div className="v2-dashboard-launch-buttons"><Button>Start Now</Button><Button variant="nav">Manage</Button></div>
+        <div className="v2-dashboard-launch-buttons"><Button to="/campaigns">Start Now</Button><Button variant="nav" to="/campaigns/manage">Manage</Button></div>
       </div>
       <div className="v2-dashboard-launch-art desktop-only"><img src={assets.megaphone} alt="" /></div>
     </section>
   );
 }
 
-function AnalyticsChart({ emptyState = false }) {
-  const [period, setPeriod] = useState("Weekly");
+function AnalyticsChart({ hasCampaigns = false }) {
   return (
     <section className="v2-dashboard-analytics-card desktop-only">
-      <div className="v2-dashboard-section-heading">
-        <h2>Campaign Analytics</h2>
-        <div className="v2-dashboard-periods">
-          {["Daily", "Weekly", "Monthly"].map((item) => <button key={item} type="button" className={period === item ? "is-active" : ""} onClick={() => setPeriod(item)}>{item}</button>)}
-        </div>
+      <div className="v2-dashboard-section-heading"><h2>Campaign Analytics</h2><a href="/analytics">View reports</a></div>
+      <div className="v2-dashboard-chart-unavailable">
+        <p>{hasCampaigns ? "Campaigns are connected. Time-series reach and engagement reporting is not yet available." : "Create a campaign to start collecting performance data."}</p>
+        <a href={hasCampaigns ? "/analytics" : "/campaigns"}>{hasCampaigns ? "Open campaign reports" : "Explore campaigns"}</a>
       </div>
-      <div className="v2-dashboard-chart">
-        <div className="v2-dashboard-y-axis"><span>2200</span><span>1650</span><span>1100</span><span>550</span><span>0</span></div>
-        <div className="v2-dashboard-chart-plot"><img className="grid" src={assets.chartGrid} alt="" /><img className={`lines${emptyState ? " is-empty" : ""}`} src={emptyState ? assets.emptyChartLines : assets.chartLines} alt="Campaign analytics lines" /></div>
-        <div className="v2-dashboard-x-axis">{[1,2,3,4,5,6,7].map((day) => <span key={day}>Day {day}</span>)}</div>
-      </div>
-      <div className="v2-dashboard-chart-legend"><span><i className="yellow" />Engagements</span><span><i className="green" />Impressions</span><span><i className="red" />Reach</span></div>
     </section>
   );
 }
@@ -217,33 +205,17 @@ function QuickActions() {
   );
 }
 
-function LatestActivity({ emptyState = false }) {
-  return (
-    <section className={`v2-dashboard-activity-card${emptyState ? " is-empty" : ""}`}>
-      <div className="v2-dashboard-section-heading"><h2>Latest Activity</h2><button className={emptyState ? "is-muted" : ""} type="button">Show all</button></div>
-      {emptyState ? (
-        <div className="v2-dashboard-empty-activity">
-          <img src={assets.emptyActivity} alt="" />
-          <h3>You have no activity</h3>
-          <Button>Start a Campaign</Button>
-        </div>
-      ) : (
-        <div className="v2-dashboard-activity-list">
-          {activities.map((activity, index) => (
-            <div className="v2-dashboard-activity-row" key={`${activity.title}-${index}`}>
-              <div className="v2-dashboard-activity-main"><span className={`v2-dashboard-activity-icon is-${activity.tone}`}><img src={activity.icon} alt="" /></span><span><strong>{activity.title}</strong>{activity.subtitle && <small>{activity.subtitle}</small>}</span></div>
-              <div className="v2-dashboard-activity-meta">{activity.amount && <strong>{activity.amount}</strong>}<small>{activity.time}</small></div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
+function LatestActivity({ rows = [], loading = false, error = "" }) {
+  return <section className={`v2-dashboard-activity-card${!loading && !rows.length ? " is-empty" : ""}`}>
+    <div className="v2-dashboard-section-heading"><h2>Latest Activity</h2><a href="/wallet?history=all">Show all</a></div>
+    {loading ? <p role="status">Loading activity…</p> : error ? <p role="alert">{error}</p> : !rows.length ? <div className="v2-dashboard-empty-activity"><img src={assets.emptyActivity} alt="" /><h3>You have no activity</h3><Button to="/campaigns">Start a Campaign</Button></div> :
+      <div className="v2-dashboard-activity-list">{rows.map((tx) => <div className="v2-dashboard-activity-row" key={tx.id}><div className="v2-dashboard-activity-main"><span className="v2-dashboard-activity-icon is-green"><img src={assets.activityMoney} alt="" /></span><span><strong>{String(tx.type || "Wallet activity").replaceAll("_", " ")}</strong>{tx.description && <small>{tx.description}</small>}</span></div><div className="v2-dashboard-activity-meta"><strong>₦{Number(tx.amount_ngn || 0).toLocaleString("en-NG")}</strong><small>{new Date(tx.created_at).toLocaleString()}</small></div></div>)}</div>}
+  </section>;
 }
 
-function ReferralSupport({ user }) {
+function ReferralSupport({ user, referrals }) {
   const [copied, setCopied] = useState(false);
-  const referral = user?.referral_code ? `https://nanoinfluencer.ng/ref/${encodeURIComponent(user.referral_code)}` : "Referral link unavailable";
+  const referral = user?.referral_code ? new URL(`/ref/${encodeURIComponent(user.referral_code)}`, window.location.origin).toString() : "Referral link unavailable";
   const copy = async () => {
     try { await navigator.clipboard.writeText(referral); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { setCopied(false); }
   };
@@ -253,7 +225,7 @@ function ReferralSupport({ user }) {
         <img className="decor-a" src={assets.referralDecorA} alt="" /><img className="decor-b" src={assets.referralDecorB} alt="" />
         <span className="v2-dashboard-icon-circle is-orange"><img src={assets.floatingRefer} alt="" /></span>
         <h2>Refer a Friend</h2>
-        <p>Earn 2% on every campaign your referral starts and qualify for bi-weekly gadget giveaways.</p>
+        <p>Earn a referral bonus when your referred worker completes their first approved task. Referred: {Number(referrals?.referral_count || 0)} · Earned: ₦{Number(referrals?.total_referral_earnings_ngn || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
         <button type="button" onClick={copy}><span>{referral}</span><strong>{copied ? "Copied" : "Copy"}</strong></button>
       </section>
       <section className="v2-dashboard-support-card"><span className="v2-dashboard-icon-circle is-white"><img src={assets.help} alt="" /></span><h2>Dispute &amp; Support</h2><p>Any issues with your campaigns or account? Our support team is ready to help.</p><Button variant="nav">Contact Support</Button></section>
@@ -262,14 +234,7 @@ function ReferralSupport({ user }) {
 }
 
 function MobileBottomNav() {
-  return (
-    <nav className="v2-dashboard-bottom-nav" aria-label="Mobile dashboard navigation">
-      <a className="is-active" href="/dashboard"><img src={assets.dashboard} alt="" /><span>Dashboard</span></a>
-      <a href="#"><img src={assets.wallet} alt="" /></a>
-      <a href="#"><img src={assets.campaign} alt="" /></a>
-      <a href="#"><img src={assets.analytics} alt="" /></a>
-    </nav>
-  );
+  return <nav className="v2-dashboard-bottom-nav" aria-label="Mobile dashboard navigation"><a className="is-active" href="/dashboard"><img src={assets.dashboard} alt="Dashboard" /><span>Dashboard</span></a><a href="/wallet"><img src={assets.wallet} alt="Wallet" /></a><a href="/campaigns"><img src={assets.campaign} alt="Campaigns" /></a><a href="/analytics"><img src={assets.analytics} alt="Analytics" /></a></nav>;
 }
 
 function MobileProfileMenu({ open, onClose }) {
@@ -278,7 +243,7 @@ function MobileProfileMenu({ open, onClose }) {
     <div className="v2-dashboard-profile-modal mobile-only" role="dialog" aria-modal="true" aria-label="Profile menu">
       <button className="v2-dashboard-profile-backdrop" type="button" aria-label="Close profile menu" onClick={onClose} />
       <div className="v2-dashboard-profile-dropdown">
-        <a href="#settings"><img src={assets.settings} alt="" /><span>Settings</span></a>
+        <a href="/settings"><img src={assets.settings} alt="" /><span>Settings</span></a>
         <button type="button" onClick={logoutAndRedirect}><img src={assets.logout} alt="" /><span>Log Out</span></button>
       </div>
     </div>
@@ -288,29 +253,36 @@ function MobileProfileMenu({ open, onClose }) {
 export default function V2Dashboard() {
   const [user, setUser] = useState(null);
   const [profileError, setProfileError] = useState("");
+  const [wallet, setWallet] = useState(null);
+  const [campaigns, setCampaigns] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [referrals, setReferrals] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState("");
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        // The V2 shell mounts independently, so restore the refresh-cookie
-        // session before requesting the authenticated profile.
         const session = await api.restoreSession();
         if (!session.ok) {
           if (session.reason === "anonymous") { window.location.replace("/login"); return; }
           if (session.reason === "expired") { window.location.replace("/login?reason=session_expired"); return; }
           throw new Error("Unable to verify your session right now. Please try again.");
         }
-        const profile = await api.me();
-        if (active) setUser(profile);
+        const [profile, balance, campaignRows, txRows, referralStats] = await Promise.all([
+          api.me(), api.getBalance(), api.listCampaigns({ limit: 100 }), api.getTransactions({ limit: 5 }), api.getReferralStats(),
+        ]);
+        if (active) { setUser(profile); setWallet(balance); setCampaigns(campaignRows || []); setTransactions(txRows || []); setReferrals(referralStats); }
       } catch (error) {
-        if (active) setProfileError(error.message || "Unable to load profile");
-      }
+        if (active) { setProfileError(error.message || "Unable to load profile"); setDashboardError(error.message || "Unable to load dashboard data."); }
+      } finally { if (active) setDashboardLoading(false); }
     })();
     return () => { active = false; };
   }, []);
   const params = new URLSearchParams(window.location.search);
   const previewState = params.get("state") || "";
-  const emptyState = previewState === "empty";
+  const emptyState = !campaigns.length;
+  const dashboardMetrics = buildMetrics(wallet, campaigns, referrals);
   const [profileOpen, setProfileOpen] = useState(previewState === "profile");
 
   return (
@@ -320,14 +292,14 @@ export default function V2Dashboard() {
         <TopHeader profileOpen={profileOpen} onProfileClick={() => setProfileOpen((value) => !value)} user={user} />
         {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <p className="v2-dashboard-welcome mobile-only">Welcome Back 👋</p>
-        <div className="v2-dashboard-title-row desktop-only"><h1>Dashboard</h1><button className="v2-dashboard-date" type="button">Last 30 days <img src={assets.dateChevron} alt="" /></button></div>
-        <BalanceCard />
-        <div className="v2-dashboard-metrics-scroll">{metrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
+        <div className="v2-dashboard-title-row desktop-only"><h1>Dashboard</h1><span className="v2-dashboard-date">Live account data</span></div>
+        <BalanceCard balance={wallet} loading={dashboardLoading} />
+        <div className="v2-dashboard-metrics-scroll">{dashboardLoading ? <p role="status">Loading dashboard…</p> : dashboardMetrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
         <LaunchBanner />
-        <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} /><QuickActions /></div>
-        <div className="v2-dashboard-lower"><LatestActivity emptyState={emptyState} /><ReferralSupport user={user} /></div>
+        <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} hasCampaigns={campaigns.length > 0} /><QuickActions /></div>
+        <div className="v2-dashboard-lower"><LatestActivity rows={transactions} loading={dashboardLoading} error={dashboardError} /><ReferralSupport user={user} referrals={referrals} /></div>
       </div>
-      <div className="v2-dashboard-floating mobile-only"><a className="is-refer" href="/refer" aria-label="Refer and earn"><img src={assets.floatingRefer} alt="" /></a><button className="is-help" type="button"><img src={assets.help} alt="" /></button></div>
+      <div className="v2-dashboard-floating mobile-only"><a className="is-refer" href="/refer" aria-label="Refer and earn"><img src={assets.floatingRefer} alt="" /></a><a className="is-help" href="/support" aria-label="Help and support"><img src={assets.help} alt="" /></a></div>
       <MobileBottomNav />
       <MobileProfileMenu open={profileOpen} onClose={() => setProfileOpen(false)} />
     </main>

@@ -5,8 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
+from app.models.auth_session import AuthSession
+from app.services.auth_service import hash_token_identifier
+from datetime import datetime
 from app.services.auth_service import decode_token
 import pyotp
+from app.services.secret_encryption import decrypt_secret, encrypt_secret, is_encrypted
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -32,6 +36,14 @@ async def get_current_user(
         user_id = uuid.UUID(payload["sub"])
     except (ValueError, TypeError, KeyError):
         raise HTTPException(status_code=401, detail="Invalid authentication subject", headers={"WWW-Authenticate": "Bearer"})
+    session_jti = payload.get("sid")
+    if not session_jti:
+        raise HTTPException(status_code=401, detail="Authentication session is missing", headers={"WWW-Authenticate": "Bearer"})
+    if session_jti:
+        session_result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(str(session_jti))))
+        session = session_result.scalar_one_or_none()
+        if not session or session.revoked_at is not None or session.expires_at <= datetime.utcnow():
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked or expired", headers={"WWW-Authenticate": "Bearer"})
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
@@ -69,6 +81,9 @@ async def require_admin(request: Request, current_user: User = Depends(get_curre
     if not current_user.mfa_enabled or not current_user.mfa_secret:
         raise HTTPException(status_code=403, detail="Admin MFA must be enabled before using this endpoint")
     code = request.headers.get("X-Admin-MFA-Code", "").strip()
-    if not code or not pyotp.TOTP(current_user.mfa_secret).verify(code, valid_window=1):
+    stored_secret = decrypt_secret(current_user.mfa_secret)
+    if not is_encrypted(current_user.mfa_secret):
+        current_user.mfa_secret = encrypt_secret(stored_secret)
+    if not code or not pyotp.TOTP(stored_secret).verify(code, valid_window=1):
         raise HTTPException(status_code=401, detail="Valid admin MFA code required")
     return current_user

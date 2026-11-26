@@ -87,7 +87,7 @@ async function reconcile() {
     if (deposit.status === "completed") {
       const amount = new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(deposit.amount_ngn);
       show(`${amount} has been added to your wallet. Redirecting…`, false);
-      window.setTimeout(() => { window.location.assign("/app/wallet"); }, 900);
+      window.setTimeout(() => { window.location.assign(`/wallet/success?reference=${encodeURIComponent(reference)}`); }, 900);
       return;
     }
 

@@ -43,12 +43,12 @@ async def _send_email(recipient: str, subject: str, text: str) -> None:
 async def send_password_reset_email(recipient: str, token: str) -> None:
     """Send a short-lived password-reset verification code."""
     text = (
-        "Your NanoClick password reset verification code is:\n\n"
+        "Your NanoClick password reset token is:\n\n"
         f"{token}\n\n"
-        "This code expires in 10 minutes and can only be used once. "
+        "This token expires in 15 minutes and can only be used once. "
         "If you did not request this, you can ignore this email."
     )
-    await _send_email(recipient, "Your NanoClick password reset code", text)
+    await _send_email(recipient, "Your NanoClick password reset token", text)
 
 
 async def send_verification_otp(recipient: str, code: str) -> None:
@@ -59,3 +59,12 @@ async def send_verification_otp(recipient: str, code: str) -> None:
         "This code expires in 10 minutes. If you did not request it, ignore this email."
     )
     await _send_email(recipient, "Your Nano Influencers verification code", text)
+
+
+async def send_support_message(recipient: str, sender_name: str, sender_email: str, message: str) -> None:
+    """Forward an authenticated customer's support request to the configured inbox."""
+    text = (
+        f"Support request from {sender_name} <{sender_email}>\n\n"
+        f"{message}\n"
+    )
+    await _send_email(recipient, "Nano Influencers support request", text)

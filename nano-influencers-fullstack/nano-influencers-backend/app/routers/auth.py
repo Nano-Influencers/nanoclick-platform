@@ -4,6 +4,7 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
@@ -45,6 +46,20 @@ def _is_web_platform(platform: str) -> bool:
     return platform.strip().lower() == "web"
 
 
+def _enforce_cookie_csrf(request: Request) -> None:
+    if not request.cookies.get(_COOKIE_NAME):
+        return
+    origin = request.headers.get("origin")
+    if not origin:
+        referer = request.headers.get("referer")
+        if referer:
+            parsed = urlsplit(referer)
+            origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else None
+    allowed = {item.rstrip("/") for item in settings.allowed_origins}
+    if not origin or origin.rstrip("/") not in allowed:
+        raise HTTPException(403, "Cross-origin session request rejected")
+
+
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
     # Render frontend/API hostnames are cross-site for browser cookie purposes.
     # Secure web sessions therefore require SameSite=None; Secure.
@@ -66,8 +81,11 @@ async def _create_refresh_session(db: AsyncSession, user_id: uuid.UUID, refresh_
 
 
 async def _issue_tokens(db: AsyncSession, user: User) -> TokenResponse:
-    access = create_access_token(str(user.id), user.role)
     refresh = create_refresh_token(str(user.id))
+    session_jti = token_jti(refresh)
+    if not session_jti:
+        raise HTTPException(500, "Failed to create authentication session")
+    access = create_access_token(str(user.id), user.role, session_jti=session_jti)
     await _create_refresh_session(db, user.id, refresh)
     return TokenResponse(access_token=access, refresh_token=refresh)
 
@@ -85,7 +103,7 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
         if not user.is_active:
             raise HTTPException(403, "Account disabled")
         return user
-    result = await db.execute(select(User).where(User.email == provider_data["email"]))
+    result = await db.execute(select(User).where(func.lower(User.email) == provider_data["email"].strip().lower()))
     user = result.scalar_one_or_none()
     if user:
         if not user.is_active:
@@ -94,7 +112,7 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
         user.oauth_provider = provider_data["provider"]
         user.oauth_provider_id = provider_data["provider_id"]
         return user
-    user = User(email=provider_data["email"], password_hash=None, full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0], role=role, referral_code=generate_referral_code(), oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"], email_verified=True)
+    user = User(email=provider_data["email"].strip().lower(), password_hash=None, full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0], role=role, referral_code=generate_referral_code(), oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"], email_verified=True)
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
@@ -131,7 +149,7 @@ async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_
 @router.post("/register", status_code=202)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Stage a registration in Redis; create no database user until OTP succeeds."""
-    email = str(body.email).strip()
+    email = str(body.email).strip().lower()
     full_name = body.full_name.strip()
     existing = await db.execute(select(User).where(func.lower(User.email) == email.lower()))
     existing_user = existing.scalar_one_or_none()
@@ -156,8 +174,9 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if body.referral_code:
         ref = await db.execute(select(User).where(User.referral_code == body.referral_code))
         referral_user = ref.scalar_one_or_none()
-        if referral_user:
-            referred_by = str(referral_user.id)
+        if not referral_user or not referral_user.is_active:
+            raise HTTPException(400, "Invalid referral code")
+        referred_by = str(referral_user.id)
 
     code = f"{secrets.randbelow(1_000_000):06d}"
     await save_pending_registration(email, {
@@ -201,6 +220,8 @@ async def login(body: LoginRequest, response: Response, platform: str = Query("a
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(request: Request, response: Response, body: RefreshRequest | None = None, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
     supplied_refresh = body.refresh_token if body else None
+    if not supplied_refresh:
+        _enforce_cookie_csrf(request)
     refresh_token = supplied_refresh or request.cookies.get(_COOKIE_NAME)
     if not refresh_token: raise HTTPException(401, "Refresh token required")
     payload = decode_token(refresh_token)
@@ -225,7 +246,10 @@ async def refresh(request: Request, response: Response, body: RefreshRequest | N
 
 @router.post("/logout")
 async def logout(request: Request, response: Response, body: RefreshRequest | None = None, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
-    refresh_token = (body.refresh_token if body else None) or request.cookies.get(_COOKIE_NAME)
+    supplied_refresh = body.refresh_token if body else None
+    if not supplied_refresh:
+        _enforce_cookie_csrf(request)
+    refresh_token = supplied_refresh or request.cookies.get(_COOKIE_NAME)
     if refresh_token:
         payload = decode_token(refresh_token); jti = payload.get("jti") if payload and payload.get("type") == "refresh" else None
         if jti:
@@ -377,19 +401,22 @@ async def update_my_profile(
 async def change_password(body: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if current_user.password_hash is None: raise HTTPException(400, f"This account uses {current_user.oauth_provider or 'social'} login and has no password to change")
     if not verify_password(body.current_password, current_user.password_hash): raise HTTPException(401, "Current password is incorrect")
-    if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
+    if len(body.new_password) < 8:
+        await db.commit()  # Persist the failed attempt before returning the validation error.
+        raise HTTPException(400, "New password must be at least 8 characters")
     current_user.password_hash = hash_password(body.new_password); await _revoke_user_sessions(db, current_user.id)
     return {"message": "Password changed; please sign in again"}
 
 
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
+    result = await db.execute(select(User).where(func.lower(User.email) == str(body.email).strip().lower()))
     user = result.scalar_one_or_none()
     if user and user.password_hash is not None:
-        # Six-digit, single-use reset code; only its digest is stored.
-        token = f"{secrets.randbelow(1_000_000):06d}"
-        db.add(PasswordResetToken(user_id=user.id, token=hash_token_identifier(token), expires_at=datetime.utcnow() + timedelta(minutes=10)))
+        # High-entropy, single-use reset token; only its digest is stored.
+        await db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used.is_(False)).values(used=True))
+        token = secrets.token_urlsafe(32)
+        db.add(PasswordResetToken(user_id=user.id, token=hash_token_identifier(token), expires_at=datetime.utcnow() + timedelta(minutes=15)))
         await db.flush()
         try:
             await send_password_reset_email(user.email, token)
@@ -402,11 +429,20 @@ async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depend
 async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == hash_token_identifier(body.token)).with_for_update())
     reset_token = result.scalar_one_or_none()
-    if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow(): raise HTTPException(400, "This reset code is invalid or has expired")
-    if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
+    if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow(): raise HTTPException(400, "This reset token is invalid or has expired")
+    if reset_token.attempts >= 5: raise HTTPException(429, "Too many reset attempts. Request a new reset token.")
+    reset_token.attempts += 1
+    if len(body.new_password) < 8:
+        await db.commit()  # Persist this failed attempt before returning the validation error.
+        raise HTTPException(400, "New password must be at least 8 characters")
     user_result = await db.execute(select(User).where(User.id == reset_token.user_id)); user = user_result.scalar_one_or_none()
     if not user: raise HTTPException(404, "Account no longer exists")
-    user.password_hash = hash_password(body.new_password); reset_token.used = True; await _revoke_user_sessions(db, user.id)
+    if user.email.strip().lower() != body.email.strip().lower():
+        await db.commit()  # Persist this failed attempt so repeated mismatches are limited.
+        raise HTTPException(400, "Reset token does not match this account")
+    user.password_hash = hash_password(body.new_password)
+    await db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used.is_(False)).values(used=True))
+    await _revoke_user_sessions(db, user.id)
     return {"message": "Password reset — you can now log in with your new password"}
 
 
@@ -488,7 +524,7 @@ async def _send_otp_for_email(db: AsyncSession, email: str) -> None:
         await send_verification_otp(pending["email"], code)
         return
 
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(func.lower(User.email) == email.strip().lower()))
     user = result.scalar_one_or_none()
     # Legacy unverified accounts remain supported during migration.
     if not user or user.email_verified:
@@ -557,7 +593,7 @@ async def verify_otp(body: VerifyOTPRequest, db: AsyncSession = Depends(get_db))
             await release_pending_lock(email, lock_token)
 
     # Compatibility path for accounts created before OTP-first registration.
-    result = await db.execute(select(User).where(User.email == body.email).with_for_update())
+    result = await db.execute(select(User).where(func.lower(User.email) == str(body.email).strip().lower()).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(400, "Invalid or expired verification code")

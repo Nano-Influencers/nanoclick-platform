@@ -7,12 +7,16 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str
     REDIS_URL: str = "redis://localhost:6379/0"
+    TRUSTED_PROXY_IPS: str = ""
+    MAX_REQUEST_BODY_BYTES: int = 57671680
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     AUTH_COOKIE_SECURE: bool = False
     AUTH_COOKIE_SAMESITE: str = "lax"
 
+    PAYMENTS_ENABLED: bool = False
+    CAMPAIGN_LAUNCH_ENABLED: bool = False
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
     PAYSTACK_CALLBACK_URL: str = "http://localhost:5173/payment-return.html"
@@ -46,6 +50,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     RESEND_API_KEY: str = ""
     SMTP_FROM_EMAIL: str = ""
+    SUPPORT_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
     PASSWORD_RESET_URL: str = "http://localhost:5173/reset-password.html"
 

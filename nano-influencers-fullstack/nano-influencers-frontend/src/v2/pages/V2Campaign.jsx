@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { api } from "../../api.js";
 import { Button } from "../components/ui/Button.jsx";
 import "./v2-campaign.css";
 import "./v2-campaign-populated.css";
@@ -73,7 +75,7 @@ function Sidebar() {
             <SidebarItem href="/dashboard" icon={assets.dashboard} label="Overview" />
             <SidebarItem href="/wallet" icon={assets.wallet} label="Wallet" />
             <SidebarItem href="/campaigns" icon={assets.campaign} label="Campaigns" active />
-            <SidebarItem href="#analytics" icon={assets.analytics} label="Analytics" />
+            <SidebarItem href="/analytics" icon={assets.analytics} label="Analytics" />
           </section>
           <section className="v2-campaign-support-nav">
             <p className="v2-campaign-nav-label">Support</p>
@@ -82,19 +84,26 @@ function Sidebar() {
           </section>
         </nav>
       </div>
-      <button className="v2-campaign-logout" type="button"><span>Log Out</span><img src={assets.logout} alt="" /></button>
+      <button className="v2-campaign-logout" type="button" onClick={async () => { await api.logout(); window.location.replace("/login"); }}><span>Log Out</span><img src={assets.logout} alt="" /></button>
     </aside>
   );
 }
 
 function TopHeader({ profileOpen, onProfileClick }) {
+  const [user, setUser] = useState(null);
+  useEffect(() => { let active = true; api.me().then((profile) => { if (active) setUser(profile); }).catch(() => {}); return () => { active = false; }; }, []);
+  const displayName = user?.full_name || user?.email || "My Account";
+  const initials = displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
   return (
     <header className="v2-campaign-topbar">
       <div className="v2-campaign-mobile-brand"><Brand /></div>
       <p className="v2-campaign-welcome">Welcome Back 👋</p>
       <div className="v2-campaign-user">
-        <button className="v2-campaign-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
-        <button className={`v2-campaign-profile${profileOpen ? " is-open" : ""}`} type="button" aria-label="Open profile menu" aria-expanded={profileOpen} onClick={onProfileClick}><img src={assets.profile} alt="Adaeze O." /><span>Adaeze O.</span></button>
+        <a className="v2-campaign-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
+        <button className={`v2-campaign-profile${profileOpen ? " is-open" : ""}`} type="button" aria-label="Open profile menu" aria-expanded={profileOpen} onClick={onProfileClick}>
+          {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <span className="v2-campaign-avatar-fallback">{initials}</span>}
+          <span>{displayName}</span>
+        </button>
       </div>
     </header>
   );
@@ -110,19 +119,20 @@ function ServiceCard({ type }) {
       <div className="v2-campaign-service-title"><span className="v2-campaign-service-icon"><img src={wom ? assets.wordOfMouth : assets.trend} alt="" /></span><h2>{wom ? "Word of Mouth" : "Engaged Growth"}</h2></div>
       <div className="v2-campaign-service-facts">{rows.map(([label, value]) => <div className="v2-campaign-service-fact" key={label}><span>{label}</span><p>{value}</p></div>)}</div>
       <Button className="v2-campaign-start" to={wom ? "/campaigns/word-of-mouth" : "/campaigns/select-package"}>Start Now</Button>
-      <button className="v2-campaign-video-link" type="button">Watch Video for more info about this Service</button>
+      <button className="v2-campaign-video-link" type="button" disabled>Service video guide coming soon</button>
     </article>
   );
 }
 
 function PlatformCard({ name, icon }) {
-  return <button className="v2-campaign-platform-card" type="button"><img src={icon} alt="" /><span>{name}</span></button>;
+  const slug = name.toLowerCase() === "yt music" ? "youtube-music" : name.toLowerCase() === "twitter" ? "x" : name.toLowerCase();
+  return <a className="v2-campaign-platform-card" href={`/campaigns/create/${slug}`}><img src={icon} alt="" /><span>{name}</span></a>;
 }
 
 function CustomTasks() {
   return (
     <section className="v2-campaign-panel v2-campaign-custom">
-      <div className="v2-campaign-panel-heading is-split"><div><h2>Custom Tasks</h2><p>Choose the right service to grow your brand and reach your audience.</p></div><button type="button">Watch Video for more info about this Service</button></div>
+      <div className="v2-campaign-panel-heading is-split"><div><h2>Custom Tasks</h2><p>Choose the right service to grow your brand and reach your audience.</p></div><button type="button" disabled>Service video guide coming soon</button></div>
       <div className="v2-campaign-label">Select Platform</div>
       <div className="v2-campaign-platform-grid">{platforms.map(([name, icon]) => <PlatformCard key={name} name={name} icon={icon} />)}</div>
     </section>
@@ -151,21 +161,12 @@ function CompactManageRecord({ title, linked = false }) {
   );
 }
 
-function ManageCampaigns({ active }) {
-  return (
-    <section className={`v2-campaign-panel v2-campaign-manage${active ? " is-populated" : ""}`}>
-      <div className="v2-campaign-panel-heading"><h2>Manage Campaigns</h2></div>
-      {active ? (
-        <div className="v2-campaign-populated-list">
-          <CompactManageRecord title="Twitter Repost" />
-          <CompactManageRecord title="Chisom's Page Link 1" linked />
-          <Button href="/campaigns/manage" className="v2-campaign-manage-button">Go to Campaign Management</Button>
-        </div>
-      ) : (
-        <div className="v2-campaign-empty"><img src={assets.emptyCampaign} alt="" /><h3>You have no campaign available</h3><Button to="/campaigns/select-package">Create New Campaign</Button></div>
-      )}
-    </section>
-  );
+function ManageCampaigns() {
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => { let active = true; (async () => { try { const session = await api.restoreSession(); if (!session.ok) throw new Error("Please log in to view campaigns."); const data = await api.listCampaigns({ limit: 10, offset: 0 }); if (active) setCampaigns(Array.isArray(data) ? data : []); } catch (e) { if (active) setError(e.message || "Unable to load campaigns."); } finally { if (active) setLoading(false); } })(); return () => { active = false; }; }, []);
+  return <section className="v2-campaign-panel v2-campaign-manage"><div className="v2-campaign-panel-heading"><h2>Manage Campaigns</h2></div>{loading ? <p role="status">Loading campaigns…</p> : error ? <p role="alert">{error}</p> : campaigns.length ? <div className="v2-campaign-populated-list">{campaigns.map((campaign) => <article className="v2-campaign-compact-record" key={campaign.id}><div className="v2-campaign-compact-head"><span><i><img src={assets.trend} alt="" /></i><strong>{campaign.title}</strong></span><time>{new Date(campaign.created_at).toLocaleString()}</time></div><div className="v2-campaign-compact-main"><div className="v2-campaign-compact-service"><strong>{campaign.platform} · {campaign.action_type}</strong><span>{campaign.status} · {campaign.slots_filled}/{campaign.slots_total} completed</span></div><div className="v2-campaign-compact-actions"><a href={`/campaigns/${campaign.id}`}>View details</a></div></div></article>)}<Button href="/campaigns/manage" className="v2-campaign-manage-button">Go to Campaign Management</Button></div> : <div className="v2-campaign-empty"><img src={assets.emptyCampaign} alt="" /><h3>You have no campaign available</h3><Button to="/campaigns/select-package">Create New Campaign</Button></div>}</section>;
 }
 
 function SingleTasks() {
@@ -179,7 +180,7 @@ function SingleTasks() {
 }
 
 function MobileBottomNav() {
-  return <nav className="v2-campaign-bottom-nav" aria-label="Mobile navigation"><a href="/dashboard"><img src={assets.dashboard} alt="" /></a><a href="/wallet"><img src={assets.wallet} alt="" /></a><a className="is-active" href="/campaigns"><img src={assets.campaign} alt="" /><span>Campaigns</span></a><a href="#analytics"><img src={assets.analytics} alt="" /></a></nav>;
+  return <nav className="v2-campaign-bottom-nav" aria-label="Mobile navigation"><a href="/dashboard"><img src={assets.dashboard} alt="" /></a><a href="/wallet"><img src={assets.wallet} alt="" /></a><a className="is-active" href="/campaigns"><img src={assets.campaign} alt="" /><span>Campaigns</span></a><a href="/analytics"><img src={assets.analytics} alt="" /></a></nav>;
 }
 
 
@@ -190,14 +191,13 @@ function MobileProfileMenu({ open, onClose }) {
       <button className="v2-dashboard-profile-backdrop" type="button" aria-label="Close profile menu" onClick={onClose} />
       <div className="v2-dashboard-profile-dropdown">
         <a href="/settings"><img src={assets.settings} alt="" /><span>Settings</span></a>
-        <button type="button"><img src={assets.logout} alt="" /><span>Log Out</span></button>
+        <button type="button" onClick={async () => { await api.logout(); window.location.replace("/login"); }}><img src={assets.logout} alt="" /><span>Log Out</span></button>
       </div>
     </div>
   );
 }
 
 export default function V2Campaign() {
-  const activeState = new URLSearchParams(window.location.search).get("state") === "active";
   const [profileOpen, setProfileOpen] = useState(false);
   return (
     <div className="v2-campaign-page">
@@ -208,7 +208,7 @@ export default function V2Campaign() {
         <section className="v2-campaign-service-grid"><ServiceCard type="growth" /><ServiceCard type="wom" /></section>
         <CustomTasks />
         <CustomTaskBanner />
-        <ManageCampaigns active={activeState} />
+        <ManageCampaigns />
         <SingleTasks />
       </main>
       <MobileBottomNav />
@@ -233,3 +233,13 @@ export function V2SelectServicesPlaceholder() {
     </div>
   );
 }
+
+export function V2CampaignDetail() {
+  const { campaignId } = useParams();
+  const [campaign, setCampaign] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => { let active = true; (async () => { try { const session = await api.restoreSession(); if (!session.ok) throw new Error("Please log in to view this campaign."); const data = await api.getCampaign(campaignId); if (active) setCampaign(data); } catch (e) { if (active) setError(e.message || "Unable to load campaign."); } finally { if (active) setLoading(false); } })(); return () => { active = false; }; }, [campaignId]);
+  return <div className="v2-campaign-page"><Sidebar /><main className="v2-campaign-main"><TopHeader profileOpen={false} onProfileClick={() => {}} /><header className="v2-campaign-page-heading"><h1>Campaign Details</h1><p>Live campaign information</p></header>{loading ? <p role="status">Loading campaign…</p> : error ? <p role="alert">{error}</p> : campaign ? <section className="v2-campaign-panel"><h2>{campaign.title}</h2><p>{campaign.platform} · {campaign.action_type}</p><p>Status: {campaign.status}</p><p>Budget: {moneyNgn(campaign.client_budget_kobo)}</p><p>Slots: {campaign.slots_filled} of {campaign.slots_total}</p><p>Created: {new Date(campaign.created_at).toLocaleString()}</p><Button to="/analytics">View Analytics</Button></section> : null}</main><MobileBottomNav /></div>;
+}
+function moneyNgn(kobo) { return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(Number(kobo || 0) / 100); }

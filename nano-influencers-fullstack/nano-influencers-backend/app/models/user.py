@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Integer
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Integer, Index, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
@@ -27,7 +27,7 @@ class User(Base):
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     oauth_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     oauth_provider_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
-    mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    mfa_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
+import { api } from "../../api.js";
 import "./v2-custom-task.css";
 
 const ASSET_BASE = "/assets/nano-v2-app/";
@@ -69,7 +70,6 @@ function Consent({ checked, onChange, children }) {
 }
 
 export default function V2CustomTask() {
-  const fileInput = useRef(null);
   const [taskCount, setTaskCount] = useState("");
   const [quantity, setQuantity] = useState("");
   const [country, setCountry] = useState("Nigeria");
@@ -77,10 +77,11 @@ export default function V2CustomTask() {
   const [delivery, setDelivery] = useState("Default Time");
   const [startDate, setStartDate] = useState("Today");
   const [startTime, setStartTime] = useState("19:00");
-  const [fileName, setFileName] = useState("");
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   const totalQuantity = useMemo(() => {
     const tasks = Number(taskCount || 0);
@@ -90,30 +91,28 @@ export default function V2CustomTask() {
 
   const copyCashbackLink = async () => {
     try {
-      await navigator.clipboard.writeText("https://nanoinfluencer.ng/ref/adaeze");
+      const profile = await api.me();
+      if (!profile?.referral_code) throw new Error("Referral link unavailable.");
+      const link = new URL(`/ref/${encodeURIComponent(profile.referral_code)}`, window.location.origin).toString();
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
-    } catch {
-      setCopied(false);
-    }
+    } catch { setCopied(false); setSubmitError("Unable to copy your referral link. Visit Refer & Earn."); }
   };
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    sessionStorage.setItem("v2CustomTaskDraft", JSON.stringify({
-      taskCount,
-      quantity,
-      totalQuantity,
-      country,
-      targetState,
-      delivery,
-      startDate,
-      startTime,
-      fileName,
-      privacyAccepted,
-      termsAccepted,
-    }));
-    window.location.assign("/campaigns/custom-task/insufficient-balance");
+    if (submitting) return;
+    setSubmitting(true); setSubmitError("");
+    try {
+      const draft = { taskCount, quantity, totalQuantity, country, targetState, delivery, startDate, startTime, privacyAccepted, termsAccepted, priceQuoteStatus: "unavailable" };
+      const saved = await api.saveCampaignDraft({ payload: draft, creative_key: null });
+      sessionStorage.setItem("v2CustomTaskDraft", JSON.stringify(draft));
+      window.location.assign(`/campaigns/preview-selections?draft=${encodeURIComponent(saved.id)}`);
+    } catch (error) {
+      setSubmitError(error.message || "Unable to save campaign draft.");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -195,22 +194,14 @@ export default function V2CustomTask() {
 
           <section className="v2-ct-panel v2-ct-cashback-panel">
             <div className="v2-ct-cashback-copy">
-              <FieldHeader title="(Optional)" help="Share the link and image below on your whatsapp status to get 1% cash back on your payment = ₦0 money back." />
+              <FieldHeader title="(Optional)" help="Cashback rewards and proof submissions are paused until programme rules and verification are connected." />
               <div className="v2-ct-cashback-actions">
-                <button type="button" onClick={copyCashbackLink}><i><img src={assets.copy} alt="" /></i><span>{copied ? "link copied" : "click on the icon\nto copy link"}</span></button>
-                <button type="button"><i><img src={assets.download} alt="" /></i><span>click on the icon to\ndownload image</span></button>
+                <button type="button" onClick={copyCashbackLink}><i><img src={assets.copy} alt="" /></i><span>{copied ? "link copied" : "copy referral link"}</span></button>
+                <button type="button" onClick={() => window.location.assign("/refer")}><i><img src={assets.download} alt="" /></i><span>view referral details</span></button>
               </div>
             </div>
 
-            <div className="v2-ct-upload-block">
-              <h2>Upload the Evidence (Screen Shot) of Image and link shared on your whatsapp status</h2>
-              <input ref={fileInput} type="file" accept="image/*" hidden onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} />
-              <button className="v2-ct-upload" type="button" onClick={() => fileInput.current?.click()}>
-                <img src={assets.upload} alt="" />
-                <strong>{fileName || "Choose file"}</strong>
-                <span>Size limit: 25mb</span>
-              </button>
-            </div>
+
           </section>
 
           <section className="v2-ct-panel v2-ct-terms">
@@ -219,7 +210,7 @@ export default function V2CustomTask() {
             <Consent checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)}>I have read and agreed to terms and condition.</Consent>
           </section>
 
-          <button className="v2-ct-proceed" type="submit">Proceed</button>
+          {submitError && <p role="alert">{submitError}</p>}<button className="v2-ct-proceed" type="submit" disabled={submitting}>{submitting ? "Saving draft..." : "Save Draft"}</button>
         </form>
       </div>
     </main>

@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 import uuid
@@ -9,7 +10,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
-from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
+from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards, support
 from app.routers import admin_audit, admin_mfa, admin_kyc_documents, campaign_reports, submission_revisions, admin_lifecycle, proofs, admin_rewards, admin_gifts, gifts
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
@@ -27,12 +28,24 @@ app = FastAPI(
     redoc_url=None if _is_production else "/redoc",
 )
 
+@app.middleware("http")
+async def request_size_limit(request: Request, call_next):
+    raw_length = request.headers.get("content-length")
+    if raw_length:
+        try:
+            if int(raw_length) > settings.MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(status_code=413, content={"detail": "Request body exceeds the configured size limit."})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header."})
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "X-Admin-MFA-Code"],
     expose_headers=["WWW-Authenticate", "X-Request-ID"],
 )
 
@@ -42,6 +55,10 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if request.url.path.startswith(("/auth/", "/wallet/", "/kyc/", "/admin/", "/campaigns/drafts", "/support/")):
+        response.headers["Cache-Control"] = "no-store"
+    if _is_production:
+        response.headers["Content-Security-Policy-Report-Only"] = "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     if _is_production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -75,13 +92,37 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         "/auth/forgot-password": ("auth-forgot-password", 5, 3600),
         "/auth/reset-password": ("auth-reset-password", 5, 3600),
         "/auth/change-password": ("auth-change-password", 5, 3600),
+        "/auth/me/avatar": ("profile-avatar-upload", 10, 3600),
+        "/auth/me/avatar/upload-url": ("profile-avatar-presign", 10, 3600),
+        "/auth/me/avatar/confirm": ("profile-avatar-confirm", 10, 3600),
         "/auth/oauth/exchange": ("auth-oauth-exchange", 20, 900),
         "/wallet/withdraw": ("wallet-withdraw", 10, 3600),
-        "/wallet/deposit": ("wallet-deposit", 20, 3600),
+        "/wallet/deposit/initialize": ("wallet-deposit", 10, 3600),
         "/wallet/resolve-account": ("wallet-resolve-account", 30, 900),
+        "/support/contact": ("support-contact", 5, 3600),
+        "/campaigns/creative-upload-url": ("campaign-creative-upload", 20, 3600),
+        "/campaigns/creative-confirm": ("campaign-creative-confirm", 30, 3600),
+        "/campaigns/drafts": ("campaign-draft-write", 30, 3600),
     }
     rule = rules.get(path)
+    if path.startswith("/campaigns/drafts/"):
+        rule = ("campaign-draft-access", 60, 3600)
     if rule:
+        authorization = request.headers.get("authorization", "")
+        if authorization.lower().startswith("bearer "):
+            payload = decode_token(authorization[7:].strip())
+            if payload:
+                request.state.rate_limit_identity = payload.get("sub")
+        elif request.method == "POST" and path.startswith("/auth/"):
+            raw = await request.body()
+            try:
+                identity_data = json.loads(raw or b"{}")
+                request.state.rate_limit_identity = identity_data.get("email")
+            except (ValueError, AttributeError):
+                request.state.rate_limit_identity = None
+            async def receive():
+                return {"type": "http.request", "body": raw, "more_body": False}
+            request._receive = receive
         await check_rate_limit(request, *rule)
     return await call_next(request)
 
@@ -109,6 +150,7 @@ async def sensitive_action_audit(request: Request, call_next):
     return response
 
 app.include_router(auth.router)
+app.include_router(support.router)
 app.include_router(wallet.router)
 app.include_router(campaigns.router)
 app.include_router(campaign_reports.router)

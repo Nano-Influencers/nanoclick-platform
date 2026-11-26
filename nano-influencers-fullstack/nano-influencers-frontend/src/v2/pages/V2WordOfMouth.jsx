@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../../api.js";
 import "./v2-word-of-mouth.css";
 
 const ASSET_BASE = "/assets/nano-v2-app/";
@@ -118,11 +119,16 @@ export function V2WordOfMouth() {
   const [adLink, setAdLink] = useState("");
   const [adText, setAdText] = useState("");
   const [fileName, setFileName] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [savedCreativeKey, setSavedCreativeKey] = useState(null);
+  const [draftId, setDraftId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [budget, setBudget] = useState("5000");
+  const [budget, setBudget] = useState("");
   const [narrowed, setNarrowed] = useState(false);
   const [targeting, setTargeting] = useState({
     demographics: { enabled: false, age: "", gender: "", marital: "" },
@@ -134,15 +140,63 @@ export function V2WordOfMouth() {
     financial: { enabled: false, value: "" },
   });
 
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("draft");
+    if (!id) return;
+    let active = true;
+    api.getCampaignDraft(id).then((saved) => {
+      if (!active || !saved?.payload) return;
+      const data = saved.payload;
+      setDraftId(id);
+      setCampaignName(data.campaignName || "");
+      setPurpose(data.purpose || "");
+      setAdLink(data.adLink || "");
+      setAdText(data.adText || "");
+      setFileName(data.fileName || "");
+      setSavedCreativeKey(data.creativeKey || saved.creative_key || null);
+      setTargeting(data.targeting || {
+        demographics: { enabled: false, age: "", gender: "", marital: "" },
+        location: { enabled: false, country: "", state: "", area: "" },
+        language: { enabled: false, value: "" }, niche: { enabled: false, value: "" },
+        profession: { enabled: false, value: "" }, religion: { enabled: false, value: "" },
+        financial: { enabled: false, value: "" },
+      });
+      setStartDate(data.startDate || "");
+      setEndDate(data.endDate || "");
+      setStartTime(data.startTime || "");
+      setEndTime(data.endTime || "");
+      setBudget(data.budget ? String(data.budget) : "");
+    }).catch((error) => { if (active) setSubmitError(error.message || "Unable to load saved draft."); });
+    return () => { active = false; };
+  }, []);
+
   const toggle = (key) => setTargeting((current) => ({ ...current, [key]: { ...current[key], enabled: !current[key].enabled } }));
   const setTarget = (key, next) => setTargeting((current) => ({ ...current, [key]: { ...current[key], ...next } }));
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    const draft = { campaignName, purpose, adLink, adText, fileName, targeting, startDate, endDate, startTime, endTime, budget };
-    window.sessionStorage.setItem("v2WordOfMouthDraft", JSON.stringify(draft));
-    const suffix = new URLSearchParams(window.location.search).get("payment") === "success" ? "?payment=success" : "";
-    go(`/campaigns/word-of-mouth/preview${suffix}`);
+    if (submitting) return;
+    setSubmitting(true); setSubmitError("");
+    try {
+      let creativeKey = savedCreativeKey;
+      if (selectedFile) {
+        const extension = selectedFile.name.split(".").pop()?.toLowerCase() || "";
+        const upload = await api.createCampaignCreativeUploadUrl(extension);
+        const response = await fetch(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: selectedFile });
+        if (!response.ok) throw new Error("Creative upload failed. Please try again.");
+        const confirmed = await api.confirmCampaignCreative(upload.file_key);
+        creativeKey = confirmed.file_key;
+        setSavedCreativeKey(creativeKey);
+      }
+      const draft = { campaignName, purpose, adLink, adText, fileName, creativeKey, targeting, startDate, endDate, startTime, endTime, budget };
+      const saved = await api.saveCampaignDraft({ draft_id: draftId, payload: draft, creative_key: creativeKey });
+      setDraftId(saved.id);
+      window.sessionStorage.setItem("v2WordOfMouthDraft", JSON.stringify(draft));
+      go(`/campaigns/word-of-mouth/preview?draft=${encodeURIComponent(saved.id)}`);
+    } catch (error) {
+      setSubmitError(error.message || "Unable to save campaign draft.");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -164,7 +218,7 @@ export function V2WordOfMouth() {
 
           <section className="v2-wom-panel v2-wom-creatives">
             <div className="v2-wom-creative-block"><FieldHeading title="Ad Creatives" subtitle={<>Input any Link to your ad below <em>(Optional)</em></>} /><input className="v2-wom-input" value={adLink} onChange={(e) => setAdLink(e.target.value)} placeholder="link here" /></div>
-            <div className="v2-wom-creative-block"><FieldHeading title="Upload Image or Video for this ad" /><input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} /><button className="v2-wom-upload" type="button" onClick={() => fileRef.current?.click()}><img src={assets.upload} alt="" /><strong>{fileName || "Choose file"}</strong><span>{fileName ? "File selected" : "Size limit: 25mb"}</span></button></div>
+            <div className="v2-wom-creative-block"><FieldHeading title="Upload Image or Video for this ad" /><input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => { const file = e.target.files?.[0] || null; setSelectedFile(file); setFileName(file?.name || ""); }} /><button className="v2-wom-upload" type="button" onClick={() => fileRef.current?.click()}><img src={assets.upload} alt="" /><strong>{fileName || "Choose file"}</strong><span>{fileName ? "File selected" : "Size limit: 25mb"}</span></button></div>
             <div className="v2-wom-creative-block"><div className="v2-wom-text-head"><FieldHeading title={<>Add any text <em>(Optional)</em></>} /><small>Add any message you think would support your ad below (limited to 100 chars)</small></div><textarea maxLength={100} value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="type here" /></div>
           </section>
 
@@ -193,7 +247,7 @@ export function V2WordOfMouth() {
 
           <section className="v2-wom-panel"><FieldHeading title="Budget" subtitle="Choose your budget for this campaign" /><SelectShell value={budget} onChange={(e) => setBudget(e.target.value)} ariaLabel="Campaign budget"><option value="5000">₦5000</option><option value="10000">₦10,000</option><option value="25000">₦25,000</option><option value="50000">₦50,000</option></SelectShell></section>
 
-          <section className="v2-wom-result"><span className="v2-wom-result-icon"><img src={assets.result} alt="" /></span><div><h2>Result:</h2><p>Reach Estimation: 1,785 – 14,252 would see this Ad</p><p>Impression Estimation: 15,820 – 28,235</p></div><button type="submit">Proceed</button></section>
+          <section className="v2-wom-result"><span className="v2-wom-result-icon"><img src={assets.result} alt="" /></span><div><h2>Result:</h2><p>Reach and impression estimates will be supplied by the live campaign quote service.</p></div>{submitError && <p role="alert">{submitError}</p>}<button type="submit" disabled={submitting}>{submitting ? "Saving draft..." : "Proceed"}</button></section>
         </form>
       </div>
     </main>
@@ -214,42 +268,80 @@ function SummaryInfo({ icon, label, value, description }) {
 }
 
 export function V2WordOfMouthPreview() {
-  const draft = useMemo(readDraft, []);
-  const [accepted, setAccepted] = useState(() => window.innerWidth <= 700);
-  const budget = Number(draft.budget || 5000);
-  const total = budget + 500;
-  const location = draft.targeting?.location || defaultDraft.targeting.location;
-  const demographics = draft.targeting?.demographics || defaultDraft.targeting.demographics;
-  const niche = draft.targeting?.niche || defaultDraft.targeting.niche;
-  const schedule = draft.startDate && draft.endDate ? `${draft.startDate} · ${draft.startTime || "09:00"} → ${draft.endDate} · ${draft.endTime || "21:00"}` : "05 Aug 2026 · 09:00 → 20 Aug 2026 · 21:00";
-  const purpose = draft.purpose || defaultDraft.purpose;
-  const campaignName = draft.campaignName || defaultDraft.campaignName;
+  const [draft, setDraft] = useState({});
+  const [draftId, setDraftId] = useState(null);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftError, setDraftError] = useState("");
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("draft");
+    if (!id) {
+      setDraftError("No saved draft was provided. Return to the campaign builder and save a draft first.");
+      return;
+    }
+    let active = true;
+    setDraftId(id);
+    setDraftLoading(true);
+    api.getCampaignDraft(id)
+      .then((saved) => { if (active && saved?.payload) setDraft(saved.payload); })
+      .catch((error) => { if (active) setDraftError(error.message || "Unable to load saved draft."); })
+      .finally(() => { if (active) setDraftLoading(false); });
+    return () => { active = false; };
+  }, []);
 
-  const confirm = () => {
-    const success = new URLSearchParams(window.location.search).get("payment") === "success";
-    go(success ? "/campaigns/word-of-mouth/subscription-success" : "/campaigns/word-of-mouth/insufficient-balance");
-  };
+  const location = draft.targeting?.location || {};
+  const demographics = draft.targeting?.demographics || {};
+  const niche = draft.targeting?.niche || {};
+  const budget = Number(draft.budget || 0);
+  const schedule = draft.startDate && draft.endDate
+    ? `${draft.startDate} · ${draft.startTime || "Not set"} → ${draft.endDate} · ${draft.endTime || "Not set"}`
+    : "Not set";
 
   return (
     <main className="ni-v2 v2-wom-preview-page">
       <div className="v2-wom-preview-shell">
-        <header className="v2-wom-backbar"><button type="button" onClick={() => go("/campaigns/word-of-mouth")}><img src={assets.arrowLeft} alt="" /><span>Go Back</span></button></header>
-        <h1 className="v2-wom-summary-title">Order Summary</h1>
-
-        <section className="v2-wom-summary-panel v2-wom-ad-summary">
-          <h2>Ad Overview</h2>
-          <div className="v2-wom-summary-grid"><SummaryInfo icon={assets.megaphone} label="Campaign Name:" value={campaignName} /><SummaryInfo icon={assets.radar} label="Campaign Purpose" value={purpose} /></div>
-          <div className="v2-wom-summary-section"><h2>Ad Creatives</h2><div className="v2-wom-creative-preview"><img src={assets.creative} alt="Campaign creative" /><span>📎 {draft.fileName || defaultDraft.fileName}</span></div><div className="v2-wom-link-preview"><img src={assets.link} alt="" /><span>{draft.adLink || defaultDraft.adLink}</span></div><div className="v2-wom-copy-preview"><strong>Ad Copy</strong><p>{draft.adText || defaultDraft.adText}</p></div></div>
-          <div className="v2-wom-summary-section v2-wom-target-summary"><h2>Targeting</h2><p><i /> <span>LOCATION TARGETING:</span> {location.state || "Lagos State"} — {location.area || "Lekki, Surulere, Victoria Island"}</p><p><i /> <span>BASIC DEMOGRAPHICS TARGETING:</span> Age {demographics.age || "18–34"} · {demographics.gender || "Female & Male"}</p><p><i /> <span>TARGET NICHE:</span> {niche.value || "Entertainment, Music & Fashion"}</p></div>
-          <div className="v2-wom-summary-section"><div className="v2-wom-summary-grid"><SummaryInfo icon={assets.schedule} label="Schedule" value={schedule} /><SummaryInfo icon={assets.budget} label="Budget" value={`₦${budget.toLocaleString("en-NG")}`} /></div></div>
-        </section>
-
-        <section className="v2-wom-summary-panel v2-wom-performance"><h2>Estimated Ads Performance</h2><div className="v2-wom-summary-grid"><SummaryInfo icon={assets.reach} label="Potential Reach" description="people would see this ad" value="1,785 – 14,252" /><SummaryInfo icon={assets.impressions} label="Impressions" description="times your ad is shown" value="15,820 – 28,235" /></div><div className="v2-wom-delivery"><h2>Delivery Mode</h2><p className="is-green"><i /> <strong>WhatsApp</strong> — DMs, Status, and Group Chats</p><p className="is-orange"><i /> <strong>Instagram</strong> — DMs, Story, Post, Comment Session and Group Chats</p><p className="is-blue"><i /> <strong>Facebook</strong> — DMs, Messenger, Story, Post, Comment Sessions &amp; Groups</p></div><div className="v2-wom-warning">⚠️ <span>If targeting is too narrow it might take longer to exhaust the ad cost. Expand your target audience a bit to get the best reach.</span></div></section>
-
-        <section className="v2-wom-summary-panel v2-wom-payment"><h2>Payment Summary</h2><div className="v2-wom-total-mobile"><span>Total Cost</span><strong>₦{total.toLocaleString("en-NG")}</strong></div><div><span>Campaign</span><strong>{campaignName}</strong></div><div><span>Charged from</span><strong className="v2-wom-wallet"><i><img src={assets.wallet} alt="" /></i>Wallet</strong></div><div className="is-invoice"><span>Invoice ID</span><code>#Z4KF3VJG9A9Y</code></div></section>
-
-        <section className="v2-wom-summary-panel v2-wom-terms"><h2>Terms &amp; Conditions</h2><label><input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} /><span>{accepted ? "✓" : ""}</span><p>I have read and agreed to the terms &amp; conditions of this service. Read terms and conditions here</p></label></section>
-        <button className="v2-wom-confirm" type="button" onClick={confirm}>Confirm Payment</button>
+        <header className="v2-wom-backbar"><button type="button" onClick={() => go(draftId ? `/campaigns/word-of-mouth?draft=${encodeURIComponent(draftId)}` : "/campaigns/word-of-mouth")}><img src={assets.arrowLeft} alt="" /><span>Back to draft</span></button></header>
+        <h1 className="v2-wom-summary-title">Campaign Draft Review</h1>
+        {draftLoading && <p role="status">Loading saved draft…</p>}
+        {draftError && <p role="alert">{draftError}</p>}
+        {!draftLoading && !draftError && (
+          <>
+            <section className="v2-wom-summary-panel v2-wom-ad-summary">
+              <h2>Ad Overview</h2>
+              <div className="v2-wom-summary-grid">
+                <SummaryInfo icon={assets.megaphone} label="Campaign Name" value={draft.campaignName || "Not provided"} />
+                <SummaryInfo icon={assets.radar} label="Campaign Purpose" value={draft.purpose || "Not provided"} />
+              </div>
+              <div className="v2-wom-summary-section">
+                <h2>Ad Creatives</h2>
+                <p>Creative file: {draft.fileName || "No creative uploaded"}</p>
+                <p>Storage: {draft.creativeKey ? "Uploaded and confirmed" : "No file uploaded"}</p>
+                <div className="v2-wom-link-preview"><img src={assets.link} alt="" /><span>{draft.adLink || "No destination link provided"}</span></div>
+                <div className="v2-wom-copy-preview"><strong>Ad Copy</strong><p>{draft.adText || "No ad copy provided"}</p></div>
+              </div>
+              <div className="v2-wom-summary-section v2-wom-target-summary">
+                <h2>Targeting</h2>
+                <p><i /> <span>LOCATION:</span> {location.state || "Not specified"} — {location.area || "Not specified"}</p>
+                <p><i /> <span>DEMOGRAPHICS:</span> Age {demographics.age || "Not specified"} · {demographics.gender || "Not specified"}</p>
+                <p><i /> <span>TARGET NICHE:</span> {niche.value || "Not specified"}</p>
+              </div>
+              <div className="v2-wom-summary-section">
+                <div className="v2-wom-summary-grid">
+                  <SummaryInfo icon={assets.schedule} label="Schedule" value={schedule} />
+                  <SummaryInfo icon={assets.budget} label="Draft Budget" value={budget > 0 ? `₦${budget.toLocaleString("en-NG")}` : "Not provided"} />
+                </div>
+              </div>
+            </section>
+            <section className="v2-wom-summary-panel v2-wom-performance">
+              <h2>Estimated Performance</h2>
+              <p>Reach and impression estimates are unavailable until an approved server-side pricing and delivery quote is configured.</p>
+            </section>
+            <section className="v2-wom-summary-panel v2-wom-payment">
+              <h2>Payment Status</h2>
+              <p>Campaign launch is paused. No payment has been initialized and no wallet funds have been charged.</p>
+            </section>
+          </>
+        )}
+        <button className="v2-wom-confirm" type="button" disabled>Campaign Launch Paused</button>
       </div>
     </main>
   );

@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from urllib.parse import urlsplit
 
 
 class CampaignTargetingCreate(BaseModel):
@@ -45,6 +46,16 @@ class CampaignCreate(BaseModel):
     targeting: CampaignTargetingCreate | None = None
     comment_subtype: str | None = None
     video_subtype: str | None = None
+
+    @field_validator("target_url")
+    @classmethod
+    def validate_target_url(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        parsed = urlsplit(value.strip())
+        if parsed.scheme.lower() != "https" or not parsed.netloc or parsed.username or parsed.password:
+            raise ValueError("Target URL must be a valid HTTPS URL")
+        return value.strip()
 
 
 class CampaignResponse(BaseModel):

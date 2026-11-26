@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../../api.js";
 const ASSET_BASE = "/assets/nano-v2-app/";
 import "./v2-social-task-campaign.css";
 
@@ -450,7 +451,7 @@ function CheckChoice({ checked, onChange, label, cost }) {
       <input type="checkbox" checked={checked} onChange={onChange} />
       <span className="v2-stc-box">{checked ? "✓" : ""}</span>
       <span>{label}</span>
-      {typeof cost === "number" ? <small>(Cost {money(cost)})</small> : null}
+      
     </label>
   );
 }
@@ -482,10 +483,10 @@ function UploadBox({ fileName, onFile, accept = "image/*", label = "Choose file"
   const ref = useRef(null);
   return (
     <>
-      <input ref={ref} type="file" accept={accept} hidden onChange={(event) => onFile(event.target.files?.[0]?.name || "")} />
+      <input ref={ref} type="file" accept={accept} hidden onChange={(event) => onFile(event.target.files?.[0] || null)} />
       <button className="v2-stc-upload" type="button" onClick={() => ref.current?.click()}>
         <UploadIcon />
-        <strong>{fileName || label}</strong>
+        <strong>{fileName?.name || fileName || label}</strong>
         <span>Size limit: 25mb</span>
       </button>
     </>
@@ -561,7 +562,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
         <div className="v2-stc-field"><FieldHeader title="I want to report a:" /><input className="v2-stc-input" value={values.reportType} onChange={(event) => setValue("reportType", event.target.value)} placeholder="Select option" /></div>
         <div className="v2-stc-field"><FieldHeader title="Why are you reporting this comment?" help="Choose the option that best describes the issue" /><input className="v2-stc-input" value={values.reportReason} onChange={(event) => setValue("reportReason", event.target.value)} placeholder="Select option" /></div>
         <div className="v2-stc-field"><FieldHeader title="Please write a short letter to our admin on why you are reporting this comment" /><textarea className="v2-stc-textarea" value={values.reportLetter} onChange={(event) => setValue("reportLetter", event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
-        <div className="v2-stc-field"><FieldHeader title="Upload Evidence to back your claims on why this comment deserves to be reported" /><UploadBox fileName={taskMedia} onFile={setTaskMedia} /></div>
+        <div className="v2-stc-field"><FieldHeader title="Upload Evidence to back your claims on why this comment deserves to be reported" /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="image/*,video/mp4" /></div>
         <div className="v2-stc-field"><FieldHeader title="Commenter’s Handle" /><input className="v2-stc-input" value={values.commenterHandle} onChange={(event) => setValue("commenterHandle", event.target.value)} placeholder="type here" /></div>
         <div className="v2-stc-field"><FieldHeader title="Drop the comment you want us to report" /><textarea className="v2-stc-textarea" value={values.reportComment} onChange={(event) => setValue("reportComment", event.target.value)} placeholder="type here" /></div>
       </section>
@@ -580,7 +581,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
   if (mode === "interactive") {
     return (
       <section className="v2-stc-panel">
-        <div className="v2-stc-special-title"><h2>Interactive Comment Session</h2>{selectedTask.unitCost ? <p>(Cost {money(selectedTask.unitCost)})</p> : null}</div>
+        <div className="v2-stc-special-title"><h2>Interactive Comment Session</h2></div>
         <RadioButtons title="I want the Interactive Comment Session to happen on a:" values={selectedTask.surfaces || ["Post", "Comment Section"]} value={values.targetSurface} onChange={(value) => setValue("targetSurface", value)} />
       </section>
     );
@@ -591,7 +592,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
       <section className="v2-stc-panel">
         <RadioButtons title="I want the Dislike to happen on a:" values={["Post", "Comment Section"]} value={values.targetSurface} onChange={(value) => setValue("targetSurface", value)} />
         <div className="v2-stc-field"><FieldHeader title="Reasons for Dislike (To Admin)" /><textarea className="v2-stc-textarea" value={values.reason} onChange={(event) => setValue("reason", event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
-        <div className="v2-stc-field"><FieldHeader title="Upload any image evidence." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} /></div>
+        <div className="v2-stc-field"><FieldHeader title="Upload any image evidence." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="image/*,video/mp4" /></div>
       </section>
     );
   }
@@ -626,7 +627,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
     return (
       <section className="v2-stc-panel">
         <div className="v2-stc-special-title"><h2>{selectedTask.specialTitle || selectedTask.label}</h2>{selectedTask.specialCopy ? <p>{selectedTask.specialCopy}</p> : null}{selectedTask.unitCost ? <p>(Cost {money(selectedTask.unitCost)})</p> : null}</div>
-        <div className="v2-stc-field"><FieldHeader title="Upload sound." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="audio/*,video/*" /></div>
+        <div className="v2-stc-field"><FieldHeader title="Upload sound." /><p>Audio uploads are not supported yet. Supported attachments are images, MP4 video and PDF instructions.</p></div>
         <div className="v2-stc-field"><FieldHeader title={selectedTask.mediaLabel || "Choose Video Part"} /><div className="v2-stc-two"><input className="v2-stc-input" value={values.mediaStart} onChange={(event) => setValue("mediaStart", event.target.value)} placeholder="Start time" /><input className="v2-stc-input" value={values.mediaEnd} onChange={(event) => setValue("mediaEnd", event.target.value)} placeholder="End time" /></div></div>
         <div className="v2-stc-field"><FieldHeader title="What kind of Content" /><input className="v2-stc-input" value={values.contentType} onChange={(event) => setValue("contentType", event.target.value)} placeholder="type here" /></div>
         <div className="v2-stc-field"><FieldHeader title="What do you want to Achieve?" /><textarea className="v2-stc-textarea" value={values.goal} onChange={(event) => setValue("goal", event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
@@ -683,7 +684,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
     return (
       <section className="v2-stc-panel">
         <RadioButtons title="Favourite type:" values={["Song", "Album", "Playlist", "Artist"]} value={values.favouriteType} onChange={(value) => setValue("favouriteType", value)} />
-        <div className="v2-stc-special-title"><h2>Add my Song to Liked Songs</h2><p>(Cost {money(selectedTask.unitCost || 100)})</p></div>
+        <div className="v2-stc-special-title"><h2>Add my Song to Liked Songs</h2></div>
       </section>
     );
   }
@@ -691,7 +692,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
   if (mode === "repost-options") {
     return (
       <section className="v2-stc-panel">
-        <div className="v2-stc-special-title"><h2>Re-post my post</h2><p>(Cost {money(selectedTask.unitCost || 20)})</p></div>
+        <div className="v2-stc-special-title"><h2>Re-post my post</h2></div>
         <RadioButtons title="Quantity" values={["Just Repost", "Repost with Thoughts"]} value={values.repostType} onChange={(value) => setValue("repostType", value)} />
       </section>
     );
@@ -720,6 +721,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
 }
 
 export default function V2SocialTaskCampaign() {
+  const [user, setUser] = useState(null);
   const pathSlug = window.location.pathname.split("/").filter(Boolean).pop()?.toLowerCase() || "facebook";
   const platform = platformConfigs[pathSlug === "twitter" ? "x" : pathSlug] || platformConfigs.facebook;
   const query = new URLSearchParams(window.location.search);
@@ -766,12 +768,32 @@ export default function V2SocialTaskCampaign() {
   const [startDate, setStartDate] = useState("Today");
   const [startTime, setStartTime] = useState("19:00");
   const [instruction, setInstruction] = useState("");
-  const [instructionFile, setInstructionFile] = useState("");
-  const [taskMedia, setTaskMedia] = useState("");
-  const [cashbackEvidence, setCashbackEvidence] = useState("");
+  const [instructionFile, setInstructionFile] = useState(null);
+  const [taskMedia, setTaskMedia] = useState(null);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const session = await api.restoreSession();
+        if (!session.ok) {
+          if (session.reason === "anonymous") { window.location.replace("/login"); return; }
+          if (session.reason === "expired") { window.location.replace("/login?reason=session_expired"); return; }
+          throw new Error("Unable to verify your session right now. Please try again.");
+        }
+        const profile = await api.me();
+        if (active) setUser(profile);
+      } catch (error) {
+        if (active) setSubmitError(error.message || "Unable to load your account.");
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
 
   const setValue = (key, value) => setValues((current) => ({ ...current, [key]: value }));
 
@@ -806,41 +828,54 @@ export default function V2SocialTaskCampaign() {
 
   const copyCashback = async () => {
     try {
-      await navigator.clipboard.writeText("https://nanoinfluencer.ng/ref/adaeze");
+      const profile = await api.me();
+      if (!profile?.referral_code) throw new Error("Referral link is unavailable.");
+      const link = new URL(`/ref/${encodeURIComponent(profile.referral_code)}`, window.location.origin).toString();
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
       setCopied(false);
+      setSubmitError("Unable to copy your referral link. Visit Refer & Earn to view it.");
     }
   };
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    const draft = {
-      platform: platform.slug,
-      task: selectedTask.label,
-      pageAbout,
-      link,
-      quantity,
-      unitCost,
-      totalCost,
-      country,
-      targetState,
-      delivery,
-      startDate,
-      startTime,
-      instruction,
-      instructionFile,
-      taskMedia,
-      cashbackEvidence,
-      selectedReactions,
-      taskValues: values,
-      privacyAccepted,
-      termsAccepted,
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError("");
+    const uploadAttachment = async (file) => {
+      if (!file) return null;
+      if (file.size > 25 * 1024 * 1024) throw new Error("Each attachment must be 25 MB or smaller.");
+      const extension = file.name.split(".").pop()?.toLowerCase() || "";
+      const upload = await api.createCampaignCreativeUploadUrl(extension);
+      const response = await fetch(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: file });
+      if (!response.ok) throw new Error(`Upload failed for ${file.name}.`);
+      const confirmed = await api.confirmCampaignCreative(upload.file_key);
+      return { key: confirmed.file_key, name: file.name };
     };
-    sessionStorage.setItem("v2SocialTaskCampaignDraft", JSON.stringify(draft));
-    const destination = query.get("payment") === "success" ? "/campaigns/subscription-success" : "/campaigns/insufficient-balance";
-    window.location.assign(destination);
+    try {
+      const [instructionUpload, mediaUpload] = await Promise.all([
+        uploadAttachment(instructionFile), uploadAttachment(taskMedia),
+      ]);
+      const draft = {
+        platform: platform.slug, task: selectedTask.label, pageAbout, link, quantity,
+        country, targetState, delivery, startDate, startTime, instruction,
+        instructionFileName: instructionUpload?.name || null,
+        instructionFileKey: instructionUpload?.key || null,
+        taskMediaName: mediaUpload?.name || null,
+        taskMediaKey: mediaUpload?.key || null,
+        selectedReactions, taskValues: values, privacyAccepted, termsAccepted,
+        priceQuoteStatus: "unavailable",
+      };
+      const saved = await api.saveCampaignDraft({ payload: draft, creative_key: mediaUpload?.key || instructionUpload?.key || null });
+      window.sessionStorage.setItem("v2SocialTaskCampaignDraft", JSON.stringify(draft));
+      window.location.assign(`/campaigns/preview-selections?draft=${encodeURIComponent(saved.id)}`);
+    } catch (error) {
+      setSubmitError(error.message || "Unable to save campaign draft.");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -848,7 +883,7 @@ export default function V2SocialTaskCampaign() {
       <div className="v2-stc-shell">
         <header className="v2-stc-backbar">
           <a href="/campaigns"><BackIcon /><span>Go Back</span></a>
-          <div className="v2-stc-user"><span className="v2-stc-user-avatar">A</span><span className="v2-stc-user-copy"><strong>Adaeze O.</strong><small>Free Plan</small></span></div>
+          <div className="v2-stc-user"><span className="v2-stc-user-avatar">{String(user?.full_name || user?.email || "U").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</span><span className="v2-stc-user-copy"><strong>{user?.full_name || user?.email || "My Account"}</strong><small>{user?.role ? user.role[0].toUpperCase() + user.role.slice(1) : "Account"}</small></span></div>
         </header>
 
         <header className="v2-stc-heading"><h1>{platform.title}</h1></header>
@@ -867,13 +902,13 @@ export default function V2SocialTaskCampaign() {
             <div className="v2-stc-field"><FieldHeader title="What is your page/profile about" /><input className="v2-stc-input" value={pageAbout} onChange={(event) => setPageAbout(event.target.value)} placeholder="type here" maxLength={50} /><p className="v2-stc-meta">{pageAbout.length}/50</p></div>
             <div className="v2-stc-field"><FieldHeader title="Link" help="Ensure that you drop the correct link here." /><p className="v2-stc-inline-note">Drop the link to the post here.</p><input className="v2-stc-input" value={link} onChange={(event) => setLink(event.target.value)} placeholder={platform.linkPlaceholder} /></div>
             <div className="v2-stc-field"><FieldHeader title="Total Quantity" help="Total quantity based on the addition of all individual quantities." /><input className="v2-stc-input" type="number" min="0" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" /></div>
-            <div className="v2-stc-field"><FieldHeader title="Cost" help="Total cost based on the addition of all individual costs." /><input className="v2-stc-input" value={money(totalCost)} readOnly /></div>
+            <div className="v2-stc-field"><FieldHeader title="Cost" help="Total cost based on the addition of all individual costs." /><input className="v2-stc-input" value="Awaiting verified quote" readOnly /></div>
           </section>
 
           {selectedTask.instructions !== false && selectedTask.mode !== "report" && selectedTask.mode !== "special-media" ? (
             <section className="v2-stc-panel">
               <div className="v2-stc-instruction"><FieldHeader title="Any Instruction for the Nano-Influencer (Optional)" /><textarea className="v2-stc-textarea" value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
-              <div className="v2-stc-field"><FieldHeader title="Upload any image sample for the instruction." /><UploadBox fileName={instructionFile} onFile={setInstructionFile} /></div>
+              <div className="v2-stc-field"><FieldHeader title="Upload any image sample for the instruction." /><UploadBox fileName={instructionFile} onFile={setInstructionFile} accept="image/*,.pdf" /></div>
             </section>
           ) : null}
 
@@ -888,18 +923,18 @@ export default function V2SocialTaskCampaign() {
               <div className="v2-stc-field"><FieldHeader title="Start Date" /><input className="v2-stc-input" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
               <div className="v2-stc-field"><FieldHeader title="Start time" /><input className="v2-stc-input" value={startTime} onChange={(event) => setStartTime(event.target.value)} /></div>
             </div>
-            <p className="v2-stc-total-line">Total Cost (Cost × Delivery Speed) × 1 <strong>= {money(totalCost)}</strong></p>
+            <p className="v2-stc-total-line">Pricing <strong>Unavailable until a verified server-side quote is configured</strong></p>
           </section>
 
           <section className="v2-stc-panel">
             <div className="v2-stc-cashback">
-              <div className="v2-stc-section-head"><h2>(Optional)</h2><p>Share the link and image below on your whatsapp status to get 1% cash back on your payment = {money(totalCost * 0.01)} money back.</p></div>
+              <div className="v2-stc-section-head"><h2>Referral Link (Optional)</h2><p>Invite a worker with your personal referral link. Referral rewards follow the published eligibility rules.</p></div>
               <div className="v2-stc-cashback-actions">
-                <button type="button" onClick={copyCashback}><i>↗</i><span>{copied ? "link copied" : "click on the icon\nto copy link"}</span></button>
-                <button type="button"><i>↓</i><span>click on the icon to\ndownload image</span></button>
+                <button type="button" onClick={copyCashback}><i>↗</i><span>{copied ? "link copied" : "copy referral link"}</span></button>
+                <button type="button" onClick={() => window.location.assign("/refer")}><i>↗</i><span>view referral details</span></button>
               </div>
             </div>
-            <div className="v2-stc-upload-block"><h2>Upload the Evidence (Screen Shot) of Image and link shared on your whatsapp status</h2><UploadBox fileName={cashbackEvidence} onFile={setCashbackEvidence} /></div>
+            
           </section>
 
           <section className="v2-stc-panel v2-stc-terms">
@@ -908,7 +943,7 @@ export default function V2SocialTaskCampaign() {
             <Consent checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)}>I have read and agreed to terms and condition.</Consent>
           </section>
 
-          <button className="v2-stc-proceed" type="submit">Proceed</button>
+          {submitError && <p role="alert" className="v2-stc-submit-error">{submitError}</p>}<button className="v2-stc-proceed" type="submit" disabled={submitting}>{submitting ? "Saving draft..." : "Save Draft"}</button>
         </form>
       </div>
     </main>

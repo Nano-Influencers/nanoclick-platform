@@ -62,17 +62,17 @@ function AppSidebar() {
           <p>Main Menu</p>
           <SidebarLink href="/dashboard" icon={assets.dashboard}>Dashboard</SidebarLink>
           <SidebarLink href="/wallet" icon={assets.wallet}>Wallet</SidebarLink>
-          <SidebarLink href="#campaigns" icon={assets.dashboard}>Campaigns</SidebarLink>
-          <SidebarLink href="#analytics" icon={assets.analytics}>Analytics</SidebarLink>
+          <SidebarLink href="/campaigns" icon={assets.dashboard}>Campaigns</SidebarLink>
+          <SidebarLink href="/analytics" icon={assets.analytics}>Analytics</SidebarLink>
         </div>
         <div className="v2-settings-sidebar-group v2-settings-sidebar-support">
           <p>Support</p>
           <SidebarLink href="/settings" icon={assets.settings} active>Settings</SidebarLink>
-          <SidebarLink href="#help" icon={assets.help}>Help &amp; Support</SidebarLink>
+          <SidebarLink href="/support" icon={assets.help}>Help &amp; Support</SidebarLink>
         </div>
       </div>
       <button className="v2-settings-logout" type="button" onClick={logoutAndRedirect}><span>Log Out</span><img src={assets.logout} alt="" /></button>
-      <button className="v2-settings-collapse" type="button" aria-label="Collapse sidebar"><img src={assets.collapse} alt="" /></button>
+      <span className="v2-settings-collapse" aria-hidden="true"><img src={assets.collapse} alt="" /></span>
     </aside>
   );
 }
@@ -83,7 +83,7 @@ function TopHeader({ user }) {
       <div className="v2-settings-mobile-brand"><Brand /></div>
       <p className="v2-settings-welcome">Welcome Back 👋</p>
       <div className="v2-settings-user">
-        <button className="v2-settings-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
+        <a className="v2-settings-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
         <div className="v2-settings-profile-chip">{user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <div className="v2-settings-avatar-fallback">{avatarInitials(user)}</div>}<span>{user?.full_name || user?.email || "My Account"}</span></div>
       </div>
     </header>
@@ -153,15 +153,25 @@ function ProfileSettings({ user, onUserUpdate }) {
   }, [user]);
   useEffect(() => { setAvatar(user?.avatar_url || null); }, [user?.avatar_url]);
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const resetForm = () => { const parts = String(user?.full_name || "").trim().split(/\s+/).filter(Boolean); setForm({ first: parts.shift() || "", last: parts.join(" "), email: user?.email || "", phone: user?.phone_number || "", currentPassword: "", newPassword: "", confirmPassword: "" }); setSaveError(""); setSaveSuccess(""); };
   const saveProfile = async () => {
     const fullName = [form.first, form.last].map((part) => part.trim()).filter(Boolean).join(" ");
     if (fullName.length < 2 || fullName.length > 255) { setSaveError("Enter a valid first and last name."); return; }
+    const passwordRequested = Boolean(form.currentPassword || form.newPassword || form.confirmPassword);
+    if (passwordRequested && (!form.currentPassword || !form.newPassword || !form.confirmPassword)) { setSaveError("Complete all password fields to change your password."); return; }
+    if (passwordRequested && form.newPassword.length < 8) { setSaveError("New password must be at least 8 characters."); return; }
+    if (passwordRequested && form.newPassword !== form.confirmPassword) { setSaveError("New password and confirmation do not match."); return; }
     setSaving(true);
     setSaveError("");
     setSaveSuccess("");
     try {
       const updated = await api.updateProfile({ full_name: fullName, phone_number: form.phone.trim() || null });
       onUserUpdate?.(updated);
+      if (passwordRequested) {
+        await api.changePassword(form.currentPassword, form.newPassword);
+        window.location.replace("/login?reason=password_changed");
+        return;
+      }
       setSaveSuccess("Profile updated successfully.");
     } catch (error) {
       setSaveError(error.message || "Unable to save profile changes.");
@@ -240,7 +250,7 @@ function ProfileSettings({ user, onUserUpdate }) {
       </SectionCard>
       {saveError && <p role="alert" className="v2-code-error">{saveError}</p>}
       {saveSuccess && <p role="status">{saveSuccess}</p>}
-      <SettingsActions onSave={saveProfile} saving={saving} />
+      <SettingsActions onSave={saveProfile} onCancel={resetForm} saving={saving} />
     </div>
   );
 }
@@ -300,7 +310,7 @@ function NotificationSettings({ user, onUserUpdate }) {
       </SectionCard>
       {error && <p role="alert" className="v2-code-error">{error}</p>}
       {feedback && <p role="status">{feedback}</p>}
-      <SettingsActions onSave={save} saving={saving} />
+      <SettingsActions onSave={save} onCancel={() => { setValues({ ...defaults, ...(user?.notification_preferences || {}) }); setError(""); setFeedback(""); }} saving={saving} />
     </div>
   );
 }
@@ -310,7 +320,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
   const [currency, setCurrency] = useState(saved.currency || "Nigerian Naira (₦)");
   const [timezone, setTimezone] = useState(saved.timezone || "Africa/Lagos (GMT+1)");
   const [language, setLanguage] = useState(saved.language || "English");
-  const [autoRenew, setAutoRenew] = useState(saved.autoRenew ?? true);
+  const [autoRenew, setAutoRenew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
@@ -319,7 +329,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
     setCurrency(preferences.currency || "Nigerian Naira (₦)");
     setTimezone(preferences.timezone || "Africa/Lagos (GMT+1)");
     setLanguage(preferences.language || "English");
-    setAutoRenew(preferences.autoRenew ?? true);
+    setAutoRenew(false);
   }, [user?.regional_preferences]);
   const save = async () => {
     setSaving(true); setError(""); setFeedback("");
@@ -331,7 +341,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
     finally { setSaving(false); }
   };
   const exportData = () => {
-    const payload = { profile: { name: user?.full_name || "", email: user?.email || "" }, preferences: { currency, timezone, language, autoRenew } };
+    const payload = { profile: { name: user?.full_name || "", email: user?.email || "", phone_number: user?.phone_number || null, referral_code: user?.referral_code || null }, notification_preferences: user?.notification_preferences || {}, regional_preferences: { currency, timezone, language, autoRenew } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
@@ -343,21 +353,21 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
     <div className="v2-settings-primary v2-settings-preferences-panel">
       <SectionCard title="Regional Settings" subtitle="Customize your locale and display preferences">
         <div className="v2-settings-form-grid">
-          <label className="v2-settings-field"><span>Currency</span><select value={currency} onChange={(e) => setCurrency(e.target.value)}><option>Nigerian Naira (₦)</option><option>US Dollar ($)</option><option>British Pound (£)</option></select></label>
+          <label className="v2-settings-field"><span>Currency</span><select value={currency} onChange={(e) => setCurrency(e.target.value)}><option>Nigerian Naira (₦)</option><option disabled>US Dollar ($) — unavailable</option><option disabled>British Pound (£) — unavailable</option></select></label>
           <label className="v2-settings-field"><span>Timezone</span><select value={timezone} onChange={(e) => setTimezone(e.target.value)}><option>Africa/Lagos (GMT+1)</option><option>UTC</option></select></label>
           <label className="v2-settings-field is-grid-full"><span>Language</span><select value={language} onChange={(e) => setLanguage(e.target.value)}><option>English</option></select></label>
         </div>
       </SectionCard>
       <SectionCard title="Display & Campaigns" subtitle="Control how the dashboard looks and behaves">
         <div className="v2-settings-toggle-list">
-          <ToggleRow title="Auto-Renew Campaigns" description="Automatically extend campaigns when they expire" checked={autoRenew} onChange={setAutoRenew} />
+          <ToggleRow title="Auto-Renew Campaigns" description="Not available yet — automatic campaign renewal is not enabled." checked={false} disabled />
           <ToggleRow title="Dark Mode" description="Change UI to dark mode" checked={false} disabled />
         </div>
       </SectionCard>
       <SectionCard title="Data & Privacy" subtitle="Manage your data export and account deletion">
         <div className="v2-settings-privacy-list">
           <button className="is-export" type="button" onClick={exportData}>
-            <span className="v2-settings-action-icon"><img src={assets.export} alt="" /></span><span className="v2-settings-action-copy"><strong>Export My Data</strong><small>Download a copy of your account data</small></span><img className="v2-settings-action-chevron" src={assets.actionChevron} alt="" />
+            <span className="v2-settings-action-icon"><img src={assets.export} alt="" /></span><span className="v2-settings-action-copy"><strong>Export My Data</strong><small>Download your profile and saved preferences</small></span><img className="v2-settings-action-chevron" src={assets.actionChevron} alt="" />
           </button>
           <button className="is-delete" type="button" onClick={onDelete}>
             <span className="v2-settings-action-icon"><img src={assets.trash} alt="" /></span><span className="v2-settings-action-copy"><strong>Delete Account</strong><small>Permanently remove your account and all data</small></span><img className="v2-settings-action-chevron" src={assets.actionChevron} alt="" />
@@ -366,16 +376,16 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
       </SectionCard>
       {error && <p role="alert" className="v2-code-error">{error}</p>}
       {feedback && <p role="status">{feedback}</p>}
-      <SettingsActions onSave={save} saving={saving} />
+      <SettingsActions onSave={save} onCancel={() => { const preferences = user?.regional_preferences || {}; setCurrency(preferences.currency || "Nigerian Naira (₦)"); setTimezone(preferences.timezone || "Africa/Lagos (GMT+1)"); setLanguage(preferences.language || "English"); setAutoRenew(preferences.autoRenew ?? false); setError(""); setFeedback(""); }} saving={saving} />
     </div>
   );
 }
 
-function SettingsActions({ onSave, saving = false }) {
-  return <div className="v2-settings-actions"><Button variant="secondary" disabled={saving}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button></div>;
+function SettingsActions({ onSave, onCancel, saving = false }) {
+  return <div className="v2-settings-actions"><Button variant="secondary" onClick={onCancel} disabled={saving || !onCancel}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button></div>;
 }
 
-function DeleteModal({ open, onClose }) {
+function DeleteModal({ open, onClose, onConfirm, busy = false, error = "" }) {
   if (!open) return null;
   return (
     <div className="v2-settings-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
@@ -385,7 +395,7 @@ function DeleteModal({ open, onClose }) {
           <img src={assets.deleteIllustration} alt="" />
           <div><h2 id="delete-title">Delete Account?</h2><p>Are you sure you want to delete this account?<br />This action cannot be undone.</p></div>
         </div>
-        <div className="v2-settings-modal-actions"><Button variant="secondary" onClick={onClose}>Cancel</Button><button className="v2-settings-delete-confirm" type="button" onClick={onClose}>Delete</button></div>
+        {error && <p role="alert">{error}</p>}<div className="v2-settings-modal-actions"><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><button className="v2-settings-delete-confirm" type="button" onClick={onConfirm} disabled={busy}>{busy ? "Deleting..." : "Delete"}</button></div>
       </div>
     </div>
   );
@@ -394,6 +404,8 @@ function DeleteModal({ open, onClose }) {
 export default function V2Settings() {
   const [user, setUser] = useState(null);
   const [profileError, setProfileError] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   useEffect(() => {
     let active = true;
     (async () => {
@@ -416,6 +428,18 @@ export default function V2Settings() {
   const initialTab = tabs.some((tab) => tab.id === params.get("tab")) ? params.get("tab") : "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
   const [deleteOpen, setDeleteOpen] = useState(params.get("state") === "delete");
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await api.deleteAccount();
+      await api.logout();
+      window.location.replace("/login?account=deactivated");
+    } catch (error) {
+      setDeleteError(error.message || "Unable to deactivate your account.");
+      setDeleteBusy(false);
+    }
+  };
 
   const changeTab = (tab) => {
     setActiveTab(tab);
@@ -447,7 +471,7 @@ export default function V2Settings() {
         {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <div className="v2-settings-title-row">
           <div><h1>Settings</h1><p>Manage your account, security, and preferences</p></div>
-          <button className="v2-settings-date" type="button">Last 30 days <img src={assets.dateChevron} alt="" /></button>
+          <span className="v2-settings-date">Account settings</span>
         </div>
         <div className="v2-settings-workspace">
           <SettingsTabs activeTab={activeTab} onChange={changeTab} />
@@ -456,7 +480,7 @@ export default function V2Settings() {
           {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} user={user} onUserUpdate={setUser} />}
         </div>
       </div>
-      <DeleteModal open={deleteOpen} onClose={closeDelete} />
+      <DeleteModal open={deleteOpen} onClose={closeDelete} onConfirm={confirmDelete} busy={deleteBusy} error={deleteError} />
     </main>
   );
 }

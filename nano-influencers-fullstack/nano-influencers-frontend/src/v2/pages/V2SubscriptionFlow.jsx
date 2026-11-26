@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
+import { api } from "../../api.js";
 import "./v2-subscription-flow.css";
 
 const ASSET_BASE = "/assets/nano-v2-app/";
@@ -59,109 +60,46 @@ function PreviewCard({ icon, label, description, value }) {
 }
 
 export function V2PreviewSelections() {
-  const draft = useMemo(readDraft, []);
-  const [accepted, setAccepted] = useState(() => (
-    typeof window !== "undefined" ? window.innerWidth <= 700 : false
-  ));
+  const [draft, setDraft] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const draftId = new URLSearchParams(window.location.search).get("draft");
+  useEffect(() => {
+    if (!draftId) { setError("No saved campaign draft was provided."); return; }
+    let active = true;
+    setLoading(true);
+    api.getCampaignDraft(draftId)
+      .then((saved) => { if (active) setDraft(saved?.payload || null); })
+      .catch((err) => { if (active) setError(err.message || "Unable to load campaign draft."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [draftId]);
 
-  const previewItems = [
-    {
-      icon: assets.category,
-      label: "Profile/Page Category",
-      description: "How do you categorize your Profile/Page?",
-      value: (draft.categories || []).join(", ") || "----",
-    },
-    {
-      icon: assets.focus,
-      label: "Profile/Page Focus",
-      description: "What is your page/profile about?",
-      value: draft.specification || "Comedy",
-    },
-    {
-      icon: assets.platform,
-      label: "Social Platform",
-      description: "Select the Social Platform",
-      value: draft.platform || "Instagram",
-    },
-    {
-      icon: assets.link,
-      label: "Profile/Page Link",
-      description: "How do you categorize your Profile/Page?",
-      value: draft.pageLink || fallbackDraft.pageLink,
-    },
-    {
-      icon: assets.location,
-      label: "Primary Location",
-      description: "Primary Location of Business/Individual",
-      value: [draft.area, draft.state].filter(Boolean).join(", ") || "Ikeja, Lagos",
-    },
-    {
-      icon: assets.notes,
-      label: "Additional Notes",
-      description: "Share anything you would like us to know:",
-      value: draft.extra || "----",
-    },
-    {
-      icon: assets.referral,
-      label: "Referral Code",
-      description: "Who referred you?",
-      value: draft.referral || "----",
-    },
-    {
-      icon: assets.promotion,
-      label: "Promotion",
-      description: "How did you hear about us?",
-      value: draft.source || "Online Ads#",
-    },
-  ];
+  const items = draft ? [
+    { icon: assets.category, label: "Platform", description: "Selected social platform", value: draft.platform || "Custom task" },
+    { icon: assets.focus, label: "Task", description: "Selected service", value: draft.task || (draft.taskCount ? `${draft.taskCount} custom task types` : "Not provided") },
+    { icon: assets.link, label: "Profile or Page Link", description: "Destination supplied in the draft", value: draft.link || draft.pageAbout || "Not provided" },
+    { icon: assets.location, label: "Location", description: "Selected target area", value: [draft.targetState, draft.country].filter(Boolean).join(", ") || "Not provided" },
+    { icon: assets.notes, label: "Instructions", description: "Additional campaign instructions", value: draft.instruction || draft.instructionFileName || "Not provided" },
+    { icon: assets.promotion, label: "Quantity", description: "Requested task quantity", value: draft.quantity || draft.totalQuantity || "Not provided" },
+    { icon: assets.schedule, label: "Delivery", description: "Requested delivery schedule", value: [draft.delivery, draft.startDate, draft.startTime].filter(Boolean).join(" · ") || "Not provided" },
+  ] : [];
 
   return (
     <main className="v2-preview-page">
       <div className="v2-preview-shell">
-        <header className="v2-preview-backbar">
-          <button type="button" onClick={() => go("/campaigns/social-media-details")}>
-            <img src={assets.arrowLeft} alt="" />
-            <span>Go Back</span>
-          </button>
-        </header>
-
-        <section className="v2-preview-tabs" aria-label="Campaign details steps">
-          <button type="button" onClick={() => go("/campaigns/social-media-details")}>Social Media Details</button>
-          <button type="button" className="is-active">Preview Selections</button>
-        </section>
-
-        <section className="v2-preview-grid">
-          {previewItems.map((item) => <PreviewCard key={item.label} {...item} />)}
-        </section>
-
-        <section className="v2-preview-summary">
-          <h2>Payment Summary</h2>
-          <div className="v2-preview-summary-row">
-            <span>Total Cost</span>
-            <strong>₦5,000</strong>
-          </div>
-          <div className="v2-preview-summary-row">
-            <span>Charged from</span>
-            <span className="v2-preview-wallet"><i><img src={assets.walletTick} alt="" /></i>Wallet</span>
-          </div>
-          <div className="v2-preview-summary-row is-invoice">
-            <span>Invoice ID</span>
-            <code>#BkSOGJuI26I15:44</code>
-          </div>
-        </section>
-
-        <section className="v2-preview-terms">
-          <h2>Terms &amp; Conditions</h2>
-          <label>
-            <input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} />
-            <span className="v2-preview-checkbox" aria-hidden="true">{accepted ? "✓" : ""}</span>
-            <span>I have read and agreed to the terms &amp; conditions of this service. Read terms and conditions here</span>
-          </label>
-        </section>
-
-        <button className="v2-preview-confirm" type="button" onClick={() => go("/campaigns/insufficient-balance")}>
-          Confirm Payment
-        </button>
+        <header className="v2-preview-backbar"><button type="button" onClick={() => go(draft?.platform ? `/campaigns/create/${draft.platform}` : "/campaigns")}><img src={assets.arrowLeft} alt="" /><span>Back to campaign</span></button></header>
+        <section className="v2-preview-tabs" aria-label="Campaign draft steps"><span>Campaign details</span><span className="is-active">Draft review</span></section>
+        <h1>Campaign Draft Review</h1>
+        {loading && <p role="status">Loading saved draft…</p>}
+        {error && <p role="alert">{error}</p>}
+        {!loading && !error && draft && <section className="v2-preview-grid">{items.map((item) => <PreviewCard key={item.label} {...item} />)}</section>}
+        {!loading && !error && draft && <section className="v2-preview-summary">
+          <h2>Payment Status</h2>
+          <div className="v2-preview-summary-row"><span>Pricing quote</span><strong>Unavailable</strong></div>
+          <p>Campaign launch is paused until server-side pricing and wallet-debit verification are approved. No payment has been initialized and no funds have been charged.</p>
+        </section>}
+        <button className="v2-preview-confirm" type="button" disabled>Campaign Launch Paused</button>
       </div>
     </main>
   );
@@ -181,26 +119,11 @@ export function V2InsufficientBalance() {
       <section className="v2-outcome-shell v2-insufficient-shell">
         <div className="v2-outcome-heading">
           <img className="v2-outcome-hero" src={assets.insufficient} alt="" />
-          <div>
-            <h1>Insufficient Balance</h1>
-            <p>Your wallet balance is too low to complete this payment. Please top up to proceed.</p>
-          </div>
+          <div><h1>Campaign Launch Paused</h1><p>Campaign pricing and payment verification are not yet available. No payment has been attempted.</p></div>
         </div>
-
-        <article className="v2-insufficient-amount">
-          <img src={assets.balanceDecor} alt="" />
-          <span>Order amount</span>
-          <strong>₦60,000.00</strong>
-        </article>
-
-        <article className="v2-insufficient-breakdown">
-          <div><span>Wallet balance</span><strong>₦0</strong></div>
-          <div><span>You need</span><strong>₦60,000 more</strong></div>
-        </article>
-
         <div className="v2-outcome-actions">
-          <OutcomeButton onClick={() => go("/wallet")}>Top Up</OutcomeButton>
-          <OutcomeButton tone="secondary" onClick={() => go("/dashboard")}>Go to Dashboard</OutcomeButton>
+          <OutcomeButton onClick={() => go("/campaigns")}>Back to Campaigns</OutcomeButton>
+          <OutcomeButton tone="secondary" onClick={() => go("/wallet")}>View Wallet</OutcomeButton>
         </div>
       </section>
     </main>
@@ -208,47 +131,15 @@ export function V2InsufficientBalance() {
 }
 
 export function V2SubscriptionSuccessful() {
-  const [copied, setCopied] = useState(false);
-  const referralLink = "https://nanoinfluencer.ng/ref/adaeze";
-
-  const copyReferral = async () => {
-    try {
-      await navigator.clipboard.writeText(referralLink);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
-
   return (
     <main className="v2-outcome-page">
       <section className="v2-outcome-shell v2-success-shell">
         <div className="v2-outcome-heading">
           <img className="v2-outcome-hero" src={assets.success} alt="" />
-          <div>
-            <h1>Subscription Successful!</h1>
-            <p>Your social media profile has been submitted. We will review and get back to you shortly.</p>
-          </div>
+          <div><h1>Campaign Launch Not Confirmed</h1><p>This page cannot confirm a payment or campaign. Check your campaign list and wallet for server-confirmed records.</p></div>
         </div>
-
-        <OutcomeButton onClick={() => go("/dashboard")}>View Dashboard</OutcomeButton>
-
-        <section className="v2-cashback-wrap">
-          <div className="v2-cashback-banner">🎉 Congratulations — you qualified for an Instant 1% Cashback!</div>
-          <div className="v2-cashback-card">
-            <div className="v2-cashback-heading">
-              <span><img src={assets.gift} alt="" /></span>
-              <h2>Claim your Cashback now</h2>
-            </div>
-            <p>Share the link &amp; image below on your WhatsApp Status to get instant 1% cashback on this service. You also have a chance to win exciting prizes like PCs and TV sets in our weekly raffle draw, exclusively for customers who take part in cashback activities.</p>
-            <button className="v2-cashback-link" type="button" onClick={copyReferral}>
-              <span>{referralLink}</span>
-              <strong>{copied ? "Copied" : "Copy"}</strong>
-            </button>
-            <OutcomeButton>Download Image</OutcomeButton>
-          </div>
-        </section>
+        <OutcomeButton onClick={() => go("/campaigns")}>View Campaigns</OutcomeButton>
+        <OutcomeButton tone="secondary" onClick={() => go("/wallet")}>View Wallet</OutcomeButton>
       </section>
     </main>
   );

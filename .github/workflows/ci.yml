@@ -1,7 +1,5 @@
 name: CI
 
-# Rewards lifecycle verification runs on every main push.
-
 permissions:
   contents: read
 
@@ -13,7 +11,7 @@ on:
 
 jobs:
   backend:
-    name: Backend
+    name: NanoClick Backend
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -29,9 +27,13 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
     defaults:
       run:
-        working-directory: backend
+        working-directory: nano-influencers-fullstack/nano-influencers-backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,22 +41,43 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-dev.txt
-      - name: Compile Python sources
+      - name: Audit Python dependencies
+        run: pip install pip-audit && pip-audit -r requirements.txt --strict
+      - name: Create isolated migration and test databases
+        run: |
+          python - <<'PY'
+          import asyncio
+          import asyncpg
+
+          async def main():
+              connection = await asyncpg.connect("postgresql://ci:ci@localhost:5432/nanoclick")
+              try:
+                  await connection.execute('CREATE DATABASE "nanoclick_migrations"')
+                  await connection.execute('CREATE DATABASE "nanoclick_test"')
+              finally:
+                  await connection.close()
+
+          asyncio.run(main())
+          PY
+      - name: Compile deployed backend and tests
         run: python -m compileall -q app tests
       - name: Validate application imports
         env:
-          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick_test
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
+          APP_ENV: test
+          REDIS_URL: redis://localhost:6379/0
           PYTHONPATH: .
         run: python -c "import app.models; import app.main"
       - name: Validate Alembic migration graph
         env:
-          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick_migrations
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
+          APP_ENV: test
+          REDIS_URL: redis://localhost:6379/0
           PYTHONPATH: .
         run: |
           set -euo pipefail
-          echo "Alembic heads:"
           HEADS="$(alembic heads 2>&1)"
           printf '%s\n' "$HEADS"
           HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -Ec '\(head\)$' || true)"
@@ -62,39 +85,44 @@ jobs:
             echo "Expected exactly one Alembic head; found $HEAD_COUNT"
             exit 1
           fi
-          echo "Applying migrations from the single head..."
           alembic upgrade head
-          echo "Alembic current revision:"
           alembic current
-      - name: Run unit tests
+      - name: Run full deployed backend test suite
         env:
-          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick_test
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
+          APP_ENV: test
+          REDIS_URL: redis://localhost:6379/0
+          RESEND_API_KEY: ci-test-resend-key
+          SMTP_FROM_EMAIL: no-reply@example.com
+          SUPPORT_EMAIL: support@example.com
           PYTHONPATH: .
-        run: PYTHONPATH=. pytest -q
+        run: pytest -q
 
   backend-image:
-    name: Backend Container
+    name: NanoClick Backend Container
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build backend image
-        run: docker build --pull -t nanoclick-backend:ci ./backend
+        run: docker build --pull -t nanoclick-backend:ci ./nano-influencers-fullstack/nano-influencers-backend
 
   nano-influencers:
-    name: Nano Influencers Web
+    name: NanoClick Web
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: nano-influencers
+        working-directory: nano-influencers-fullstack/nano-influencers-frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: nano-influencers/package-lock.json
+          cache-dependency-path: nano-influencers-fullstack/nano-influencers-frontend/package-lock.json
       - run: npm ci
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
       - run: npm run build
 
   click-workers:
@@ -105,6 +133,10 @@ jobs:
         working-directory: click-workers
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
