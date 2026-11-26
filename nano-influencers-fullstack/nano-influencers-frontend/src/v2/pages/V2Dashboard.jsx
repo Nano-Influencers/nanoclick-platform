@@ -6,7 +6,6 @@ import "./v2-dashboard.css";
 const ASSET_BASE = "/assets/nano-v2-app/";
 const assets = {
   brand: `${ASSET_BASE}dashboard-brand.svg`,
-  profile: `${ASSET_BASE}dashboard-profile.png`,
   notification: `${ASSET_BASE}dashboard-notification.svg`,
   dashboard: `${ASSET_BASE}dashboard-menu.svg`,
   wallet: `${ASSET_BASE}dashboard-wallet.svg`,
@@ -61,6 +60,10 @@ const activities = [
   { title: "Campaign Created", amount: "₦0", time: "2 hr ago", tone: "blue", icon: assets.activityCampaign },
 ];
 
+function avatarInitials(user) { return String(user?.full_name || user?.email || "U").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U"; }
+
+async function logoutAndRedirect() { await api.logout(); window.location.replace("/login"); }
+
 function Brand() {
   return (
     <a className="v2-dashboard-brand" href="/" aria-label="The Nano Influencers home">
@@ -99,7 +102,7 @@ function Sidebar() {
           </section>
         </nav>
       </div>
-      <button className="v2-dashboard-logout" type="button">
+      <button className="v2-dashboard-logout" type="button" onClick={logoutAndRedirect}>
         <span>Log Out</span><img src={assets.logout} alt="" />
       </button>
     </aside>
@@ -121,7 +124,7 @@ function TopHeader({ profileOpen, onProfileClick, user }) {
           aria-expanded={profileOpen}
           onClick={onProfileClick}
         >
-          <img src={user?.avatar_url || assets.profile} alt="" /><span>{displayName}</span>
+          {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <div className="v2-dashboard-avatar-fallback">{avatarInitials(user)}</div>}<span>{displayName}</span>
         </button>
       </div>
     </header>
@@ -276,7 +279,7 @@ function MobileProfileMenu({ open, onClose }) {
       <button className="v2-dashboard-profile-backdrop" type="button" aria-label="Close profile menu" onClick={onClose} />
       <div className="v2-dashboard-profile-dropdown">
         <a href="#settings"><img src={assets.settings} alt="" /><span>Settings</span></a>
-        <button type="button"><img src={assets.logout} alt="" /><span>Log Out</span></button>
+        <button type="button" onClick={logoutAndRedirect}><img src={assets.logout} alt="" /><span>Log Out</span></button>
       </div>
     </div>
   );
