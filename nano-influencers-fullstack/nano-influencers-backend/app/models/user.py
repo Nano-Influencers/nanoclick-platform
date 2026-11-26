@@ -14,6 +14,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     referral_code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     referred_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
