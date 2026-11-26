@@ -52,7 +52,7 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
   if (res.status === 401 && auth && !_retried && res.headers.get("www-authenticate")?.toLowerCase().includes("bearer")) {
     const refreshed = await tryRefresh();
     if (refreshed.ok) return request(path, { method, body, auth, headers: extraHeaders, _retried: true });
-    if (refreshed.reason === "expired" || accessToken) {
+    if (refreshed.reason === "expired" || (refreshed.reason === "anonymous" && accessToken)) {
       clearTokens();
       window.dispatchEvent(new CustomEvent("nano-auth-expired"));
       throw new ApiError("Your session has expired. Please log in again.", 401);
@@ -60,6 +60,8 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
     if (refreshed.reason === "anonymous") {
       throw new ApiError("Please log in to continue.", 401);
     }
+    // A network/5xx/429 refresh failure is not proof that the session expired.
+    // Keep the access token so a transient outage does not force a logout.
     throw new ApiError("Unable to verify your session right now. Please check your connection and try again.", 503);
   }
   if (!res.ok) throw new ApiError(await parseError(res), res.status);
@@ -68,26 +70,36 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
   return text ? JSON.parse(text) : null;
 }
 
+async function performRefresh() {
+  try {
+    const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, { method: "POST", headers: { "Content-Type": "application/json", "X-Request-ID": requestId() }, credentials: "include" });
+    if (!res.ok) {
+      if (res.status === 401) {
+        let detail = "";
+        try { detail = (await res.json()).detail || ""; } catch {}
+        return { ok: false, reason: /refresh token required/i.test(detail) ? "anonymous" : "expired" };
+      }
+      return { ok: false, reason: "unavailable" };
+    }
+    const data = await res.json();
+    if (!data.access_token) return { ok: false, reason: "unavailable" };
+    setTokens(data.access_token);
+    return { ok: true, reason: "refreshed" };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
 async function tryRefresh() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
-    try {
-      const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, { method: "POST", headers: { "Content-Type": "application/json", "X-Request-ID": requestId() }, credentials: "include" });
-      if (!res.ok) {
-        if (res.status === 401) {
-          let detail = "";
-          try { detail = (await res.json()).detail || ""; } catch {}
-          return { ok: false, reason: /refresh token required/i.test(detail) ? "anonymous" : "expired" };
-        }
-        return { ok: false, reason: "unavailable" };
-      }
-      const data = await res.json();
-      if (!data.access_token) return { ok: false, reason: "unavailable" };
-      setTokens(data.access_token);
-      return { ok: true, reason: "refreshed" };
-    } catch {
-      return { ok: false, reason: "unavailable" };
+    // Coordinate refresh-token rotation across tabs where the browser supports
+    // Web Locks. A waiting tab then reads the replacement cookie, avoiding a
+    // second request with the token that the first tab just rotated.
+    if (globalThis.navigator?.locks?.request) {
+      return globalThis.navigator.locks.request("nanoclick-refresh-session", performRefresh);
     }
+    return performRefresh();
   })();
   try { return await refreshInFlight; } finally { refreshInFlight = null; }
 }
