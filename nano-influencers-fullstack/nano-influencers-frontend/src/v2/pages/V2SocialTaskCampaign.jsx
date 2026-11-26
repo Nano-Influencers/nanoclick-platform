@@ -721,6 +721,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
 }
 
 export default function V2SocialTaskCampaign() {
+  const [user, setUser] = useState(null);
   const pathSlug = window.location.pathname.split("/").filter(Boolean).pop()?.toLowerCase() || "facebook";
   const platform = platformConfigs[pathSlug === "twitter" ? "x" : pathSlug] || platformConfigs.facebook;
   const query = new URLSearchParams(window.location.search);
