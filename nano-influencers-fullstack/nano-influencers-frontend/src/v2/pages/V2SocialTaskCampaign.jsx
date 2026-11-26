@@ -592,7 +592,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
       <section className="v2-stc-panel">
         <RadioButtons title="I want the Dislike to happen on a:" values={["Post", "Comment Section"]} value={values.targetSurface} onChange={(value) => setValue("targetSurface", value)} />
         <div className="v2-stc-field"><FieldHeader title="Reasons for Dislike (To Admin)" /><textarea className="v2-stc-textarea" value={values.reason} onChange={(event) => setValue("reason", event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
-        <div className="v2-stc-field"><FieldHeader title="Upload any image evidence." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} /></div>
+        <div className="v2-stc-field"><FieldHeader title="Upload any image evidence." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="image/*,video/mp4" /></div>
       </section>
     );
   }
