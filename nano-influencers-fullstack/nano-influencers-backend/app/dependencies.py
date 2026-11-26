@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User\nfrom app.models.auth_session import AuthSession\nfrom app.services.auth_service import hash_token_identifier\nfrom datetime import datetime
 from app.services.auth_service import decode_token
-import pyotp
+import pyotp\nfrom app.services.secret_encryption import decrypt_secret, encrypt_secret, is_encrypted
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
