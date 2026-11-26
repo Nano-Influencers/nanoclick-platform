@@ -18,11 +18,12 @@ from app.models.email_otp import EmailOTP
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.schemas.auth import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
+from app.schemas.auth import AvatarConfirmRequest, AvatarUploadRequest, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
 from app.services.auth_service import create_access_token, create_refresh_token, decode_token, generate_referral_code, hash_password, hash_token_identifier, new_oauth_state, token_jti, verify_password
 from app.services.email_service import send_password_reset_email, send_verification_otp
 from app.services.pending_registration import (acquire_pending_lock, delete_pending_registration, load_pending_registration, release_pending_lock, save_pending_registration)
 from app.services.oauth_service import exchange_facebook_code, exchange_google_code, facebook_auth_url, google_auth_url
+from app.services.storage import generate_presigned_download_url, generate_presigned_upload_url, validate_uploaded_image
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -45,11 +46,15 @@ def _is_web_platform(platform: str) -> bool:
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
-    response.set_cookie(key=_COOKIE_NAME, value=refresh_token, max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, httponly=True, secure=settings.AUTH_COOKIE_SECURE, samesite=settings.AUTH_COOKIE_SAMESITE.lower(), path=_COOKIE_PATH)
+    # Render frontend/API hostnames are cross-site for browser cookie purposes.
+    # Secure web sessions therefore require SameSite=None; Secure.
+    same_site = "none" if settings.AUTH_COOKIE_SECURE else settings.AUTH_COOKIE_SAMESITE.lower()
+    response.set_cookie(key=_COOKIE_NAME, value=refresh_token, max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400, httponly=True, secure=settings.AUTH_COOKIE_SECURE, samesite=same_site, path=_COOKIE_PATH)
 
 
 def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(key=_COOKIE_NAME, path=_COOKIE_PATH)
+    same_site = "none" if settings.AUTH_COOKIE_SECURE else settings.AUTH_COOKIE_SAMESITE.lower()
+    response.delete_cookie(key=_COOKIE_NAME, path=_COOKIE_PATH, secure=settings.AUTH_COOKIE_SECURE, httponly=True, samesite=same_site)
 
 
 async def _create_refresh_session(db: AsyncSession, user_id: uuid.UUID, refresh_token: str) -> None:
@@ -243,8 +248,57 @@ async def exchange_oauth_code(response: Response, code: str = Query(..., min_len
     return tokens
 
 
+def _user_response_payload(user: User) -> dict:
+    payload = UserResponse.model_validate(user).model_dump()
+    payload["avatar_url"] = None
+    if user.avatar_key:
+        try:
+            payload["avatar_url"] = generate_presigned_download_url(user.avatar_key, expires_in=900)["download_url"]
+        except Exception:
+            logger.exception("profile_avatar_url_generation_failed user_id=%s", user.id)
+    return payload
+
+
 @router.get("/me", response_model=UserResponse)
-async def me(current_user: User = Depends(get_current_user)): return current_user
+async def me(current_user: User = Depends(get_current_user)):
+    return _user_response_payload(current_user)
+
+
+@router.post("/me/avatar/upload-url")
+async def create_avatar_upload_url(
+    body: AvatarUploadRequest,
+    current_user: User = Depends(get_current_user),
+):
+    extension = body.file_extension.lower().lstrip(".")
+    if extension not in {"jpg", "jpeg", "png", "webp"}:
+        raise HTTPException(400, "Profile photos must be JPG, PNG, or WebP images")
+    try:
+        return generate_presigned_upload_url(extension, f"avatars/{current_user.id}")
+    except Exception as exc:
+        logger.exception("profile_avatar_upload_url_failed user_id=%s", current_user.id)
+        raise HTTPException(503, "Profile photo storage is temporarily unavailable") from exc
+
+
+@router.post("/me/avatar/confirm", response_model=UserResponse)
+async def confirm_avatar_upload(
+    body: AvatarConfirmRequest,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        validate_uploaded_image(body.file_key, f"avatars/{current_user.id}")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("profile_avatar_validation_failed user_id=%s", current_user.id)
+        raise HTTPException(503, "Unable to verify the uploaded profile photo") from exc
+    current_user.avatar_key = body.file_key
+    return _user_response_payload(current_user)
+
+
+@router.delete("/me/avatar", response_model=UserResponse)
+async def remove_avatar(current_user: User = Depends(get_current_user)):
+    current_user.avatar_key = None
+    return _user_response_payload(current_user)
 
 
 @router.patch("/me/profile", response_model=UserResponse)
@@ -257,7 +311,7 @@ async def update_my_profile(
         current_user.full_name = changes["full_name"]
     if "phone_number" in changes:
         current_user.phone_number = changes["phone_number"]
-    return current_user
+    return _user_response_payload(current_user)
 
 
 @router.post("/change-password")
