@@ -238,9 +238,9 @@ function LatestActivity({ emptyState = false }) {
   );
 }
 
-function ReferralSupport() {
+function ReferralSupport({ user }) {
   const [copied, setCopied] = useState(false);
-  const referral = "https://nanoinfluencer.ng/ref/adaeze";
+  const referral = user?.referral_code ? `https://nanoinfluencer.ng/ref/${encodeURIComponent(user.referral_code)}` : "Referral link unavailable";
   const copy = async () => {
     try { await navigator.clipboard.writeText(referral); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { setCopied(false); }
   };
@@ -318,7 +318,7 @@ export default function V2Dashboard() {
         <div className="v2-dashboard-metrics-scroll">{metrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
         <LaunchBanner />
         <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} /><QuickActions /></div>
-        <div className="v2-dashboard-lower"><LatestActivity emptyState={emptyState} /><ReferralSupport /></div>
+        <div className="v2-dashboard-lower"><LatestActivity emptyState={emptyState} /><ReferralSupport user={user} /></div>
       </div>
       <div className="v2-dashboard-floating mobile-only"><button className="is-refer" type="button"><img src={assets.floatingRefer} alt="" /></button><button className="is-help" type="button"><img src={assets.help} alt="" /></button></div>
       <MobileBottomNav />
