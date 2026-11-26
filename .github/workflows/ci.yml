@@ -57,7 +57,7 @@ jobs:
           echo "Alembic heads:"
           HEADS="$(alembic heads 2>&1)"
           printf '%s\n' "$HEADS"
-          HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -Ec '\(head\)$' || true)"
+          HEAD_COUNT="$(grep -Ec '\(head\)$' <<< "$HEADS" || true)"
           if [ "$HEAD_COUNT" -ne 1 ]; then
             echo "Expected exactly one Alembic head; found $HEAD_COUNT"
             exit 1
