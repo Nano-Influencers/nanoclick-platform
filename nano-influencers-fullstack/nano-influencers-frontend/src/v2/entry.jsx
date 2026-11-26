@@ -41,12 +41,7 @@ import "./pages/v2-dashboard-fixes.css";
 import "./pages/v2-wallet-fixes.css";
 import "./pages/v2-settings-fixes.css";
 import "./pages/v2-minor-fixes.css";
-import {
-  EmailVerificationPage,
-  WhatsAppNumberPage,
-  WhatsAppCodePage,
-  VerificationSuccessPage,
-} from "./pages/V2Verification.jsx";
+import { EmailVerificationPage } from "./pages/V2Verification.jsx";
 
 installV2Navigation();
 
@@ -82,12 +77,6 @@ if (pathname === "/" || pathname === "") {
   renderV2(<V2ForgotPassword />);
 } else if (pathname === "/verify-email") {
   renderV2(<EmailVerificationPage />);
-} else if (pathname === "/verify-whatsapp") {
-  renderV2(<WhatsAppNumberPage />);
-} else if (pathname === "/verify-whatsapp/code") {
-  renderV2(<WhatsAppCodePage />);
-} else if (pathname === "/verification-success") {
-  renderV2(<VerificationSuccessPage />);
 } else if (pathname === "/dashboard/free-trial") {
   renderV2(<V2FreeTrial />);
 } else if (pathname === "/dashboard/giveaway") {
