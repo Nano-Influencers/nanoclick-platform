@@ -7,6 +7,7 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.rewards import Notification
 from app.schemas.notification import NotificationResponse, UnreadCountResponse
+from app.services.notification_service import notification_is_enabled
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -26,17 +27,24 @@ async def list_notifications(
         select(Notification)
         .where(*conds)
         .order_by(Notification.created_at.desc(), Notification.id.desc())
-        .offset(offset)
-        .limit(limit)
     )
-    return list(result.scalars())
+    visible = [
+        item for item in result.scalars().all()
+        if notification_is_enabled(item.type, current_user.notification_preferences)
+    ]
+    return visible[offset:offset + limit]
 
 
 @router.get("/unread-count", response_model=UnreadCountResponse)
 async def unread_count(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(func.count(Notification.id)).where(
-        Notification.user_id == current_user.id, Notification.is_read == False))  # noqa: E712
-    return UnreadCountResponse(count=result.scalar() or 0)
+    result = await db.execute(select(Notification).where(
+        Notification.user_id == current_user.id, Notification.is_read == False
+    ))  # noqa: E712
+    count = sum(
+        1 for item in result.scalars().all()
+        if notification_is_enabled(item.type, current_user.notification_preferences)
+    )
+    return UnreadCountResponse(count=count)
 
 
 @router.post("/{notification_id}/read")
