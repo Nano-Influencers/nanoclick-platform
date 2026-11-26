@@ -162,7 +162,7 @@ function ManageCampaigns({ active }) {
           <Button href="/campaigns/manage" className="v2-campaign-manage-button">Go to Campaign Management</Button>
         </div>
       ) : (
-        <div className="v2-campaign-empty"><img src={assets.emptyCampaign} alt="" /><h3>You have no campaign available</h3><Button>Create New Campaign</Button></div>
+        <div className="v2-campaign-empty"><img src={assets.emptyCampaign} alt="" /><h3>You have no campaign available</h3><Button to="/campaigns/select-package">Create New Campaign</Button></div>
       )}
     </section>
   );
