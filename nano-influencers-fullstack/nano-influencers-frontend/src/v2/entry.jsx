@@ -53,6 +53,7 @@ function V2RouteResolver() {
   const { pathname } = useLocation();
   if (pathname === "/" || pathname === "") return <V2Landing />;
   if (pathname === "/register") return <V2Register />;
+  if (/^\\/ref\\/[^/]+$/.test(pathname)) return <V2Register referralCode={decodeURIComponent(pathname.split("/")[2])} />;
   if (pathname === "/login") return <V2Login />;
   if (pathname === "/oauth-callback") return <V2OAuthCallback />;
   if (pathname === "/forgot-password/code") return <V2ForgotPasswordCode />;
