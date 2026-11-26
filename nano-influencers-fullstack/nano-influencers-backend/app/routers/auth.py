@@ -401,7 +401,7 @@ async def update_my_profile(
 async def change_password(body: ChangePasswordRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if current_user.password_hash is None: raise HTTPException(400, f"This account uses {current_user.oauth_provider or 'social'} login and has no password to change")
     if not verify_password(body.current_password, current_user.password_hash): raise HTTPException(401, "Current password is incorrect")
-    if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
+    if len(body.new_password) < 8:\n        await db.commit()  # Persist the failed attempt before returning the validation error.\n        raise HTTPException(400, "New password must be at least 8 characters")
     current_user.password_hash = hash_password(body.new_password); await _revoke_user_sessions(db, current_user.id)
     return {"message": "Password changed; please sign in again"}
 
