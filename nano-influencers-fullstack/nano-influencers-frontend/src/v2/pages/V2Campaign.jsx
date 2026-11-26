@@ -118,7 +118,8 @@ function ServiceCard({ type }) {
 }
 
 function PlatformCard({ name, icon }) {
-  return <button className="v2-campaign-platform-card" type="button"><img src={icon} alt="" /><span>{name}</span></button>;
+  const slug = name.toLowerCase() === "yt music" ? "youtube-music" : name.toLowerCase() === "twitter" ? "x" : name.toLowerCase();
+  return <a className="v2-campaign-platform-card" href={`/campaigns/create/${slug}`}><img src={icon} alt="" /><span>{name}</span></a>;
 }
 
 function CustomTasks() {
@@ -172,7 +173,7 @@ function SingleTasks() {
 }
 
 function MobileBottomNav() {
-  return <nav className="v2-campaign-bottom-nav" aria-label="Mobile navigation"><a href="/dashboard"><img src={assets.dashboard} alt="" /></a><a href="/wallet"><img src={assets.wallet} alt="" /></a><a className="is-active" href="/campaigns"><img src={assets.campaign} alt="" /><span>Campaigns</span></a><a href="#analytics"><img src={assets.analytics} alt="" /></a></nav>;
+  return <nav className="v2-campaign-bottom-nav" aria-label="Mobile navigation"><a href="/dashboard"><img src={assets.dashboard} alt="" /></a><a href="/wallet"><img src={assets.wallet} alt="" /></a><a className="is-active" href="/campaigns"><img src={assets.campaign} alt="" /><span>Campaigns</span></a><a href="/analytics"><img src={assets.analytics} alt="" /></a></nav>;
 }
 
 
