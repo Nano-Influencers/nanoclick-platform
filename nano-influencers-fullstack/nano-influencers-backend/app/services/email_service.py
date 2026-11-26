@@ -45,7 +45,7 @@ async def send_password_reset_email(recipient: str, token: str) -> None:
     text = (
         "Your NanoClick password reset verification code is:\n\n"
         f"{token}\n\n"
-        "This code expires in 10 minutes and can only be used once. "
+        "This token expires in 15 minutes and can only be used once. "
         "If you did not request this, you can ignore this email."
     )
     await _send_email(recipient, "Your NanoClick password reset code", text)
