@@ -51,10 +51,11 @@ function RegisterField({ label, placeholder, type = "text", autoComplete, passwo
   );
 }
 
-export default function V2Register() {
+export default function V2Register({ referralCode: referralCodeProp = "" }) {
   const [accepted, setAccepted] = useState(false);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const referralCode = referralCodeProp || new URLSearchParams(window.location.search).get("ref") || "";
 
   const submit = async (event) => {
     event.preventDefault();
@@ -72,7 +73,7 @@ export default function V2Register() {
     setError("");
     setSubmitting(true);
     try {
-      const result = await api.register({ email, password, full_name: fullName });
+      const result = await api.register({ email, password, full_name: fullName, referral_code: referralCode || null });
       const delivery = result?.email_sent === false ? "&delivery=failed" : "";
       window.location.href = `/verify-email?email=${encodeURIComponent(email)}${delivery}`;
     } catch (err) {
