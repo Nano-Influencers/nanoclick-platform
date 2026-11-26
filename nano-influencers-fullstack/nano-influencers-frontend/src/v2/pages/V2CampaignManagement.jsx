@@ -111,6 +111,116 @@ function NotificationCard({ notification, onRead }) {
   );
 }
 
+function SectionPanel({ title, href, children }) {
+  return (
+    <section className="v2-cm-panel">
+      <div className="v2-cm-panel-heading"><h2>{title}</h2>{href && <a href={href}>See All ⟶</a>}</div>
+      {children}
+    </section>
+  );
+}
+
+function ClaimCashbackModal({ onClose }) {
+  const fileRef = useRef(null);
+  const [fileName, setFileName] = useState("");
+  const [copied, setCopied] = useState(false);
+  const campaignLink = "https://nanoinfluencer.ng/ref/adaeze";
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(campaignLink);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className="v2-cm-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cashback-title">
+      <div className="v2-cm-modal">
+        <h2 id="cashback-title">Claim Cashback</h2>
+        <div className="v2-cm-earn-card">
+          <img src={assets.cashbackDecor} alt="" />
+          <p>You'll earn</p><strong>₦1,000</strong><span>cashback on approval</span>
+        </div>
+        <div className="v2-cm-claim-step">
+          <h3>1. Share your campaign link</h3>
+          <p>Copy this link and share it to your audience.</p>
+          <div className="v2-cm-copy-field"><span>{campaignLink}</span><button type="button" onClick={copyLink}>{copied ? "Copied" : "Copy"}</button></div>
+        </div>
+        <div className="v2-cm-claim-step">
+          <h3>2. Upload evidence of your share</h3>
+          <p>Drop a screenshot or photo showing you shared the campaign. JPG, PNG, or WebP up to 5 MB.</p>
+          <input ref={fileRef} className="v2-cm-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setFileName(event.target.files?.[0]?.name || "")} />
+          <button className="v2-cm-upload" type="button" onClick={() => fileRef.current?.click()}>
+            <img src={assets.upload} alt="" />
+            <strong>{fileName || "Choose file"}</strong>
+            <span>{fileName ? "File selected" : "Size limit: 5mb"}</span>
+          </button>
+        </div>
+        <p className="v2-cm-review-note">Once submitted, your claim enters review. Cashback is approved after the evidence is verified, usually within 48 hours.</p>
+        <div className="v2-cm-modal-actions">
+          <Button className="v2-cm-navy" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => { window.location.href = "/campaigns/claim-success"; }}>Submit Claim</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CampaignsData({ mode = "all" }) {
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const load = async () => {
+    setLoading(true); setError("");
+    try { setCampaigns(await api.listCampaigns({ limit: 100 })); }
+    catch (err) { setError(err.message || "Unable to load campaigns."); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  const pending = campaigns.filter((item) => ["draft", "pending_admin", "reported"].includes(item.status));
+  const ongoing = campaigns.filter((item) => ["active", "awaiting_workers", "paused"].includes(item.status));
+  const visible = mode === "pending" ? pending : mode === "ongoing" ? ongoing : campaigns;
+  const changeStatus = async (campaign, status) => {
+    setBusyId(campaign.id);
+    try { await api.updateCampaignStatus(campaign.id, status); await load(); }
+    catch (err) { setError(err.message || "Unable to update campaign."); }
+    finally { setBusyId(""); }
+  };
+  if (loading) return <p className="v2-cm-data-state">Loading your campaigns…</p>;
+  if (error && campaigns.length === 0) return <div className="v2-cm-data-state" role="alert">{error} <button type="button" onClick={load}>Try again</button></div>;
+  return <>
+    {error && <p className="v2-cm-data-error" role="alert">{error}</p>}
+    {visible.length === 0 ? <div className="v2-cm-data-state"><h3>No {mode === "pending" ? "pending" : mode === "ongoing" ? "ongoing" : ""} campaigns yet</h3><p>Your campaigns will appear here after you create them.</p><a href="/campaigns">Create a campaign</a></div> :
+      visible.map((campaign) => <article className="v2-cm-record" key={campaign.id}>
+        <div className="v2-cm-record-banner"><div className="v2-cm-record-heading"><span className="v2-cm-trend"><img src={assets.trend} alt="" /></span><h3>{campaign.tni_service_type.replaceAll("_", " ")}</h3></div><p>{new Date(campaign.created_at).toLocaleString()}</p></div>
+        <div className="v2-cm-record-main"><div className="v2-cm-record-service"><CampaignMedia type={campaign.platform === "x" || campaign.platform === "twitter" ? "x" : "link"} /><strong>{campaign.title}</strong></div>
+          <div className="v2-cm-status-actions"><span className={`v2-cm-status is-${campaign.status}`}>{campaign.status.replaceAll("_", " ")}</span>
+            {["active", "awaiting_workers"].includes(campaign.status) && <button disabled={busyId === campaign.id} onClick={() => changeStatus(campaign, "paused")}>Pause</button>}
+            {campaign.status === "paused" && <button disabled={busyId === campaign.id} onClick={() => changeStatus(campaign, "active")}>Resume</button>}
+            {!["completed", "cancelled"].includes(campaign.status) && <button disabled={busyId === campaign.id} onClick={() => { if (window.confirm("Cancel this campaign? Any refundable escrow will be returned to your wallet.")) changeStatus(campaign, "cancelled"); }}>Cancel</button>}
+          </div>
+        </div>
+        <div className="v2-cm-proof"><span>Status: {campaign.status.replaceAll("_", " ")}</span><span>{Number(campaign.slots_filled || 0)} / {Number(campaign.slots_total || 0)} slots filled</span><span>Budget: ₦{(Number(campaign.client_budget_kobo || 0) / 100).toLocaleString("en-NG", {minimumFractionDigits:2})}</span></div>
+      </article>)}
+  </>;
+}
+
+export function V2ManageCampaign() {
+  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader history /><h1>Manage Campaign</h1><SectionPanel title="Your Campaigns"><CampaignsData /></SectionPanel></main></div>;
+}
+
+export function V2OngoingCampaigns() {
+  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Ongoing Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="ongoing" /></section></main></div>;
+}
+
+export function V2PendingCampaigns() {
+  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Pending Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="pending" /></section></main></div>;
+}
+
 export function V2CampaignNotifications() {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
