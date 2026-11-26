@@ -102,6 +102,7 @@ export function EmailVerificationPage() {
   const params = new URLSearchParams(window.location.search);
   const previewState = params.get("state") || "";
   const email = params.get("email") || "";
+  const deliveryFailed = params.get("delivery") === "failed";
   const [code, setCode] = useState(() => previewState === "error" ? "652027" : previewState === "filled" ? "65202" : "");
   const [error, setError] = useState(previewState === "error" ? "invalid verification code" : "");
   const [seconds, restartCountdown] = useResendCountdown(40);
@@ -145,6 +146,7 @@ export function EmailVerificationPage() {
           <div className="v2-verification-copy">
             <h1>Enter verification code</h1>
             <p>We sent a 6-digit code to <strong>{email}</strong></p>
+            {deliveryFailed && <p className="v2-code-error" role="status">We could not deliver the code yet. Your registration is saved temporarily; use Resend after email delivery is available.</p>}
           </div>
         </header>
 
