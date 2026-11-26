@@ -179,15 +179,7 @@ def validate_uploaded_object(file_key: str, required_prefix: str) -> dict:
         signature = sample_obj["Body"].read(16)
     except Exception as exc:
         raise ValueError("Unable to inspect uploaded file content") from exc
-    signatures = {
-        "jpg": signature.startswith(b"\xff\xd8\xff"),
-        "jpeg": signature.startswith(b"\xff\xd8\xff"),
-        "png": signature.startswith(b"\x89PNG\r\n\x1a\n"),
-        "webp": len(signature) >= 12 and signature[:4] == b"RIFF" and signature[8:12] == b"WEBP",
-        "pdf": signature.startswith(b"%PDF-"),
-        "mp4": len(signature) >= 8 and signature[4:8] == b"ftyp",
-    }
-    if not signatures.get(ext, False):
+    if not _matches_signature(ext, signature):
         raise ValueError("Uploaded file content does not match its declared file type")
     if ext in {"jpg", "jpeg", "png", "webp"}:
         try:
