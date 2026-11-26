@@ -137,7 +137,7 @@ export const api = {
   async removeAvatar() { return request("/auth/me/avatar", { method: "DELETE" }); },
   async changePassword(current_password, new_password) { return request("/auth/change-password", { method: "POST", body: { current_password, new_password } }); },
   async forgotPassword(email) { return request("/auth/forgot-password", { method: "POST", auth: false, body: { email } }); },
-  async resetPassword(token, new_password) { return request("/auth/reset-password", { method: "POST", auth: false, body: { token, new_password } }); },
+  async resetPassword(token, new_password, email) { return request("/auth/reset-password", { method: "POST", auth: false, body: { token, new_password, email } }); },
   async deleteAccount() { return request("/auth/me", { method: "DELETE" }); },
   async logout() { try { await request("/auth/logout?platform=web", { method: "POST", auth: false }); } catch {} clearTokens(); },
   isLoggedIn() { return !!accessToken; }, setSessionTokens(access) { setTokens(access); },
