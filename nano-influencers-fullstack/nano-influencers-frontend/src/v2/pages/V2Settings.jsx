@@ -306,7 +306,7 @@ function NotificationSettings({ user, onUserUpdate }) {
       </SectionCard>
       {error && <p role="alert" className="v2-code-error">{error}</p>}
       {feedback && <p role="status">{feedback}</p>}
-      <SettingsActions onSave={save} saving={saving} />
+      <SettingsActions onSave={save} onCancel={() => { setValues({ ...defaults, ...(user?.notification_preferences || {}) }); setError(""); setFeedback(""); }} saving={saving} />
     </div>
   );
 }
@@ -372,7 +372,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
       </SectionCard>
       {error && <p role="alert" className="v2-code-error">{error}</p>}
       {feedback && <p role="status">{feedback}</p>}
-      <SettingsActions onSave={save} saving={saving} />
+      <SettingsActions onSave={save} onCancel={() => { const preferences = user?.regional_preferences || {}; setCurrency(preferences.currency || "Nigerian Naira (₦)"); setTimezone(preferences.timezone || "Africa/Lagos (GMT+1)"); setLanguage(preferences.language || "English"); setAutoRenew(preferences.autoRenew ?? false); setError(""); setFeedback(""); }} saving={saving} />
     </div>
   );
 }
