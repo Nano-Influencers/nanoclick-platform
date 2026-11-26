@@ -16,3 +16,5 @@ from app.models.gifts import GiftCampaign, GiftEntry, GiftWinner
 from app.models.campaign_worker_audience import CampaignWorkerAudience
 
 from app.models.email_otp import EmailOTP
+
+from app.models.campaign_draft import CampaignDraft
