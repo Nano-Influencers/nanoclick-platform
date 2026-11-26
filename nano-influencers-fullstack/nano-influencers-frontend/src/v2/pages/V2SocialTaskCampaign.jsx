@@ -483,10 +483,10 @@ function UploadBox({ fileName, onFile, accept = "image/*", label = "Choose file"
   const ref = useRef(null);
   return (
     <>
-      <input ref={ref} type="file" accept={accept} hidden onChange={(event) => onFile(event.target.files?.[0]?.name || "")} />
+      <input ref={ref} type="file" accept={accept} hidden onChange={(event) => onFile(event.target.files?.[0] || null)} />
       <button className="v2-stc-upload" type="button" onClick={() => ref.current?.click()}>
         <UploadIcon />
-        <strong>{fileName || label}</strong>
+        <strong>{fileName?.name || fileName || label}</strong>
         <span>Size limit: 25mb</span>
       </button>
     </>
@@ -562,7 +562,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
         <div className="v2-stc-field"><FieldHeader title="I want to report a:" /><input className="v2-stc-input" value={values.reportType} onChange={(event) => setValue("reportType", event.target.value)} placeholder="Select option" /></div>
         <div className="v2-stc-field"><FieldHeader title="Why are you reporting this comment?" help="Choose the option that best describes the issue" /><input className="v2-stc-input" value={values.reportReason} onChange={(event) => setValue("reportReason", event.target.value)} placeholder="Select option" /></div>
         <div className="v2-stc-field"><FieldHeader title="Please write a short letter to our admin on why you are reporting this comment" /><textarea className="v2-stc-textarea" value={values.reportLetter} onChange={(event) => setValue("reportLetter", event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
-        <div className="v2-stc-field"><FieldHeader title="Upload Evidence to back your claims on why this comment deserves to be reported" /><UploadBox fileName={taskMedia} onFile={setTaskMedia} /></div>
+        <div className="v2-stc-field"><FieldHeader title="Upload Evidence to back your claims on why this comment deserves to be reported" /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="image/*,video/mp4" /></div>
         <div className="v2-stc-field"><FieldHeader title="Commenter’s Handle" /><input className="v2-stc-input" value={values.commenterHandle} onChange={(event) => setValue("commenterHandle", event.target.value)} placeholder="type here" /></div>
         <div className="v2-stc-field"><FieldHeader title="Drop the comment you want us to report" /><textarea className="v2-stc-textarea" value={values.reportComment} onChange={(event) => setValue("reportComment", event.target.value)} placeholder="type here" /></div>
       </section>
@@ -627,7 +627,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
     return (
       <section className="v2-stc-panel">
         <div className="v2-stc-special-title"><h2>{selectedTask.specialTitle || selectedTask.label}</h2>{selectedTask.specialCopy ? <p>{selectedTask.specialCopy}</p> : null}{selectedTask.unitCost ? <p>(Cost {money(selectedTask.unitCost)})</p> : null}</div>
-        <div className="v2-stc-field"><FieldHeader title="Upload sound." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="audio/*,video/*" /></div>
+        <div className="v2-stc-field"><FieldHeader title="Upload sound." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="image/*,video/mp4" /></div>
         <div className="v2-stc-field"><FieldHeader title={selectedTask.mediaLabel || "Choose Video Part"} /><div className="v2-stc-two"><input className="v2-stc-input" value={values.mediaStart} onChange={(event) => setValue("mediaStart", event.target.value)} placeholder="Start time" /><input className="v2-stc-input" value={values.mediaEnd} onChange={(event) => setValue("mediaEnd", event.target.value)} placeholder="End time" /></div></div>
         <div className="v2-stc-field"><FieldHeader title="What kind of Content" /><input className="v2-stc-input" value={values.contentType} onChange={(event) => setValue("contentType", event.target.value)} placeholder="type here" /></div>
         <div className="v2-stc-field"><FieldHeader title="What do you want to Achieve?" /><textarea className="v2-stc-textarea" value={values.goal} onChange={(event) => setValue("goal", event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
@@ -826,15 +826,31 @@ export default function V2SocialTaskCampaign() {
     if (submitting) return;
     setSubmitting(true);
     setSubmitError("");
-    const draft = {
-      platform: platform.slug, task: selectedTask.label, pageAbout, link, quantity,
-      country, targetState, delivery, startDate, startTime, instruction,
-      instructionFile, taskMedia, cashbackEvidence, selectedReactions,
-      taskValues: values, privacyAccepted, termsAccepted,
-      priceQuoteStatus: "unavailable",
+    const uploadAttachment = async (file) => {
+      if (!file) return null;
+      if (file.size > 25 * 1024 * 1024) throw new Error("Each attachment must be 25 MB or smaller.");
+      const extension = file.name.split(".").pop()?.toLowerCase() || "";
+      const upload = await api.createCampaignCreativeUploadUrl(extension);
+      const response = await fetch(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: file });
+      if (!response.ok) throw new Error(`Upload failed for ${file.name}.`);
+      const confirmed = await api.confirmCampaignCreative(upload.file_key);
+      return { key: confirmed.file_key, name: file.name };
     };
     try {
-      const saved = await api.saveCampaignDraft({ payload: draft, creative_key: null });
+      const [instructionUpload, mediaUpload] = await Promise.all([
+        uploadAttachment(instructionFile), uploadAttachment(taskMedia),
+      ]);
+      const draft = {
+        platform: platform.slug, task: selectedTask.label, pageAbout, link, quantity,
+        country, targetState, delivery, startDate, startTime, instruction,
+        instructionFileName: instructionUpload?.name || null,
+        instructionFileKey: instructionUpload?.key || null,
+        taskMediaName: mediaUpload?.name || null,
+        taskMediaKey: mediaUpload?.key || null,
+        selectedReactions, taskValues: values, privacyAccepted, termsAccepted,
+        priceQuoteStatus: "unavailable",
+      };
+      const saved = await api.saveCampaignDraft({ payload: draft, creative_key: mediaUpload?.key || instructionUpload?.key || null });
       window.sessionStorage.setItem("v2SocialTaskCampaignDraft", JSON.stringify(draft));
       window.location.assign(`/campaigns/preview-selections?draft=${encodeURIComponent(saved.id)}`);
     } catch (error) {
@@ -873,7 +889,7 @@ export default function V2SocialTaskCampaign() {
           {selectedTask.instructions !== false && selectedTask.mode !== "report" && selectedTask.mode !== "special-media" ? (
             <section className="v2-stc-panel">
               <div className="v2-stc-instruction"><FieldHeader title="Any Instruction for the Nano-Influencer (Optional)" /><textarea className="v2-stc-textarea" value={instruction} onChange={(event) => setInstruction(event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
-              <div className="v2-stc-field"><FieldHeader title="Upload any image sample for the instruction." /><UploadBox fileName={instructionFile} onFile={setInstructionFile} /></div>
+              <div className="v2-stc-field"><FieldHeader title="Upload any image sample for the instruction." /><UploadBox fileName={instructionFile} onFile={setInstructionFile} accept="image/*,.pdf" /></div>
             </section>
           ) : null}
 
