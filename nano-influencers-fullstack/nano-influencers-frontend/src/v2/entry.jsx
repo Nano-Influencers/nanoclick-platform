@@ -53,7 +53,7 @@ function V2RouteResolver() {
   const { pathname } = useLocation();
   if (pathname === "/" || pathname === "") return <V2Landing />;
   if (pathname === "/register") return <V2Register />;
-  if (/^\\/ref\\/[^/]+$/.test(pathname)) return <V2Register referralCode={decodeURIComponent(pathname.split("/")[2])} />;
+  if (/^\/ref\/[^/]+$/.test(pathname)) return <V2Register referralCode={decodeURIComponent(pathname.split("/")[2])} />;
   if (pathname === "/login") return <V2Login />;
   if (pathname === "/oauth-callback") return <V2OAuthCallback />;
   if (pathname === "/forgot-password/code") return <V2ForgotPasswordCode />;
@@ -83,7 +83,7 @@ function V2RouteResolver() {
   if (pathname === "/campaigns/social-media-details") return <V2SocialMediaDetails />;
   if (pathname === "/campaigns/select-package") return <V2SelectPackage />;
   if (pathname === "/campaigns/select-services") return <V2SelectServicesPlaceholder />;
-  if (/^\\/campaigns\\/[0-9a-fA-F-]{36}$/.test(pathname)) return <V2CampaignDetail />;
+  if (/^\/campaigns\/[0-9a-fA-F-]{36}$/.test(pathname)) return <V2CampaignDetail />;
   if (pathname === "/campaigns/manage") return <V2ManageCampaign />;
   if (pathname === "/campaigns/ongoing") return <V2OngoingCampaigns />;
   if (pathname === "/campaigns/pending") return <V2PendingCampaigns />;
