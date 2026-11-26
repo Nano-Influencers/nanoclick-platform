@@ -89,41 +89,14 @@ export function V2FreeTrial() {
     <main className="ni-v2 v2-extra-page">
       <div className="v2-extra-main">
         <BackHeader />
-        <PageIntro
-          title="Free Trial Access"
-          subtitle="Only 5 trials are released each week. Complete the four requirements below and your access unlocks as soon as your proof clears review."
-        />
-
-        <section className="v2-trial-status"><p>Trial availability is currently being verified. No remaining-trial count is available.</p></section>
-
-        <section className="v2-extra-panel">
-          <div className="v2-extra-section-heading"><h2>How to Qualify</h2><p>All four steps are required. Skipping any one of them voids the submission.</p></div>
-          <div className="v2-extra-requirements">
-            <RequirementCard number="01" icon={assets.share} title="Share our Ad Assets" chips={["Copy Text Info", "Copy Ads Assets"]}>
-              Share our official ad materials on your WhatsApp status and in at least one WhatsApp group chat. Both posts must be made using the exact ad assets provided (the Text &amp; the Image). You can rephrase the Text to fit the context of your Audience.
-            </RequirementCard>
-            <RequirementCard number="02" icon={assets.eye} title="Maintain Visibility for 8 Hours">
-              Your WhatsApp status and the group chat message must remain visible and undeleted for a minimum of 8 hours. The proof you submit must clearly show that the posts lasted for the full 8-hour period.
-            </RequirementCard>
-            <RequirementCard number="03" icon={assets.uploadDoc} title="Submit Valid Proof">
-              Submit clear proof showing your WhatsApp status and group post remained visible for the required period so the submission can be reviewed.
-            </RequirementCard>
-            <RequirementCard number="04" icon={assets.verify} title="Approval & Access">
-              Once approved, “Open Free Trial” unlocks instantly and you can use every eligible feature at no cost.
-            </RequirementCard>
-          </div>
+        <PageIntro title="Free Trial Access" subtitle="The free-trial programme is currently paused while eligibility and review rules are connected." />
+        <section className="v2-extra-panel v2-trial-status">
+          <h2>Programme unavailable</h2>
+          <p>No active trial capacity, eligibility status or proof-review workflow is currently available. No trial access can be unlocked from this page.</p>
         </section>
-
-        <section className="v2-extra-panel v2-extra-caution">
-          <div className="v2-extra-section-heading"><h2>Important Caution</h2></div>
-          <div className="v2-extra-caution-list">{cautionItems.map((item, index) => <div key={index}><i /><p>{item}</p></div>)}</div>
-        </section>
-
-        <UploadProof description="Upload the Proof of our Ad Post you made on your WhatsApp Status" />
-
         <section className="v2-trial-locked">
           <img src={assets.locked} alt="" />
-          <div><h2>Trial Locked</h2><p>This unlocks the moment your proof is approved. Nothing else is required.</p></div>
+          <div><h2>Trial Locked</h2><p>Trial access will become available here when the programme rules and approval workflow are live.</p></div>
           <button type="button" disabled>Open Free Trial</button>
         </section>
       </div>
@@ -258,33 +231,14 @@ export function V2WeeklyGiveaway() {
     <main className="ni-v2 v2-extra-page">
       <div className="v2-extra-main">
         <BackHeader />
-        <PageIntro title="Weekly Giveaway" subtitle="Spend, share, and win this week" />
-
+        <PageIntro title="Weekly Giveaway" subtitle="There is no active giveaway at this time." />
         <section className="v2-extra-panel v2-giveaway-prize">
           <div className="v2-giveaway-prize-copy">
-            <span>Prize information</span>
-            <h2>Current prizes are not yet available</h2>
-            <p>Confirmed prizes, values and giveaway dates will appear here when the live giveaway programme is connected.</p>
+            <span>Programme status</span>
+            <h2>No active giveaway</h2>
+            <p>Prize details, dates, eligibility requirements and winner-selection rules have not been published. Purchases and proof uploads will not create giveaway entries while the programme is paused.</p>
           </div>
         </section>
-
-        <section className="v2-extra-panel">
-          <div className="v2-extra-section-heading"><h2>How to Qualify</h2><p>Two required steps, one optional bonus. Everything is tracked automatically except your ad screenshot.</p></div>
-          <div className="v2-extra-requirements">
-            <RequirementCard number="01" icon={assets.purchase} title="Spend ₦10,000 on Any Service" chips={["Copy Text Info", "Copy Ads Assets"]}>
-              Airtime, data, bills — anything counts. We track your spend automatically, so there is nothing to upload for this step.
-            </RequirementCard>
-            <RequirementCard number="02" icon={assets.send} title="Share our Ad on Your WhatsApp Status">
-              Post the exact image and caption below, keep it live, then submit a screenshot as proof. This step is required.
-            </RequirementCard>
-            <RequirementCard number="03" icon={assets.refer} title="Refer a Friend for a Bonus Entry (Optional)">
-              Every friend who spends ₦1,000 or more adds one extra entry to the raffle. Optional, but it stacks your odds.
-            </RequirementCard>
-          </div>
-        </section>
-
-        <UploadProof icon={assets.giveawayUpload} description="Upload one screenshot showing your status and the group message, with the 8-hour duration clearly visible." />
-        <GiveawayAccordion />
       </div>
     </main>
   );
