@@ -62,13 +62,13 @@ function AppSidebar() {
           <p>Main Menu</p>
           <SidebarLink href="/dashboard" icon={assets.dashboard}>Dashboard</SidebarLink>
           <SidebarLink href="/wallet" icon={assets.wallet}>Wallet</SidebarLink>
-          <SidebarLink href="#campaigns" icon={assets.dashboard}>Campaigns</SidebarLink>
-          <SidebarLink href="#analytics" icon={assets.analytics}>Analytics</SidebarLink>
+          <SidebarLink href="/campaigns" icon={assets.dashboard}>Campaigns</SidebarLink>
+          <SidebarLink href="/analytics" icon={assets.analytics}>Analytics</SidebarLink>
         </div>
         <div className="v2-settings-sidebar-group v2-settings-sidebar-support">
           <p>Support</p>
           <SidebarLink href="/settings" icon={assets.settings} active>Settings</SidebarLink>
-          <SidebarLink href="#help" icon={assets.help}>Help &amp; Support</SidebarLink>
+          <SidebarLink href="/support" icon={assets.help}>Help &amp; Support</SidebarLink>
         </div>
       </div>
       <button className="v2-settings-logout" type="button" onClick={logoutAndRedirect}><span>Log Out</span><img src={assets.logout} alt="" /></button>
