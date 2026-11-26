@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_admin
-from app.models.user import User\nfrom app.services.secret_encryption import decrypt_secret, encrypt_secret
+from app.models.user import User
+from app.services.secret_encryption import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/admin/mfa", tags=["admin-mfa"])
 
@@ -27,7 +28,8 @@ async def setup_mfa(current_user: User = Depends(require_admin), db: AsyncSessio
 async def enable_mfa(code: str, current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
     if not current_user.mfa_secret:
         raise HTTPException(400, "Run MFA setup first")
-    stored_secret = decrypt_secret(current_user.mfa_secret)\n    if not pyotp.TOTP(stored_secret).verify(code.strip(), valid_window=1):
+    stored_secret = decrypt_secret(current_user.mfa_secret)
+    if not pyotp.TOTP(stored_secret).verify(code.strip(), valid_window=1):
         raise HTTPException(401, "Invalid MFA code")
     current_user.mfa_enabled = True
     return {"message": "Admin MFA enabled"}
