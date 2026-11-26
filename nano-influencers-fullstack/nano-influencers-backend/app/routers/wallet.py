@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user, require_worker
 from app.models.payment import Deposit, PaystackEvent
@@ -122,6 +123,8 @@ async def initiate_deposit(
     db: AsyncSession = Depends(get_db),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
+    if not settings.PAYMENTS_ENABLED:
+        raise HTTPException(503, "Deposits are temporarily disabled while payment verification is being completed.")
     if body.amount_ngn < 100:
         raise HTTPException(400, "Minimum deposit is ₦100")
     key = _validate_idempotency_key(idempotency_key)
