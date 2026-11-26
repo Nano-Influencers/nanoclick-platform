@@ -85,7 +85,7 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
         if not user.is_active:
             raise HTTPException(403, "Account disabled")
         return user
-    result = await db.execute(select(User).where(User.email == provider_data["email"]))
+    result = await db.execute(select(User).where(func.lower(User.email) == provider_data["email"].strip().lower()))
     user = result.scalar_one_or_none()
     if user:
         if not user.is_active:
@@ -94,7 +94,7 @@ async def _upsert_oauth_user(db: AsyncSession, provider_data, role="worker"):
         user.oauth_provider = provider_data["provider"]
         user.oauth_provider_id = provider_data["provider_id"]
         return user
-    user = User(email=provider_data["email"], password_hash=None, full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0], role=role, referral_code=generate_referral_code(), oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"], email_verified=True)
+    user = User(email=provider_data["email"].strip().lower(), password_hash=None, full_name=provider_data.get("full_name") or provider_data["email"].split("@")[0], role=role, referral_code=generate_referral_code(), oauth_provider=provider_data["provider"], oauth_provider_id=provider_data["provider_id"], email_verified=True)
     db.add(user)
     await db.flush()
     db.add(Wallet(user_id=user.id))
@@ -131,7 +131,7 @@ async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_
 @router.post("/register", status_code=202)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Stage a registration in Redis; create no database user until OTP succeeds."""
-    email = str(body.email).strip()
+    email = str(body.email).strip().lower()
     full_name = body.full_name.strip()
     existing = await db.execute(select(User).where(func.lower(User.email) == email.lower()))
     existing_user = existing.scalar_one_or_none()
@@ -384,7 +384,7 @@ async def change_password(body: ChangePasswordRequest, current_user: User = Depe
 
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
+    result = await db.execute(select(User).where(func.lower(User.email) == str(body.email).strip().lower()))
     user = result.scalar_one_or_none()
     if user and user.password_hash is not None:
         # Six-digit, single-use reset code; only its digest is stored.
@@ -488,7 +488,7 @@ async def _send_otp_for_email(db: AsyncSession, email: str) -> None:
         await send_verification_otp(pending["email"], code)
         return
 
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(func.lower(User.email) == email.strip().lower()))
     user = result.scalar_one_or_none()
     # Legacy unverified accounts remain supported during migration.
     if not user or user.email_verified:
@@ -557,7 +557,7 @@ async def verify_otp(body: VerifyOTPRequest, db: AsyncSession = Depends(get_db))
             await release_pending_lock(email, lock_token)
 
     # Compatibility path for accounts created before OTP-first registration.
-    result = await db.execute(select(User).where(User.email == body.email).with_for_update())
+    result = await db.execute(select(User).where(func.lower(User.email) == str(body.email).strip().lower()).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(400, "Invalid or expired verification code")
