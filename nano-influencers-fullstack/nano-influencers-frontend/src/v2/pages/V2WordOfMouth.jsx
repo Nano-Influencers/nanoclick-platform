@@ -127,7 +127,7 @@ export function V2WordOfMouth() {
   const [endDate, setEndDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [budget, setBudget] = useState("5000");
+  const [budget, setBudget] = useState("");
   const [narrowed, setNarrowed] = useState(false);
   const [targeting, setTargeting] = useState({
     demographics: { enabled: false, age: "", gender: "", marital: "" },
@@ -139,6 +139,36 @@ export function V2WordOfMouth() {
     financial: { enabled: false, value: "" },
   });
 
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("draft");
+    if (!id) return;
+    let active = true;
+    api.getCampaignDraft(id).then((saved) => {
+      if (!active || !saved?.payload) return;
+      const data = saved.payload;
+      setDraftId(id);
+      setCampaignName(data.campaignName || "");
+      setPurpose(data.purpose || "");
+      setAdLink(data.adLink || "");
+      setAdText(data.adText || "");
+      setFileName(data.fileName || "");
+      setSavedCreativeKey(data.creativeKey || saved.creative_key || null);
+      setTargeting(data.targeting || {
+        demographics: { enabled: false, age: "", gender: "", marital: "" },
+        location: { enabled: false, country: "", state: "", area: "" },
+        language: { enabled: false, value: "" }, niche: { enabled: false, value: "" },
+        profession: { enabled: false, value: "" }, religion: { enabled: false, value: "" },
+        financial: { enabled: false, value: "" },
+      });
+      setStartDate(data.startDate || "");
+      setEndDate(data.endDate || "");
+      setStartTime(data.startTime || "");
+      setEndTime(data.endTime || "");
+      setBudget(data.budget ? String(data.budget) : "");
+    }).catch((error) => { if (active) setSubmitError(error.message || "Unable to load saved draft."); });
+    return () => { active = false; };
+  }, []);
+
   const toggle = (key) => setTargeting((current) => ({ ...current, [key]: { ...current[key], enabled: !current[key].enabled } }));
   const setTarget = (key, next) => setTargeting((current) => ({ ...current, [key]: { ...current[key], ...next } }));
 
@@ -147,14 +177,14 @@ export function V2WordOfMouth() {
     if (submitting) return;
     setSubmitting(true); setSubmitError("");
     try {
-      let creativeKey = null;
+      let creativeKey = savedCreativeKey;
       if (selectedFile) {
         const extension = selectedFile.name.split(".").pop()?.toLowerCase() || "";
         const upload = await api.createCampaignCreativeUploadUrl(extension);
         const response = await fetch(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: selectedFile });
         if (!response.ok) throw new Error("Creative upload failed. Please try again.");
         const confirmed = await api.confirmCampaignCreative(upload.file_key);
-        creativeKey = confirmed.file_key;
+        creativeKey = confirmed.file_key;\n        setSavedCreativeKey(creativeKey);
       }
       const draft = { campaignName, purpose, adLink, adText, fileName, creativeKey, targeting, startDate, endDate, startTime, endTime, budget };
       const saved = await api.saveCampaignDraft({ draft_id: draftId, payload: draft, creative_key: creativeKey });
@@ -236,7 +266,7 @@ function SummaryInfo({ icon, label, value, description }) {
 }
 
 export function V2WordOfMouthPreview() {
-  const [draft, setDraft] = useState({});
+  const [draft, setDraft] = useState({});\n  const [draftId, setDraftId] = useState(null);
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState("");
   useEffect(() => {
@@ -265,7 +295,7 @@ export function V2WordOfMouthPreview() {
   return (
     <main className="ni-v2 v2-wom-preview-page">
       <div className="v2-wom-preview-shell">
-        <header className="v2-wom-backbar"><button type="button" onClick={() => go("/campaigns/word-of-mouth")}><img src={assets.arrowLeft} alt="" /><span>Back to draft</span></button></header>
+        <header className="v2-wom-backbar"><button type="button" onClick={() => go(draftId ? `/campaigns/word-of-mouth?draft=${encodeURIComponent(draftId)}` : "/campaigns/word-of-mouth")}><img src={assets.arrowLeft} alt="" /><span>Back to draft</span></button></header>
         <h1 className="v2-wom-summary-title">Campaign Draft Review</h1>
         {draftLoading && <p role="status">Loading saved draft…</p>}
         {draftError && <p role="alert">{draftError}</p>}
