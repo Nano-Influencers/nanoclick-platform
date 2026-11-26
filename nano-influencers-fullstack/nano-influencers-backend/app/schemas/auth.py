@@ -51,7 +51,14 @@ class UserResponse(BaseModel):
     email_verified: bool = False
     phone_number: str | None = None
     avatar_url: str | None = None
+    notification_preferences: dict[str, bool] = Field(default_factory=dict)
+    regional_preferences: dict[str, object] = Field(default_factory=dict)
     model_config = {"from_attributes": True}
+
+
+class AccountSettingsRequest(BaseModel):
+    notification_preferences: dict[str, bool] | None = None
+    regional_preferences: dict[str, object] | None = None
 
 
 class AvatarUploadRequest(BaseModel):
