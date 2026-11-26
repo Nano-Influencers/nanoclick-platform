@@ -1,7 +1,7 @@
 // Thin fetch wrapper around the NanoClick backend.
 // Browser refresh sessions use an HttpOnly cookie; access tokens stay in memory.
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
-function apiUrl(path) { return `${API_URL}/${String(path || "").replace(/^\\/+/, "")}`; }
+function apiUrl(path) { return API_URL + "/" + String(path || "").replace(/^\/+/, ""); }
 const REQUEST_TIMEOUT_MS = 20000;
 let accessToken = null;
 let refreshInFlight = null;
