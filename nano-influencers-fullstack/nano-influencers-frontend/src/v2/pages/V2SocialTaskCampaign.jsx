@@ -451,7 +451,7 @@ function CheckChoice({ checked, onChange, label, cost }) {
       <input type="checkbox" checked={checked} onChange={onChange} />
       <span className="v2-stc-box">{checked ? "✓" : ""}</span>
       <span>{label}</span>
-      {typeof cost === "number" ? <small>(Cost {money(cost)})</small> : null}
+      
     </label>
   );
 }
@@ -581,7 +581,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
   if (mode === "interactive") {
     return (
       <section className="v2-stc-panel">
-        <div className="v2-stc-special-title"><h2>Interactive Comment Session</h2>{selectedTask.unitCost ? <p>(Cost {money(selectedTask.unitCost)})</p> : null}</div>
+        <div className="v2-stc-special-title"><h2>Interactive Comment Session</h2></div>
         <RadioButtons title="I want the Interactive Comment Session to happen on a:" values={selectedTask.surfaces || ["Post", "Comment Section"]} value={values.targetSurface} onChange={(value) => setValue("targetSurface", value)} />
       </section>
     );
@@ -684,7 +684,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
     return (
       <section className="v2-stc-panel">
         <RadioButtons title="Favourite type:" values={["Song", "Album", "Playlist", "Artist"]} value={values.favouriteType} onChange={(value) => setValue("favouriteType", value)} />
-        <div className="v2-stc-special-title"><h2>Add my Song to Liked Songs</h2><p>(Cost {money(selectedTask.unitCost || 100)})</p></div>
+        <div className="v2-stc-special-title"><h2>Add my Song to Liked Songs</h2></div>
       </section>
     );
   }
@@ -692,7 +692,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
   if (mode === "repost-options") {
     return (
       <section className="v2-stc-panel">
-        <div className="v2-stc-special-title"><h2>Re-post my post</h2><p>(Cost {money(selectedTask.unitCost || 20)})</p></div>
+        <div className="v2-stc-special-title"><h2>Re-post my post</h2></div>
         <RadioButtons title="Quantity" values={["Just Repost", "Repost with Thoughts"]} value={values.repostType} onChange={(value) => setValue("repostType", value)} />
       </section>
     );
@@ -867,7 +867,7 @@ export default function V2SocialTaskCampaign() {
             <div className="v2-stc-field"><FieldHeader title="What is your page/profile about" /><input className="v2-stc-input" value={pageAbout} onChange={(event) => setPageAbout(event.target.value)} placeholder="type here" maxLength={50} /><p className="v2-stc-meta">{pageAbout.length}/50</p></div>
             <div className="v2-stc-field"><FieldHeader title="Link" help="Ensure that you drop the correct link here." /><p className="v2-stc-inline-note">Drop the link to the post here.</p><input className="v2-stc-input" value={link} onChange={(event) => setLink(event.target.value)} placeholder={platform.linkPlaceholder} /></div>
             <div className="v2-stc-field"><FieldHeader title="Total Quantity" help="Total quantity based on the addition of all individual quantities." /><input className="v2-stc-input" type="number" min="0" value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" /></div>
-            <div className="v2-stc-field"><FieldHeader title="Cost" help="Total cost based on the addition of all individual costs." /><input className="v2-stc-input" value={money(totalCost)} readOnly /></div>
+            <div className="v2-stc-field"><FieldHeader title="Cost" help="Total cost based on the addition of all individual costs." /><input className="v2-stc-input" value="Awaiting verified quote" readOnly /></div>
           </section>
 
           {selectedTask.instructions !== false && selectedTask.mode !== "report" && selectedTask.mode !== "special-media" ? (
