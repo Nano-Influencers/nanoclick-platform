@@ -7,7 +7,7 @@ from app.database import Base
 
 
 class PasswordResetToken(Base):
-    """Single-use, hashed password-reset tokens with a one-hour lifetime."""
+    """Single-use, hashed password-reset tokens with a 15-minute lifetime."""
     __tablename__ = "password_reset_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
