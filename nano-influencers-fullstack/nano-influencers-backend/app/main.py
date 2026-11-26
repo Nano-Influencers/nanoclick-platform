@@ -19,6 +19,18 @@ from app.services.rate_limit import check_rate_limit
 logger = logging.getLogger("nano-influencers.api")
 _is_production = settings.APP_ENV.strip().lower() in {"production", "prod"}
 
+@app.middleware("http")
+async def request_size_limit(request: Request, call_next):
+    raw_length = request.headers.get("content-length")
+    if raw_length:
+        try:
+            if int(raw_length) > settings.MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(status_code=413, content={"detail": "Request body exceeds the configured size limit."})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header."})
+    return await call_next(request)
+
+
 app = FastAPI(
     title="Nano Influencers API",
     description="Backend for Nano Influencers (advertiser) and Click Workers (worker) apps.",
