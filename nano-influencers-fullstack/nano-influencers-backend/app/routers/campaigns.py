@@ -106,7 +106,7 @@ async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = 
         draft = result.scalar_one_or_none()
         if not draft:
             raise HTTPException(404, "Campaign draft not found")
-        old_key = draft.creative_key
+        old_keys = {key for key in [draft.creative_key, draft.payload.get("instructionFileKey"), draft.payload.get("taskMediaKey")] if key}
         draft.payload = body.payload
         draft.creative_key = body.creative_key
         draft.updated_at = datetime.utcnow()
@@ -139,10 +139,10 @@ async def delete_campaign_draft(draft_id: uuid.UUID, current_user: User = Depend
     draft = result.scalar_one_or_none()
     if not draft:
         raise HTTPException(404, "Campaign draft not found")
-    key = draft.creative_key
+    keys = {key for key in [draft.creative_key, draft.payload.get("instructionFileKey"), draft.payload.get("taskMediaKey")] if key}
     await db.delete(draft)
     await db.commit()
-    if key:
+    for key in keys:
         try:
             delete_storage_object(key)
         except Exception:
