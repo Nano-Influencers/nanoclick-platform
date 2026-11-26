@@ -1,4 +1,3 @@
-import json
 import logging
 import time
 import uuid
@@ -113,16 +112,6 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
             payload = decode_token(authorization[7:].strip())
             if payload:
                 request.state.rate_limit_identity = payload.get("sub")
-        elif request.method == "POST" and path.startswith("/auth/"):
-            raw = await request.body()
-            try:
-                identity_data = json.loads(raw or b"{}")
-                request.state.rate_limit_identity = identity_data.get("email")
-            except (ValueError, AttributeError):
-                request.state.rate_limit_identity = None
-            async def receive():
-                return {"type": "http.request", "body": raw, "more_body": False}
-            request._receive = receive
         await check_rate_limit(request, *rule)
     return await call_next(request)
 
