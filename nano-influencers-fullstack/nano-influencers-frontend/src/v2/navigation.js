@@ -31,7 +31,8 @@ function textOf(element) {
 
 function go(path) {
   if (!path || typeof window === "undefined") return;
-  window.location.assign(path);
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 
