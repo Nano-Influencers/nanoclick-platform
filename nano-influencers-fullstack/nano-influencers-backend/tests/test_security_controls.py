@@ -46,4 +46,4 @@ async def test_security_headers_are_returned_on_api_responses():
     assert response.status_code == 200
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-frame-options"] == "DENY"
-    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"\n    private = await client.get("/auth/me")\n    assert private.status_code == 401\n    assert private.headers["cache-control"] == "no-store"
