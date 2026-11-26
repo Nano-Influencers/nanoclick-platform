@@ -84,199 +84,79 @@ function CampaignRecord({
   );
 }
 
-const notificationData = {
-  deleted: {
-    title: "Campaign Deleted",
-    desc: "You just Deleted your Twitter Like Campaign, you would be refunded 95% of the unspent balance.",
-    tone: "red",
-    icon: assets.notificationTrash,
-  },
-  approved: {
-    title: "Campaign Approved",
-    desc: "Your IG Engaged Growth Campaign has been Approved by Admin",
-    tone: "green",
-    icon: assets.like,
-    button: "View Proof",
-  },
-  cashback: {
-    title: "Cashback Approved",
-    desc: "Your evidence for Twitter Repost is now approved.",
-    tone: "green",
-    icon: assets.like,
-  },
-  paused: {
-    title: "Campaign Paused",
-    desc: "You have paused your YouTube subscribe Campaign.",
-    tone: "yellow",
-    icon: assets.notificationPause,
-  },
-  rejected: {
-    title: "Campaign Has Been Rejected",
-    desc: "Unfortunately your FB report Campaign has been rejected due to violation of T&C",
-    tone: "red",
-    icon: assets.dislike,
-    button: "See Why",
-  },
-  resumed: {
-    title: "Campaign Resumed",
-    desc: "Your X follower Campaign has been resumed.",
-    tone: "blue",
-    icon: assets.play,
-  },
-  completed: {
-    title: "Campaign has been Completed",
-    desc: "Congratulations, your Word of Mouth Campaign has been Completed.",
-    tone: "green",
-    icon: assets.like,
-    button: "View Proof",
-  },
-  modified: {
-    title: "Campaign Modified/Edited",
-    desc: "Your X follower Campaign has been modified.",
-    tone: "lavender",
-    icon: assets.notificationEdit,
-  },
-};
 
-function NotificationCard({ type }) {
-  const item = notificationData[type];
+function notificationVisual(type = "") {
+  const value = type.toLowerCase();
+  if (value.includes("delete") || value.includes("reject") || value.includes("fail")) return { tone: "red", icon: assets.dislike };
+  if (value.includes("pause")) return { tone: "yellow", icon: assets.notificationPause };
+  if (value.includes("resume")) return { tone: "blue", icon: assets.play };
+  if (value.includes("wallet") || value.includes("deposit") || value.includes("withdraw") || value.includes("cashback")) return { tone: "green", icon: assets.like };
+  if (value.includes("edit") || value.includes("modify")) return { tone: "lavender", icon: assets.notificationEdit };
+  return { tone: "green", icon: assets.like };
+}
+
+function NotificationCard({ notification, onRead }) {
+  const visual = notificationVisual(notification.type);
+  const date = notification.created_at ? new Date(notification.created_at) : null;
+  const time = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "";
   return (
-    <article className="v2-cm-notification">
-      <span className={`v2-cm-notification-icon is-${item.tone}`}><img src={item.icon} alt="" /></span>
+    <article className={`v2-cm-notification${notification.is_read ? " is-read" : ""}`}>
+      <span className={`v2-cm-notification-icon is-${visual.tone}`}><img src={visual.icon} alt="" /></span>
       <div className="v2-cm-notification-copy">
-        <div><h3>{item.title}</h3><time>Just now</time></div>
-        <p>{item.desc}</p>
-        {item.button && <Button className="v2-cm-notification-button">{item.button}</Button>}
+        <div><h3>{notification.title}</h3><time>{time}</time></div>
+        <p>{notification.body}</p>
+        {!notification.is_read && <button type="button" className="v2-cm-notification-button" onClick={() => onRead(notification.id)}>Mark as read</button>}
       </div>
     </article>
   );
 }
 
-function SectionPanel({ title, href, children }) {
-  return (
-    <section className="v2-cm-panel">
-      <div className="v2-cm-panel-heading"><h2>{title}</h2>{href && <a href={href}>See All ⟶</a>}</div>
-      {children}
-    </section>
-  );
-}
-
-function ClaimCashbackModal({ onClose }) {
-  const fileRef = useRef(null);
-  const [fileName, setFileName] = useState("");
-  const [copied, setCopied] = useState(false);
-  const campaignLink = "https://nanoinfluencer.ng/ref/adaeze";
-
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(campaignLink);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  return (
-    <div className="v2-cm-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cashback-title">
-      <div className="v2-cm-modal">
-        <h2 id="cashback-title">Claim Cashback</h2>
-        <div className="v2-cm-earn-card">
-          <img src={assets.cashbackDecor} alt="" />
-          <p>You'll earn</p><strong>₦1,000</strong><span>cashback on approval</span>
-        </div>
-        <div className="v2-cm-claim-step">
-          <h3>1. Share your campaign link</h3>
-          <p>Copy this link and share it to your audience.</p>
-          <div className="v2-cm-copy-field"><span>{campaignLink}</span><button type="button" onClick={copyLink}>{copied ? "Copied" : "Copy"}</button></div>
-        </div>
-        <div className="v2-cm-claim-step">
-          <h3>2. Upload evidence of your share</h3>
-          <p>Drop a screenshot or photo showing you shared the campaign. JPG, PNG, or WebP up to 5 MB.</p>
-          <input ref={fileRef} className="v2-cm-file-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setFileName(event.target.files?.[0]?.name || "")} />
-          <button className="v2-cm-upload" type="button" onClick={() => fileRef.current?.click()}>
-            <img src={assets.upload} alt="" />
-            <strong>{fileName || "Choose file"}</strong>
-            <span>{fileName ? "File selected" : "Size limit: 5mb"}</span>
-          </button>
-        </div>
-        <p className="v2-cm-review-note">Once submitted, your claim enters review. Cashback is approved after the evidence is verified, usually within 48 hours.</p>
-        <div className="v2-cm-modal-actions">
-          <Button className="v2-cm-navy" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => { window.location.href = "/campaigns/claim-success"; }}>Submit Claim</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CampaignsData({ mode = "all" }) {
-  const [campaigns, setCampaigns] = useState([]);
+export function V2CampaignNotifications() {
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState("");
-  const load = async () => {
-    setLoading(true); setError("");
-    try { setCampaigns(await api.listCampaigns({ limit: 100 })); }
-    catch (err) { setError(err.message || "Unable to load campaigns."); }
-    finally { setLoading(false); }
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const session = await api.restoreSession();
+        if (!session.ok) { window.location.replace("/login"); return; }
+        const rows = await api.listNotifications({ limit: 100 });
+        if (active) setNotifications(Array.isArray(rows) ? rows : []);
+      } catch (err) {
+        if (active) setError(err.message || "Unable to load notifications.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+  const markRead = async (id) => {
+    try {
+      await api.markNotificationRead(id);
+      setNotifications((items) => items.map((item) => item.id === id ? { ...item, is_read: true } : item));
+    } catch (err) {
+      setError(err.message || "Unable to update notification.");
+    }
   };
-  useEffect(() => { load(); }, []);
-  const pending = campaigns.filter((item) => ["draft", "pending_admin", "reported"].includes(item.status));
-  const ongoing = campaigns.filter((item) => ["active", "awaiting_workers", "paused"].includes(item.status));
-  const visible = mode === "pending" ? pending : mode === "ongoing" ? ongoing : campaigns;
-  const changeStatus = async (campaign, status) => {
-    setBusyId(campaign.id);
-    try { await api.updateCampaignStatus(campaign.id, status); await load(); }
-    catch (err) { setError(err.message || "Unable to update campaign."); }
-    finally { setBusyId(""); }
-  };
-  if (loading) return <p className="v2-cm-data-state">Loading your campaigns…</p>;
-  if (error && campaigns.length === 0) return <div className="v2-cm-data-state" role="alert">{error} <button type="button" onClick={load}>Try again</button></div>;
-  return <>
-    {error && <p className="v2-cm-data-error" role="alert">{error}</p>}
-    {visible.length === 0 ? <div className="v2-cm-data-state"><h3>No {mode === "pending" ? "pending" : mode === "ongoing" ? "ongoing" : ""} campaigns yet</h3><p>Your campaigns will appear here after you create them.</p><a href="/campaigns">Create a campaign</a></div> :
-      visible.map((campaign) => <article className="v2-cm-record" key={campaign.id}>
-        <div className="v2-cm-record-banner"><div className="v2-cm-record-heading"><span className="v2-cm-trend"><img src={assets.trend} alt="" /></span><h3>{campaign.tni_service_type.replaceAll("_", " ")}</h3></div><p>{new Date(campaign.created_at).toLocaleString()}</p></div>
-        <div className="v2-cm-record-main"><div className="v2-cm-record-service"><CampaignMedia type={campaign.platform === "x" || campaign.platform === "twitter" ? "x" : "link"} /><strong>{campaign.title}</strong></div>
-          <div className="v2-cm-status-actions"><span className={`v2-cm-status is-${campaign.status}`}>{campaign.status.replaceAll("_", " ")}</span>
-            {["active", "awaiting_workers"].includes(campaign.status) && <button disabled={busyId === campaign.id} onClick={() => changeStatus(campaign, "paused")}>Pause</button>}
-            {campaign.status === "paused" && <button disabled={busyId === campaign.id} onClick={() => changeStatus(campaign, "active")}>Resume</button>}
-            {!["completed", "cancelled"].includes(campaign.status) && <button disabled={busyId === campaign.id} onClick={() => { if (window.confirm("Cancel this campaign? Any refundable escrow will be returned to your wallet.")) changeStatus(campaign, "cancelled"); }}>Cancel</button>}
-          </div>
-        </div>
-        <div className="v2-cm-proof"><span>Status: {campaign.status.replaceAll("_", " ")}</span><span>{Number(campaign.slots_filled || 0)} / {Number(campaign.slots_total || 0)} slots filled</span><span>Budget: ₦{(Number(campaign.client_budget_kobo || 0) / 100).toLocaleString("en-NG", {minimumFractionDigits:2})}</span></div>
-      </article>)}
-  </>;
-}
-
-export function V2ManageCampaign() {
-  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader history /><h1>Manage Campaign</h1><SectionPanel title="Your Campaigns"><CampaignsData /></SectionPanel></main></div>;
-}
-
-export function V2OngoingCampaigns() {
-  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Ongoing Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="ongoing" /></section></main></div>;
-}
-
-export function V2PendingCampaigns() {
-  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Pending Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="pending" /></section></main></div>;
-}
-
-export function V2CampaignNotifications() {
   return (
     <div className="v2-cm-page">
       <main className="v2-cm-main">
         <BackHeader filter />
-        <h1>Campaign Notifications</h1>
-        <section className="v2-cm-notifications-panel">
-          <NotificationCard type="deleted" />
-          <NotificationCard type="cashback" />
-          <NotificationCard type="paused" />
-          <NotificationCard type="rejected" />
-          <NotificationCard type="resumed" />
-          <NotificationCard type="completed" />
-          <NotificationCard type="modified" />
-        </section>
+        <h1>Notifications</h1>
+        {error && <p role="alert" className="v2-cm-data-state">{error}</p>}
+        {loading ? <p className="v2-cm-data-state">Loading notifications…</p> :
+          notifications.length === 0 ? (
+            <section className="v2-cm-notifications-panel v2-cm-data-state">
+              <h3>No notifications yet</h3>
+              <p>When you enable an activity in Settings and it happens, its notification will appear here.</p>
+              <a href="/settings?tab=notifications">Manage notification settings</a>
+            </section>
+          ) : (
+            <section className="v2-cm-notifications-panel">
+              {notifications.map((item) => <NotificationCard key={item.id} notification={item} onRead={markRead} />)}
+            </section>
+          )}
       </main>
     </div>
   );
