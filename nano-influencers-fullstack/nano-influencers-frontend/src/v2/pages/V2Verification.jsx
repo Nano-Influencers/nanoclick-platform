@@ -102,7 +102,7 @@ export function EmailVerificationPage() {
   const params = new URLSearchParams(window.location.search);
   const previewState = params.get("state") || "";
   const email = params.get("email") || "";
-  const deliveryFailed = params.get("delivery") === "failed";
+  const [deliveryNotice, setDeliveryNotice] = useState(params.get("delivery") === "failed");
   const [code, setCode] = useState(() => previewState === "error" ? "652027" : previewState === "filled" ? "65202" : "");
   const [error, setError] = useState(previewState === "error" ? "invalid verification code" : "");
   const [seconds, restartCountdown] = useResendCountdown(40);
@@ -129,6 +129,7 @@ export function EmailVerificationPage() {
     setError("");
     try {
       await api.resendOTP(email);
+      setDeliveryNotice(false);
       setCode("");
       restartCountdown();
     } catch (err) {
@@ -145,8 +146,8 @@ export function EmailVerificationPage() {
           <Brand />
           <div className="v2-verification-copy">
             <h1>Enter verification code</h1>
-            <p>We sent a 6-digit code to <strong>{email}</strong></p>
-            {deliveryFailed && <p className="v2-code-error" role="status">We could not deliver the code yet. Your registration is saved temporarily; use Resend after email delivery is available.</p>}
+            <p>{deliveryNotice ? "We could not send a code to" : "We sent a 6-digit code to"} <strong>{email}</strong></p>
+            {deliveryNotice && <p className="v2-code-error" role="status">Your registration is saved temporarily. Use Resend to try email delivery again.</p>}
           </div>
         </header>
 
