@@ -280,3 +280,79 @@ async def test_profile_avatar_key_persists_and_is_returned_by_me(db_factory, mon
     async with db_factory() as db:
         stored_user = await db.get(User, user_id)
         assert stored_user.avatar_key == avatar_key
+
+
+
+@pytest.mark.asyncio
+async def test_profile_avatar_upload_uses_backend_storage_and_persists(db_factory, monkeypatch):
+    import app.routers.auth as auth_router
+
+    async with db_factory() as db:
+        user = await _add_user(db, role="advertiser")
+        await db.commit()
+        user_id = user.id
+        access_token = create_access_token(str(user.id), user.role)
+
+    monkeypatch.setattr(
+        auth_router,
+        "store_profile_avatar",
+        lambda file_bytes, owner_id: f"avatars/{owner_id}/saved-avatar.png",
+    )
+    monkeypatch.setattr(
+        auth_router,
+        "generate_presigned_download_url",
+        lambda file_key, expires_in=300: {"download_url": "https://storage.example/saved-avatar.png"},
+    )
+
+    async with _client() as client:
+        response = await client.post(
+            "/auth/me/avatar",
+            files={"file": ("avatar.png", b"validated-by-storage-test", "image/png")},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["avatar_url"] == "https://storage.example/saved-avatar.png"
+
+    async with db_factory() as db:
+        stored_user = await db.get(User, user_id)
+        assert stored_user.avatar_key == f"avatars/{user_id}/saved-avatar.png"
+
+
+@pytest.mark.asyncio
+async def test_notification_and_regional_settings_are_persisted(db_factory):
+    async with db_factory() as db:
+        user = await _add_user(db, role="advertiser")
+        await db.commit()
+        user_id = user.id
+        access_token = create_access_token(str(user.id), user.role)
+
+    async with _client() as client:
+        response = await client.patch(
+            "/auth/me/settings",
+            json={
+                "notification_preferences": {"emailCampaign": False, "smsCritical": True},
+                "regional_preferences": {
+                    "currency": "US Dollar ($)",
+                    "timezone": "UTC",
+                    "language": "English",
+                    "autoRenew": False,
+                },
+            },
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["notification_preferences"]["emailCampaign"] is False
+        assert response.json()["regional_preferences"]["currency"] == "US Dollar ($)"
+
+        profile = await client.get(
+            "/auth/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        assert profile.status_code == 200
+        assert profile.json()["notification_preferences"]["smsCritical"] is True
+        assert profile.json()["regional_preferences"]["autoRenew"] is False
+
+    async with db_factory() as db:
+        stored_user = await db.get(User, user_id)
+        assert stored_user.notification_preferences["emailCampaign"] is False
+        assert stored_user.regional_preferences["timezone"] == "UTC"
