@@ -41,15 +41,14 @@ async def _send_email(recipient: str, subject: str, text: str) -> None:
 
 
 async def send_password_reset_email(recipient: str, token: str) -> None:
-    """Send a password reset link using Resend's HTTPS API."""
-    reset_url = f"{settings.PASSWORD_RESET_URL.rstrip('/')}?token={token}"
+    """Send a short-lived password-reset verification code."""
     text = (
-        "We received a request to reset your NanoClick password.\n\n"
-        f"Reset your password here: {reset_url}\n\n"
-        "This link expires in 1 hour and can only be used once. "
+        "Your NanoClick password reset verification code is:\\n\\n"
+        f"{token}\\n\\n"
+        "This code expires in 10 minutes and can only be used once. "
         "If you did not request this, you can ignore this email."
     )
-    await _send_email(recipient, "Reset your NanoClick password", text)
+    await _send_email(recipient, "Your NanoClick password reset code", text)
 
 
 async def send_verification_otp(recipient: str, code: str) -> None:
