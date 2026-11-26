@@ -112,7 +112,7 @@ function TopHeader({ profileOpen, onProfileClick, user }) {
       <Brand />
       <p className="v2-dashboard-welcome desktop-welcome">Welcome Back 👋</p>
       <div className="v2-dashboard-user">
-        <button className="v2-dashboard-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
+        <a className="v2-dashboard-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
         <button
           className={`v2-dashboard-profile${profileOpen ? " is-open" : ""}`}
           type="button"
