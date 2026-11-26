@@ -399,7 +399,9 @@ function DeleteModal({ open, onClose, onConfirm, busy = false, error = "" }) {
 
 export default function V2Settings() {
   const [user, setUser] = useState(null);
-  const [profileError, setProfileError] = useState("");\n  const [deleteBusy, setDeleteBusy] = useState(false);\n  const [deleteError, setDeleteError] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   useEffect(() => {
     let active = true;
     (async () => {
@@ -422,6 +424,18 @@ export default function V2Settings() {
   const initialTab = tabs.some((tab) => tab.id === params.get("tab")) ? params.get("tab") : "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
   const [deleteOpen, setDeleteOpen] = useState(params.get("state") === "delete");
+  const confirmDelete = async () => {
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await api.deleteAccount();
+      await api.logout();
+      window.location.replace("/login?account=deactivated");
+    } catch (error) {
+      setDeleteError(error.message || "Unable to deactivate your account.");
+      setDeleteBusy(false);
+    }
+  };
 
   const changeTab = (tab) => {
     setActiveTab(tab);
