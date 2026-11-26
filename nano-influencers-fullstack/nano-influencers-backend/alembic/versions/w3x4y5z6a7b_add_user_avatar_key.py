@@ -15,7 +15,11 @@ depends_on = None
 
 def upgrade():
     op.add_column("users", sa.Column("avatar_key", sa.String(length=500), nullable=True))
+    op.add_column("users", sa.Column("notification_preferences", sa.JSON(), nullable=False, server_default=sa.text("'{}'")))
+    op.add_column("users", sa.Column("regional_preferences", sa.JSON(), nullable=False, server_default=sa.text("'{}'")))
 
 
 def downgrade():
+    op.drop_column("users", "regional_preferences")
+    op.drop_column("users", "notification_preferences")
     op.drop_column("users", "avatar_key")
