@@ -96,11 +96,13 @@ async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = 
             validate_uploaded_object(body.creative_key, f"campaigns/{current_user.id}")
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+    old_key = None
     if body.draft_id:
         result = await db.execute(select(CampaignDraft).where(CampaignDraft.id == body.draft_id, CampaignDraft.owner_id == current_user.id).with_for_update())
         draft = result.scalar_one_or_none()
         if not draft:
             raise HTTPException(404, "Campaign draft not found")
+        old_key = draft.creative_key
         draft.payload = body.payload
         draft.creative_key = body.creative_key
         draft.updated_at = datetime.utcnow()
@@ -108,6 +110,12 @@ async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = 
         draft = CampaignDraft(owner_id=current_user.id, payload=body.payload, creative_key=body.creative_key)
         db.add(draft)
         await db.flush()
+    await db.commit()
+    if old_key and old_key != body.creative_key:
+        try:
+            delete_storage_object(old_key)
+        except Exception:
+            pass
     return {"id": str(draft.id), "payload": draft.payload, "creative_key": draft.creative_key, "updated_at": draft.updated_at.isoformat()}
 
 
@@ -128,7 +136,7 @@ async def delete_campaign_draft(draft_id: uuid.UUID, current_user: User = Depend
         raise HTTPException(404, "Campaign draft not found")
     key = draft.creative_key
     await db.delete(draft)
-    await db.flush()
+    await db.commit()
     if key:
         try:
             delete_storage_object(key)
