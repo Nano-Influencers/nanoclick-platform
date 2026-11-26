@@ -31,7 +31,7 @@ const tabs = [
   { id: "preferences", label: "Preferences", icon: assets.preferencesTab },
 ];
 
-function avatarInitials(user) { return String(user?.full_name || user?.email || "U").trim().split(/\\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U"; }
+function avatarInitials(user) { return String(user?.full_name || user?.email || "U").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U"; }
 
 async function logoutAndRedirect() { await api.logout(); window.location.replace("/login"); }
 
