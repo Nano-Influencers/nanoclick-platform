@@ -101,9 +101,12 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         "/wallet/resolve-account": ("wallet-resolve-account", 30, 900),
         "/support/contact": ("support-contact", 5, 3600),
         "/campaigns/creative-upload-url": ("campaign-creative-upload", 20, 3600),
-        "/campaigns/creative-confirm": ("campaign-creative-confirm", 30, 3600),\n        "/campaigns/drafts": ("campaign-draft-write", 30, 3600),
+        "/campaigns/creative-confirm": ("campaign-creative-confirm", 30, 3600),
+        "/campaigns/drafts": ("campaign-draft-write", 30, 3600),
     }
     rule = rules.get(path)
+    if path.startswith("/campaigns/drafts/"):
+        rule = ("campaign-draft-access", 60, 3600)
     if rule:
         authorization = request.headers.get("authorization", "")
         if authorization.lower().startswith("bearer "):
