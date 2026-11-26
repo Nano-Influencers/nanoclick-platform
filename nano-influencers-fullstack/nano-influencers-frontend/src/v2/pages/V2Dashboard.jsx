@@ -287,7 +287,18 @@ export default function V2Dashboard() {
   const [profileError, setProfileError] = useState("");
   useEffect(() => {
     let active = true;
-    api.me().then((profile) => { if (active) setUser(profile); }).catch((error) => { if (active) setProfileError(error.message || "Unable to load profile"); });
+    (async () => {
+      try {
+        // The V2 shell mounts independently, so restore the refresh-cookie
+        // session before requesting the authenticated profile.
+        const restored = await api.restoreSession();
+        if (!restored) throw new Error("Your session has expired. Please log in again.");
+        const profile = await api.me();
+        if (active) setUser(profile);
+      } catch (error) {
+        if (active) setProfileError(error.message || "Unable to load profile");
+      }
+    })();
     return () => { active = false; };
   }, []);
   const params = new URLSearchParams(window.location.search);
