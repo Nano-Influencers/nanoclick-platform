@@ -1,20 +1,20 @@
 import uuid, math
 from datetime import datetime
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query\nfrom pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_advertiser
-from app.models.campaign import Campaign, CampaignTargeting, TaskAllocationGroup, TNI_TO_CW_CATEGORY
+from app.models.campaign import Campaign, CampaignTargeting, TaskAllocationGroup, TNI_TO_CW_CATEGORY\nfrom app.models.campaign_draft import CampaignDraft
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.campaign import CampaignCreate, CampaignResponse
 from app.services import wallet_service
 from app.services.clickpoints import calculate_worker_pay_kobo
 from app.services.targeting import get_eligible_workers_with_metadata
-from app.config import settings
+from app.config import settings\nfrom app.services.storage import generate_presigned_upload_url, validate_uploaded_object, delete_storage_object
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -49,6 +49,89 @@ def _allocation_slots(slots_total: int, groups) -> list[int]:
 def _ngn_to_kobo(amount: Decimal) -> int:
     """Convert a two-decimal NGN amount to integer kobo without float rounding."""
     return int(amount * Decimal("100"))
+
+
+
+class CampaignDraftUpsert(BaseModel):
+    draft_id: uuid.UUID | None = None
+    payload: dict = Field(default_factory=dict)
+    creative_key: str | None = Field(default=None, max_length=500)
+
+
+class CampaignCreativeUploadRequest(BaseModel):
+    file_extension: str = Field(min_length=3, max_length=5)
+
+
+class CampaignCreativeConfirmRequest(BaseModel):
+    file_key: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/creative-upload-url")
+async def create_campaign_creative_upload_url(body: CampaignCreativeUploadRequest, current_user: User = Depends(require_advertiser)):
+    extension = body.file_extension.lower().lstrip(".")
+    if extension not in {"jpg", "jpeg", "png", "webp", "mp4"}:
+        raise HTTPException(400, "Campaign creatives must be JPG, PNG, WebP, or MP4")
+    try:
+        return generate_presigned_upload_url(extension, f"campaigns/{current_user.id}")
+    except Exception as exc:
+        raise HTTPException(503, "Campaign creative storage is unavailable") from exc
+
+
+@router.post("/creative-confirm")
+async def confirm_campaign_creative(body: CampaignCreativeConfirmRequest, current_user: User = Depends(require_advertiser)):
+    try:
+        details = validate_uploaded_object(body.file_key, f"campaigns/{current_user.id}")
+        return {"file_key": details["file_key"], "content_type": details["content_type"], "size": details["size"]}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/drafts")
+async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
+    if body.creative_key:
+        try:
+            validate_uploaded_object(body.creative_key, f"campaigns/{current_user.id}")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    if body.draft_id:
+        result = await db.execute(select(CampaignDraft).where(CampaignDraft.id == body.draft_id, CampaignDraft.owner_id == current_user.id).with_for_update())
+        draft = result.scalar_one_or_none()
+        if not draft:
+            raise HTTPException(404, "Campaign draft not found")
+        draft.payload = body.payload
+        draft.creative_key = body.creative_key
+        draft.updated_at = datetime.utcnow()
+    else:
+        draft = CampaignDraft(owner_id=current_user.id, payload=body.payload, creative_key=body.creative_key)
+        db.add(draft)
+        await db.flush()
+    return {"id": str(draft.id), "payload": draft.payload, "creative_key": draft.creative_key, "updated_at": draft.updated_at.isoformat()}
+
+
+@router.get("/drafts/{draft_id}")
+async def get_campaign_draft(draft_id: uuid.UUID, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CampaignDraft).where(CampaignDraft.id == draft_id, CampaignDraft.owner_id == current_user.id))
+    draft = result.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(404, "Campaign draft not found")
+    return {"id": str(draft.id), "payload": draft.payload, "creative_key": draft.creative_key, "updated_at": draft.updated_at.isoformat()}
+
+
+@router.delete("/drafts/{draft_id}", status_code=204)
+async def delete_campaign_draft(draft_id: uuid.UUID, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(CampaignDraft).where(CampaignDraft.id == draft_id, CampaignDraft.owner_id == current_user.id).with_for_update())
+    draft = result.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(404, "Campaign draft not found")
+    key = draft.creative_key
+    await db.delete(draft)
+    await db.flush()
+    if key:
+        try:
+            delete_storage_object(key)
+        except Exception:
+            pass
+    return None
 
 
 @router.post("", response_model=CampaignResponse, status_code=201)
