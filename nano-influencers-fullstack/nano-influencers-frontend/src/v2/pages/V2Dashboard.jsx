@@ -88,21 +88,19 @@ function Sidebar() {
         <nav className="v2-dashboard-sidebar-nav" aria-label="Dashboard navigation">
           <section>
             <p className="v2-dashboard-nav-label">Main Menu</p>
-            <SidebarItem icon={assets.dashboard} label="Dashboard" active />
-            <SidebarItem icon={assets.wallet} label="Wallet" />
-            <SidebarItem icon={assets.campaign} label="Campaigns" />
-            <SidebarItem icon={assets.analytics} label="Analytics" />
+            <SidebarItem icon={assets.dashboard} label="Dashboard" href="/dashboard" active />
+            <SidebarItem icon={assets.wallet} label="Wallet" href="/wallet" />
+            <SidebarItem icon={assets.campaign} label="Campaigns" href="/campaigns" />
+            <SidebarItem icon={assets.analytics} label="Analytics" href="/analytics" />
           </section>
           <section className="v2-dashboard-support-nav">
             <p className="v2-dashboard-nav-label">Support</p>
-            <SidebarItem icon={assets.settings} label="Settings" />
-            <SidebarItem icon={assets.help} label="Help & Support" />
+            <SidebarItem icon={assets.settings} label="Settings" href="/settings" />
+            <SidebarItem icon={assets.help} label="Help & Support" href="/support" />
           </section>
         </nav>
       </div>
-      <button className="v2-dashboard-logout" type="button" onClick={logoutAndRedirect}>
-        <span>Log Out</span><img src={assets.logout} alt="" />
-      </button>
+      <button className="v2-dashboard-logout" type="button" onClick={logoutAndRedirect}><span>Log Out</span><img src={assets.logout} alt="" /></button>
     </aside>
   );
 }
