@@ -471,7 +471,7 @@ export default function V2Settings() {
         {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <div className="v2-settings-title-row">
           <div><h1>Settings</h1><p>Manage your account, security, and preferences</p></div>
-          <button className="v2-settings-date" type="button">Last 30 days <img src={assets.dateChevron} alt="" /></button>
+          <span className="v2-settings-date">Account settings</span>
         </div>
         <div className="v2-settings-workspace">
           <SettingsTabs activeTab={activeTab} onChange={changeTab} />
