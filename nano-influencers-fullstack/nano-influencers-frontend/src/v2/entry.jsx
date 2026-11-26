@@ -16,7 +16,7 @@ import { V2FreeTrial, V2WeeklyGiveaway, V2ReferAndEarn } from "./pages/V2Dashboa
 import { V2Wallet, V2WalletSuccess } from "./pages/V2Wallet.jsx";
 import V2Settings from "./pages/V2Settings.jsx";
 import V2HelpSupport from "./pages/V2HelpSupport.jsx";
-import V2Campaign, { V2SelectServicesPlaceholder } from "./pages/V2Campaign.jsx";
+import V2Campaign, { V2SelectServicesPlaceholder, V2CampaignDetail } from "./pages/V2Campaign.jsx";
 import V2SelectPackage from "./pages/V2SelectPackage.jsx";
 import V2SocialMediaDetails from "./pages/V2SocialMediaDetails.jsx";
 import V2CustomTask from "./pages/V2CustomTask.jsx";
@@ -82,6 +82,7 @@ function V2RouteResolver() {
   if (pathname === "/campaigns/social-media-details") return <V2SocialMediaDetails />;
   if (pathname === "/campaigns/select-package") return <V2SelectPackage />;
   if (pathname === "/campaigns/select-services") return <V2SelectServicesPlaceholder />;
+  if (/^\\/campaigns\\/[0-9a-fA-F-]{36}$/.test(pathname)) return <V2CampaignDetail />;
   if (pathname === "/campaigns/manage") return <V2ManageCampaign />;
   if (pathname === "/campaigns/ongoing") return <V2OngoingCampaigns />;
   if (pathname === "/campaigns/pending") return <V2PendingCampaigns />;
