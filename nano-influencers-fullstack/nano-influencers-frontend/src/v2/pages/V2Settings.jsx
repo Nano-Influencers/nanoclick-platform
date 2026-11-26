@@ -83,7 +83,7 @@ function TopHeader({ user }) {
       <div className="v2-settings-mobile-brand"><Brand /></div>
       <p className="v2-settings-welcome">Welcome Back 👋</p>
       <div className="v2-settings-user">
-        <button className="v2-settings-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
+        <a className="v2-settings-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
         <div className="v2-settings-profile-chip">{user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <div className="v2-settings-avatar-fallback">{avatarInitials(user)}</div>}<span>{user?.full_name || user?.email || "My Account"}</span></div>
       </div>
     </header>
