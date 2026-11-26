@@ -19,6 +19,7 @@ async def test_web_login_uses_httponly_refresh_cookie_without_returning_refresh_
         full_name="Cookie Test",
         role="worker",
         referral_code=f"REF{uuid.uuid4().hex[:8]}",
+        email_verified=True,
     )
     db.add(user)
     await db.flush()
