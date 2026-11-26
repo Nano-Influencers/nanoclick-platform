@@ -1,53 +1,62 @@
-"""Small SMTP adapter for transactional account email."""
-import asyncio
-import smtplib
-from email.message import EmailMessage
+"""Resend HTTP API adapter for transactional account email.
+
+Render Free services block outbound SMTP ports, so all transactional email
+is delivered over HTTPS through Resend's API.
+"""
+import httpx
 
 from app.config import settings
 
 
-def _send_reset_email_sync(recipient: str, reset_url: str) -> None:
-    message = EmailMessage()
-    message["Subject"] = "Reset your NanoClick password"
-    message["From"] = settings.SMTP_FROM_EMAIL
-    message["To"] = recipient
-    message.set_content(
+RESEND_API_URL = "https://api.resend.com/emails"
+
+
+async def _send_email(recipient: str, subject: str, text: str) -> None:
+    """Deliver a transactional email through Resend over HTTPS."""
+    # Keep SMTP_PASSWORD as a temporary fallback for existing deployments.
+    api_key = settings.RESEND_API_KEY or settings.SMTP_PASSWORD
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY is not configured")
+    if not settings.SMTP_FROM_EMAIL:
+        raise RuntimeError("SMTP_FROM_EMAIL is not configured")
+
+    payload = {
+        "from": settings.SMTP_FROM_EMAIL,
+        "to": [recipient],
+        "subject": subject,
+        "text": text,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
+        response = await client.post(RESEND_API_URL, json=payload, headers=headers)
+        if response.is_error:
+            raise RuntimeError(
+                f"Resend email API returned HTTP {response.status_code}: "
+                f"{response.text[:500]}"
+            )
+
+
+async def send_password_reset_email(recipient: str, token: str) -> None:
+    """Send a password reset link using Resend's HTTPS API."""
+    reset_url = f"{settings.PASSWORD_RESET_URL.rstrip('/')}?token={token}"
+    text = (
         "We received a request to reset your NanoClick password.\n\n"
         f"Reset your password here: {reset_url}\n\n"
         "This link expires in 1 hour and can only be used once. "
         "If you did not request this, you can ignore this email."
     )
-    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as smtp:
-        if settings.SMTP_USE_TLS:
-            smtp.starttls()
-        if settings.SMTP_USERNAME:
-            smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-        smtp.send_message(message)
-
-
-async def send_password_reset_email(recipient: str, token: str) -> None:
-    """Send a reset link without blocking the async request loop."""
-    reset_url = f"{settings.PASSWORD_RESET_URL.rstrip('/')}?token={token}"
-    await asyncio.to_thread(_send_reset_email_sync, recipient, reset_url)
-
-def _send_verification_email_sync(recipient: str, code: str) -> None:
-    message = EmailMessage()
-    message["Subject"] = "Your Nano Influencers verification code"
-    message["From"] = settings.SMTP_FROM_EMAIL
-    message["To"] = recipient
-    message.set_content(
-        "Your verification code is:\n\n"
-        f"{code}\n\n"
-        "This code expires in 10 minutes. If you did not request it, ignore this email."
-    )
-    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as smtp:
-        if settings.SMTP_USE_TLS:
-            smtp.starttls()
-        if settings.SMTP_USERNAME:
-            smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-        smtp.send_message(message)
+    await _send_email(recipient, "Reset your NanoClick password", text)
 
 
 async def send_verification_otp(recipient: str, code: str) -> None:
-    """Send an email verification code without blocking the async event loop."""
-    await asyncio.to_thread(_send_verification_email_sync, recipient, code)
+    """Send an email verification code using Resend's HTTPS API."""
+    text = (
+        "Your Nano Influencers verification code is:\n\n"
+        f"{code}\n\n"
+        "This code expires in 10 minutes. If you did not request it, ignore this email."
+    )
+    await _send_email(recipient, "Your Nano Influencers verification code", text)

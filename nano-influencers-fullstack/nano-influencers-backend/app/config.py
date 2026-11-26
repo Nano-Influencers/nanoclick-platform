@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USERNAME: str = ""
     SMTP_PASSWORD: str = ""
+    RESEND_API_KEY: str = ""
     SMTP_FROM_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
     PASSWORD_RESET_URL: str = "http://localhost:5173/reset-password.html"
@@ -89,8 +90,8 @@ class Settings(BaseSettings):
             raise ValueError("OAUTH_ALLOWED_WEB_REDIRECTS must contain only HTTPS redirects in production")
         if any("localhost" in url.lower() or "127.0.0.1" in url for url in redirects):
             raise ValueError("OAUTH_ALLOWED_WEB_REDIRECTS must not contain localhost/127.0.0.1 in production")
-        if not self.SMTP_HOST or not self.SMTP_FROM_EMAIL:
-            raise ValueError("SMTP_HOST and SMTP_FROM_EMAIL must be configured in production")
+        if not (self.RESEND_API_KEY or self.SMTP_PASSWORD) or not self.SMTP_FROM_EMAIL:
+            raise ValueError("RESEND_API_KEY and SMTP_FROM_EMAIL must be configured for transactional email")
         return self
 
     @property
