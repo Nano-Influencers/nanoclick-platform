@@ -197,6 +197,7 @@ function GiveawayAccordion() {
 
 export function V2ReferAndEarn() {
   const [user, setUser] = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -206,8 +207,8 @@ export function V2ReferAndEarn() {
       try {
         const session = await api.restoreSession();
         if (!session.ok) { window.location.replace("/login"); return; }
-        const profile = await api.me();
-        if (active) setUser(profile);
+        const [profile, referralStats] = await Promise.all([api.me(), api.getReferralStats()]);
+        if (active) { setUser(profile); setStats(referralStats); }
       } catch (err) {
         if (active) setError(err.message || "Unable to load your referral details.");
       } finally {
@@ -244,7 +245,9 @@ export function V2ReferAndEarn() {
               <button type="button" onClick={copy} disabled={!referralLink}>{copied ? "Copied" : "Copy link"}</button>
             </div>
           )}
-          {user?.referral_code && <p className="v2-refer-code">Your referral code: <strong>{user.referral_code}</strong></p>}\n          {!loading && stats && <p className="v2-refer-stats">People referred: <strong>{Number(stats.referral_count || 0).toLocaleString()}</strong> · Referral earnings: <strong>₦{Number(stats.total_referral_earnings_ngn || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></p>}
+          {user?.referral_code && <p className="v2-refer-code">Your referral code: <strong>{user.referral_code}</strong></p>}
+          {!loading && stats && <p className="v2-refer-stats">People referred: <strong>{Number(stats.referral_count || 0).toLocaleString()}</strong> · Referral earnings: <strong>₦{Number(stats.total_referral_earnings_ngn || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></p> }
+          {!loading && stats && <p className="v2-refer-stats">People referred: <strong>{Number(stats.referral_count || 0).toLocaleString()}</strong> · Referral earnings: <strong>₦{Number(stats.total_referral_earnings_ngn || 0).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></p>}
         </section>
         <section className="v2-extra-panel v2-refer-steps">
           <div className="v2-extra-section-heading"><h2>How it works</h2><p>Three simple steps to earn referral rewards.</p></div>
