@@ -47,7 +47,7 @@ const metrics = [
 
 const quickActions = [
   { title: "Add Funds", desc: "Top up your wallet", tone: "orange", icon: assets.add },
-  { title: "Refer & Earn", desc: "Earn 2% per referral", tone: "green", icon: assets.refer },
+  { title: "Refer & Earn", desc: "Earn 2% per referral", tone: "green", icon: assets.refer, href: "/refer" },
   { title: "Win Gifts", desc: "1% cashback + weekly raffle", tone: "yellow", icon: assets.gift, href: "/dashboard/giveaway" },
   { title: "Try for Free", desc: "2 free trial weekly", tone: "lavender", icon: assets.unlock, href: "/dashboard/free-trial" },
 ];
@@ -327,7 +327,7 @@ export default function V2Dashboard() {
         <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} /><QuickActions /></div>
         <div className="v2-dashboard-lower"><LatestActivity emptyState={emptyState} /><ReferralSupport user={user} /></div>
       </div>
-      <div className="v2-dashboard-floating mobile-only"><button className="is-refer" type="button"><img src={assets.floatingRefer} alt="" /></button><button className="is-help" type="button"><img src={assets.help} alt="" /></button></div>
+      <div className="v2-dashboard-floating mobile-only"><a className="is-refer" href="/refer" aria-label="Refer and earn"><img src={assets.floatingRefer} alt="" /></a><button className="is-help" type="button"><img src={assets.help} alt="" /></button></div>
       <MobileBottomNav />
       <MobileProfileMenu open={profileOpen} onClose={() => setProfileOpen(false)} />
     </main>

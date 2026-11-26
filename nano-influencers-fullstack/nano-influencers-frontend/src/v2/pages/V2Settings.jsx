@@ -263,7 +263,7 @@ function ToggleRow({ title, description, checked, onChange, disabled = false }) 
 }
 
 function NotificationSettings({ user, onUserUpdate }) {
-  const defaults = { emailCampaign: true, emailWallet: true, emailMarketing: false, pushCampaign: true, pushWallet: true, pushMessages: true, smsCritical: false };
+  const defaults = { emailCampaign: false, emailWallet: false, emailMarketing: false, pushCampaign: false, pushWallet: false, pushMessages: false, smsCritical: false };
   const [values, setValues] = useState(() => ({ ...defaults, ...(user?.notification_preferences || {}) }));
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
