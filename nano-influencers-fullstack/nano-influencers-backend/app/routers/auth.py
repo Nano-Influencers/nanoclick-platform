@@ -243,7 +243,10 @@ async def refresh(request: Request, response: Response, body: RefreshRequest | N
 
 @router.post("/logout")
 async def logout(request: Request, response: Response, body: RefreshRequest | None = None, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
-    refresh_token = (body.refresh_token if body else None) or request.cookies.get(_COOKIE_NAME)
+    supplied_refresh = body.refresh_token if body else None
+    if not supplied_refresh:
+        _enforce_cookie_csrf(request)
+    refresh_token = supplied_refresh or request.cookies.get(_COOKIE_NAME)
     if refresh_token:
         payload = decode_token(refresh_token); jti = payload.get("jti") if payload and payload.get("type") == "refresh" else None
         if jti:
