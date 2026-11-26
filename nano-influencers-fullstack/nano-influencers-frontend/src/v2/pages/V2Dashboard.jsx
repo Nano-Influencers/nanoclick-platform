@@ -262,7 +262,13 @@ function MobileProfileMenu({ open, onClose }) {
 
 export default function V2Dashboard() {
   const [user, setUser] = useState(null);
-  const [profileError, setProfileError] = useState("");\n  const [wallet, setWallet] = useState(null);\n  const [campaigns, setCampaigns] = useState([]);\n  const [transactions, setTransactions] = useState([]);\n  const [referrals, setReferrals] = useState(null);\n  const [dashboardLoading, setDashboardLoading] = useState(true);\n  const [dashboardError, setDashboardError] = useState("");
+  const [profileError, setProfileError] = useState("");
+  const [wallet, setWallet] = useState(null);
+  const [campaigns, setCampaigns] = useState([]);
+  const [transactions, setTransactions] = useState([]);
+  const [referrals, setReferrals] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState("");
   useEffect(() => {
     let active = true;
     (async () => {
@@ -285,7 +291,8 @@ export default function V2Dashboard() {
   }, []);
   const params = new URLSearchParams(window.location.search);
   const previewState = params.get("state") || "";
-  const emptyState = !campaigns.length;\n  const dashboardMetrics = buildMetrics(wallet, campaigns, referrals);
+  const emptyState = !campaigns.length;
+  const dashboardMetrics = buildMetrics(wallet, campaigns, referrals);
   const [profileOpen, setProfileOpen] = useState(previewState === "profile");
 
   return (
