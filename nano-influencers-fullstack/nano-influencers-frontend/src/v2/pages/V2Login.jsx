@@ -43,9 +43,15 @@ export default function V2Login() {
     setBusy(true);
     try {
       await api.login(email.trim(), password);
+      // Confirm the issued access token can authenticate a profile request
+      // before navigating into the dashboard.
+      await api.me();
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(err?.message || "Unable to sign in. Please check your details and try again.");
+      const message = err?.status === 401
+        ? "Wrong email or password. Please try again."
+        : err?.message || "Unable to sign in. Please check your details and try again.";
+      setError(message);
     } finally {
       setBusy(false);
     }
