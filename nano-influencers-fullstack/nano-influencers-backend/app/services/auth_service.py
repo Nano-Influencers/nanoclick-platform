@@ -26,10 +26,10 @@ def generate_referral_code() -> str:
     return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
 
-def create_access_token(user_id: str, role: str) -> str:
+def create_access_token(user_id: str, role: str, session_jti: str | None = None) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode(
-        {"sub": user_id, "role": role, "exp": expire, "type": "access"},
+        {"sub": user_id, "role": role, "exp": expire, "type": "access", **({"sid": session_jti} if session_jti else {})},
         settings.SECRET_KEY,
         algorithm=ALGORITHM,
     )
