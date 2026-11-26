@@ -1,6 +1,7 @@
 // Thin fetch wrapper around the NanoClick backend.
 // Browser refresh sessions use an HttpOnly cookie; access tokens stay in memory.
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+function apiUrl(path) { return `${API_URL}/${String(path || "").replace(/^\\/+/, "")}`; }
 const REQUEST_TIMEOUT_MS = 20000;
 let accessToken = null;
 let refreshInFlight = null;
@@ -47,7 +48,7 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
   const headers = { "Content-Type": "application/json", "X-Request-ID": requestId(), ...extraHeaders };
   if (auth && accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
   let res;
-  try { res = await fetchWithTimeout(`${API_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" }); }
+  try { res = await fetchWithTimeout(apiUrl(path), { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" }); }
   catch (error) { if (error instanceof ApiError) throw error; throw new ApiError("Unable to reach the server. Check your connection and try again.", 0); }
   if (res.status === 401 && auth && res.headers.get("www-authenticate")?.toLowerCase().includes("bearer")) {
     if (_retried) {
@@ -77,7 +78,7 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
 
 async function performRefresh() {
   try {
-    const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, { method: "POST", headers: { "Content-Type": "application/json", "X-Request-ID": requestId() }, credentials: "include" });
+    const res = await fetchWithTimeout(apiUrl("/auth/refresh?platform=web"), { method: "POST", headers: { "Content-Type": "application/json", "X-Request-ID": requestId() }, credentials: "include" });
     if (!res.ok) {
       if (res.status === 401) {
         let detail = "";
@@ -129,7 +130,7 @@ export const api = {
   async deleteAccount() { return request("/auth/me", { method: "DELETE" }); },
   async logout() { try { await request("/auth/logout?platform=web", { method: "POST", auth: false }); } catch {} clearTokens(); },
   isLoggedIn() { return !!accessToken; }, setSessionTokens(access) { setTokens(access); },
-  oauthUrl(provider) { return `${API_URL}/auth/${provider}/login?role=advertiser&platform=web`; },
+  oauthUrl(provider) { return apiUrl(`/auth/${provider}/login?role=advertiser&platform=web`); },
   async getBalance() { return request("/wallet/balance"); },
   async getTransactions({ limit = 100, offset = 0 } = {}) { return request(`/wallet/transactions?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`); },
   async getDepositStatus(reference) { return request(`/wallet/deposits/${encodeURIComponent(reference)}`); },
