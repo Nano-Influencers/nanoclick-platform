@@ -67,7 +67,7 @@ function Sidebar() {
         </div>
       </div>
       <button className="v2-help-logout" type="button" onClick={logout}><span>Log Out</span><img src={assets.logout} alt="" /></button>
-      <button className="v2-help-collapse" type="button" aria-label="Collapse sidebar"><img src={assets.collapse} alt="" /></button>
+      <span className="v2-help-collapse" aria-hidden="true"><img src={assets.collapse} alt="" /></span>
     </aside>
   );
 }
