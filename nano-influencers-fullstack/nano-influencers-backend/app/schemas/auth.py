@@ -50,7 +50,16 @@ class UserResponse(BaseModel):
     kyc_verified: bool
     email_verified: bool = False
     phone_number: str | None = None
+    avatar_url: str | None = None
     model_config = {"from_attributes": True}
+
+
+class AvatarUploadRequest(BaseModel):
+    file_extension: str = Field(min_length=3, max_length=5)
+
+
+class AvatarConfirmRequest(BaseModel):
+    file_key: str = Field(min_length=1, max_length=500)
 
 
 class UpdateProfileRequest(BaseModel):
