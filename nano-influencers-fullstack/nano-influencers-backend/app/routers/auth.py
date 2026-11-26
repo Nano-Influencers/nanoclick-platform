@@ -432,10 +432,13 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
     if not reset_token or reset_token.used or reset_token.expires_at < datetime.utcnow(): raise HTTPException(400, "This reset token is invalid or has expired")
     if reset_token.attempts >= 5: raise HTTPException(429, "Too many reset attempts. Request a new reset token.")
     reset_token.attempts += 1
-    if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
+    if len(body.new_password) < 8:
+        await db.commit()  # Persist this failed attempt before returning the validation error.
+        raise HTTPException(400, "New password must be at least 8 characters")
     user_result = await db.execute(select(User).where(User.id == reset_token.user_id)); user = user_result.scalar_one_or_none()
     if not user: raise HTTPException(404, "Account no longer exists")
     if user.email.strip().lower() != body.email.strip().lower():
+        await db.commit()  # Persist this failed attempt so repeated mismatches are limited.
         raise HTTPException(400, "Reset token does not match this account")
     user.password_hash = hash_password(body.new_password)
     await db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used.is_(False)).values(used=True))
