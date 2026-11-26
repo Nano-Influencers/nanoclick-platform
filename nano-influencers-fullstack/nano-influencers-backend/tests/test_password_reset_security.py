@@ -66,4 +66,6 @@ async def test_password_reset_uses_high_entropy_token_and_invalidates_previous(d
         app.dependency_overrides.pop(get_db, None)
 
     rows = (await db.execute(select(PasswordResetToken).where(PasswordResetToken.user_id == user.id))).scalars().all()
-    assert rows and all(row.used for row in rows)\n    latest = next(row for row in rows if row.token == hash_token_identifier(second_token))\n    assert latest.attempts == 2
+    assert rows and all(row.used for row in rows)
+    latest = next(row for row in rows if row.token == hash_token_identifier(second_token))
+    assert latest.attempts == 2
