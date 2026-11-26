@@ -49,11 +49,27 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -r requirements-dev.txt
+      - name: Create isolated migration and test databases
+        run: |
+          python - <<'PY'
+          import asyncio
+          import asyncpg
+
+          async def main():
+              connection = await asyncpg.connect("postgresql://ci:ci@localhost:5432/nanoclick")
+              try:
+                  await connection.execute('CREATE DATABASE "nanoclick_migrations"')
+                  await connection.execute('CREATE DATABASE "nanoclick_test"')
+              finally:
+                  await connection.close()
+
+          asyncio.run(main())
+          PY
       - name: Compile deployed backend and tests
         run: python -m compileall -q app tests
       - name: Validate deployed backend imports
         env:
-          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick_test
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
           APP_ENV: test
           REDIS_URL: redis://localhost:6379/0
@@ -61,7 +77,7 @@ jobs:
         run: python -c "import app.models; import app.main"
       - name: Validate and apply deployed Alembic migrations
         env:
-          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick_migrations
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
           APP_ENV: test
           REDIS_URL: redis://localhost:6379/0
@@ -73,7 +89,7 @@ jobs:
           alembic current
       - name: Run deployed backend tests
         env:
-          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick
+          DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick_test
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
           APP_ENV: test
           REDIS_URL: redis://localhost:6379/0
