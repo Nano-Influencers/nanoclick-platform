@@ -76,13 +76,8 @@ function Brand() {
   );
 }
 
-function SidebarItem({ icon, label, active = false }) {
-  return (
-    <a className={`v2-dashboard-sidebar-item${active ? " is-active" : ""}`} href="#">
-      <img src={icon} alt="" />
-      <span>{label}</span>
-    </a>
-  );
+function SidebarItem({ icon, label, href, active = false }) {
+  return <a className={`v2-dashboard-sidebar-item${active ? " is-active" : ""}`} href={href}><img src={icon} alt="" /><span>{label}</span></a>;
 }
 
 function Sidebar() {
@@ -221,27 +216,11 @@ function QuickActions() {
 }
 
 function LatestActivity({ rows = [], loading = false, error = "" }) {
-  return (
-    <section className={`v2-dashboard-activity-card${emptyState ? " is-empty" : ""}`}>
-      <div className="v2-dashboard-section-heading"><h2>Latest Activity</h2><button className={emptyState ? "is-muted" : ""} type="button">Show all</button></div>
-      {emptyState ? (
-        <div className="v2-dashboard-empty-activity">
-          <img src={assets.emptyActivity} alt="" />
-          <h3>You have no activity</h3>
-          <Button>Start a Campaign</Button>
-        </div>
-      ) : (
-        <div className="v2-dashboard-activity-list">
-          {activities.map((activity, index) => (
-            <div className="v2-dashboard-activity-row" key={`${activity.title}-${index}`}>
-              <div className="v2-dashboard-activity-main"><span className={`v2-dashboard-activity-icon is-${activity.tone}`}><img src={activity.icon} alt="" /></span><span><strong>{activity.title}</strong>{activity.subtitle && <small>{activity.subtitle}</small>}</span></div>
-              <div className="v2-dashboard-activity-meta">{activity.amount && <strong>{activity.amount}</strong>}<small>{activity.time}</small></div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
+  return <section className={`v2-dashboard-activity-card${!loading && !rows.length ? " is-empty" : ""}`}>
+    <div className="v2-dashboard-section-heading"><h2>Latest Activity</h2><a href="/wallet?history=all">Show all</a></div>
+    {loading ? <p role="status">Loading activity…</p> : error ? <p role="alert">{error}</p> : !rows.length ? <div className="v2-dashboard-empty-activity"><img src={assets.emptyActivity} alt="" /><h3>You have no activity</h3><Button to="/campaigns">Start a Campaign</Button></div> :
+      <div className="v2-dashboard-activity-list">{rows.map((tx) => <div className="v2-dashboard-activity-row" key={tx.id}><div className="v2-dashboard-activity-main"><span className="v2-dashboard-activity-icon is-green"><img src={assets.activityMoney} alt="" /></span><span><strong>{String(tx.type || "Wallet activity").replaceAll("_", " ")}</strong>{tx.description && <small>{tx.description}</small>}</span></div><div className="v2-dashboard-activity-meta"><strong>₦{Number(tx.amount_ngn || 0).toLocaleString("en-NG")}</strong><small>{new Date(tx.created_at).toLocaleString()}</small></div></div>)}</div>}
+  </section>;
 }
 
 function ReferralSupport({ user }) {
@@ -265,14 +244,7 @@ function ReferralSupport({ user }) {
 }
 
 function MobileBottomNav() {
-  return (
-    <nav className="v2-dashboard-bottom-nav" aria-label="Mobile dashboard navigation">
-      <a className="is-active" href="/dashboard"><img src={assets.dashboard} alt="" /><span>Dashboard</span></a>
-      <a href="#"><img src={assets.wallet} alt="" /></a>
-      <a href="#"><img src={assets.campaign} alt="" /></a>
-      <a href="#"><img src={assets.analytics} alt="" /></a>
-    </nav>
-  );
+  return <nav className="v2-dashboard-bottom-nav" aria-label="Mobile dashboard navigation"><a className="is-active" href="/dashboard"><img src={assets.dashboard} alt="Dashboard" /><span>Dashboard</span></a><a href="/wallet"><img src={assets.wallet} alt="Wallet" /></a><a href="/campaigns"><img src={assets.campaign} alt="Campaigns" /></a><a href="/analytics"><img src={assets.analytics} alt="Analytics" /></a></nav>;
 }
 
 function MobileProfileMenu({ open, onClose }) {
@@ -295,19 +267,19 @@ export default function V2Dashboard() {
     let active = true;
     (async () => {
       try {
-        // The V2 shell mounts independently, so restore the refresh-cookie
-        // session before requesting the authenticated profile.
         const session = await api.restoreSession();
         if (!session.ok) {
           if (session.reason === "anonymous") { window.location.replace("/login"); return; }
           if (session.reason === "expired") { window.location.replace("/login?reason=session_expired"); return; }
           throw new Error("Unable to verify your session right now. Please try again.");
         }
-        const profile = await api.me();
-        if (active) setUser(profile);
+        const [profile, balance, campaignRows, txRows, referralStats] = await Promise.all([
+          api.me(), api.getBalance(), api.listCampaigns({ limit: 100 }), api.getTransactions({ limit: 5 }), api.getReferralStats(),
+        ]);
+        if (active) { setUser(profile); setWallet(balance); setCampaigns(campaignRows || []); setTransactions(txRows || []); setReferrals(referralStats); }
       } catch (error) {
-        if (active) setProfileError(error.message || "Unable to load profile");
-      }
+        if (active) { setProfileError(error.message || "Unable to load profile"); setDashboardError(error.message || "Unable to load dashboard data."); }
+      } finally { if (active) setDashboardLoading(false); }
     })();
     return () => { active = false; };
   }, []);
