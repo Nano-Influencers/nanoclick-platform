@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8, max_length=72)
     full_name: str = Field(min_length=2, max_length=255)
     role: str
     referral_code: str | None = None
@@ -61,7 +61,7 @@ class UpdateProfileRequest(BaseModel):
     @classmethod
     def validate_profile_name(cls, value: str | None) -> str | None:
         if value is None:
-            return None
+            raise ValueError("Name cannot be empty")
         value = " ".join(value.split())
         if len(value) < 2:
             raise ValueError("Name must contain at least 2 characters")
