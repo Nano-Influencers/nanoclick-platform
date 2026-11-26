@@ -100,7 +100,7 @@ async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = 
             validate_uploaded_object(file_key, f"campaigns/{current_user.id}")
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-    old_key = None
+    old_keys = set()
     if body.draft_id:
         result = await db.execute(select(CampaignDraft).where(CampaignDraft.id == body.draft_id, CampaignDraft.owner_id == current_user.id).with_for_update())
         draft = result.scalar_one_or_none()
@@ -115,7 +115,8 @@ async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = 
         db.add(draft)
         await db.flush()
     await db.commit()
-    if old_key and old_key != body.creative_key:
+    new_keys = {key for key in [draft.creative_key, draft.payload.get("instructionFileKey"), draft.payload.get("taskMediaKey")] if key}
+    for old_key in old_keys - new_keys:
         try:
             delete_storage_object(old_key)
         except Exception:
