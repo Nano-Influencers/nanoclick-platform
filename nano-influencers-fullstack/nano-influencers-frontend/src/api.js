@@ -144,6 +144,7 @@ export const api = {
   oauthUrl(provider) { return apiUrl(`/auth/${provider}/login?role=advertiser&platform=web`); },
   async getBalance() { return request("/wallet/balance"); },
   async getReferralStats() { return request("/wallet/referral-stats"); },
+  async submitSupportMessage(payload) { return request("/support/contact", { method: "POST", body: payload }); },
   async getTransactions({ limit = 100, offset = 0 } = {}) { return request(`/wallet/transactions?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`); },
   async getWithdrawals({ limit = 50, offset = 0 } = {}) { return request(`/wallet/withdrawals?limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`); },
   async resolveBankAccount(bank_code, account_number) { return request(`/wallet/resolve-account?bank_code=${encodeURIComponent(bank_code)}&account_number=${encodeURIComponent(account_number)}`); },
