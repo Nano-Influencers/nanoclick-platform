@@ -121,7 +121,7 @@ function TopHeader({ profileOpen, onProfileClick, user }) {
           aria-expanded={profileOpen}
           onClick={onProfileClick}
         >
-          <img src={assets.profile} alt="" /><span>{displayName}</span>
+          <img src={user?.avatar_url || assets.profile} alt="" /><span>{displayName}</span>
         </button>
       </div>
     </header>
