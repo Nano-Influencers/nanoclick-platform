@@ -39,7 +39,7 @@ async def notify(
     title: str,
     body: str,
     data: dict | None = None,
-) -> Notification:
+) -> Notification | None:
     user = await db.scalar(select(User).where(User.id == user_id))
     if not user or not notification_is_enabled(type, user.notification_preferences):
         return None
