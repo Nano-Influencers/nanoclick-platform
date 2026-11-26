@@ -260,9 +260,31 @@ function ToggleRow({ title, description, checked, onChange, disabled = false }) 
   );
 }
 
-function NotificationSettings() {
-  const [values, setValues] = useState({ emailCampaign: true, emailWallet: true, emailMarketing: false, pushCampaign: true, pushWallet: true, pushMessages: true, smsCritical: false });
-  const toggle = (key) => (next) => setValues((current) => ({ ...current, [key]: next }));
+function NotificationSettings({ user, onUserUpdate }) {
+  const defaults = { emailCampaign: false, emailWallet: false, emailMarketing: false, pushCampaign: false, pushWallet: false, pushMessages: false, smsCritical: false };
+  const [values, setValues] = useState(() => ({ ...defaults, ...(user?.notification_preferences || {}) }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  useEffect(() => {
+    setValues({ ...defaults, ...(user?.notification_preferences || {}) });
+  }, [user?.notification_preferences]);
+  const toggle = (key) => (next) => {
+    setValues((current) => ({ ...current, [key]: next }));
+    setSuccess("");
+  };
+  const save = async () => {
+    setSaving(true); setError(""); setSuccess("");
+    try {
+      const updated = await api.updateNotificationPreferences({ notification_preferences: values });
+      onUserUpdate?.(updated);
+      setSuccess("Notification preferences saved.");
+    } catch (err) {
+      setError(err.message || "Unable to save notification preferences.");
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <div className="v2-settings-primary v2-settings-notification-panel">
       <SectionCard title="Email Notifications" subtitle="Manage your email notifications">
@@ -282,7 +304,9 @@ function NotificationSettings() {
       <SectionCard title="SMS Alerts" subtitle="Manage your sms alerts">
         <div className="v2-settings-toggle-list"><ToggleRow title="Critical Alerts Only" description="Receive SMS for important account activity" checked={values.smsCritical} onChange={toggle("smsCritical")} /></div>
       </SectionCard>
-      <SettingsActions />
+      {error && <p role="alert" className="v2-code-error">{error}</p>}
+      {success && <p role="status">{success}</p>}
+      <SettingsActions onSave={save} saving={saving} />
     </div>
   );
 }
@@ -412,7 +436,7 @@ export default function V2Settings() {
         <div className="v2-settings-workspace">
           <SettingsTabs activeTab={activeTab} onChange={changeTab} />
           {activeTab === "profile" && <ProfileSettings user={user} onUserUpdate={setUser} />}
-          {activeTab === "notifications" && <NotificationSettings />}
+          {activeTab === "notifications" && <NotificationSettings user={user} onUserUpdate={setUser} />}
           {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} user={user} />}
         </div>
       </div>
