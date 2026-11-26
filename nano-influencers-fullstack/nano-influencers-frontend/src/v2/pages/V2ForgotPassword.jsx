@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { api } from "../../../api";
 import "./v2-auth.css";
 import "./v2-forgot-password.css";
 
@@ -70,17 +71,19 @@ function CodeInputs({ value, onChange, error }) {
 
 export default function V2ForgotPassword() {
   const [email, setEmail] = useState("");
-  const submit = (event) => {
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (event) => {
     event.preventDefault();
     if (!email.trim()) return;
-    go(`/forgot-password/code?email=${encodeURIComponent(email.trim())}`);
+    setBusy(true); setError("");\n    try { await api.forgotPassword(email.trim()); go(`/forgot-password/code?email=${encodeURIComponent(email.trim())}`); }\n    catch (err) { setError(err.message || "Unable to send a reset code. Please try again."); }\n    finally { setBusy(false); }
   };
   return (
     <ForgotShell>
       <Heading title="Forgot password?">Enter your email address and we&apos;ll send you a verification code.</Heading>
       <form className="v2-forgot-form" onSubmit={submit}>
         <label className="v2-forgot-field"><strong>Email</strong><input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" /></label>
-        <button className="v2-forgot-primary" type="submit">Send verification code</button>
+        {error && <p className="v2-forgot-error">{error}</p>}<button className="v2-forgot-primary" type="submit" disabled={busy}>{busy ? "Sending..." : "Send verification code"}</button>
       </form>
       <p className="v2-forgot-switch"><span>Remember your password?</span><Link to="/login">Sign in</Link></p>
     </ForgotShell>
@@ -91,7 +94,7 @@ export function V2ForgotPasswordCode() {
   const params = new URLSearchParams(window.location.search);
   const email = params.get("email") || "adaeze@gmail.com";
   const state = params.get("state") || "";
-  const [code, setCode] = useState(state === "error" ? "652027" : state === "filled" ? "65202" : "");
+  const [code, setCode] = useState("");
   const [error, setError] = useState(state === "error" ? "Invalid verification code" : "");
   const [seconds, restart] = useCountdown();
   const verify = () => {
@@ -120,15 +123,15 @@ function PasswordField({ label, value, onChange }) {
 export function V2ForgotPasswordReset() {
   const params = new URLSearchParams(window.location.search);
   const previewError = params.get("state") === "error";
-  const [password, setPassword] = useState(previewError ? "password123" : "");
-  const [confirm, setConfirm] = useState(previewError ? "different123" : "");
-  const [error, setError] = useState(previewError ? "Passwords do not match" : "");
+  const code = params.get("code") || "";\n  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");\n  const [busy, setBusy] = useState(false);
   const [seconds, restart] = useCountdown();
   const submit = (event) => {
     event.preventDefault();
     if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
     if (password !== confirm) { setError("Passwords do not match"); return; }
-    go("/forgot-password/success");
+    if (!code) { setError("Your reset code is missing. Please request a new code."); return; }\n    setBusy(true);\n    try { await api.resetPassword(code, password); go("/forgot-password/success"); }\n    catch (err) { setError(err.message || "Unable to reset password. Request a new code and try again."); }\n    finally { setBusy(false); }
   };
   return (
     <ForgotShell>
@@ -137,7 +140,7 @@ export function V2ForgotPasswordReset() {
         <PasswordField label="New Password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} />
         <PasswordField label="Confirm New Password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setError(""); }} />
         {error && <p className="v2-forgot-error">{error}</p>}
-        <button className="v2-forgot-primary" type="submit">Reset Password</button>
+        <button className="v2-forgot-primary" type="submit" disabled={busy}>{busy ? "Resetting..." : "Reset Password"}</button>
       </form>
       <Resend seconds={seconds} onResend={restart} />
     </ForgotShell>
