@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../../api.js";
 import "./v2-word-of-mouth.css";
 
 const ASSET_BASE = "/assets/nano-v2-app/";
@@ -118,6 +119,10 @@ export function V2WordOfMouth() {
   const [adLink, setAdLink] = useState("");
   const [adText, setAdText] = useState("");
   const [fileName, setFileName] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [draftId, setDraftId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -137,12 +142,29 @@ export function V2WordOfMouth() {
   const toggle = (key) => setTargeting((current) => ({ ...current, [key]: { ...current[key], enabled: !current[key].enabled } }));
   const setTarget = (key, next) => setTargeting((current) => ({ ...current, [key]: { ...current[key], ...next } }));
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    const draft = { campaignName, purpose, adLink, adText, fileName, targeting, startDate, endDate, startTime, endTime, budget };
-    window.sessionStorage.setItem("v2WordOfMouthDraft", JSON.stringify(draft));
-    const suffix = new URLSearchParams(window.location.search).get("payment") === "success" ? "?payment=success" : "";
-    go(`/campaigns/word-of-mouth/preview${suffix}`);
+    if (submitting) return;
+    setSubmitting(true); setSubmitError("");
+    try {
+      let creativeKey = null;
+      if (selectedFile) {
+        const extension = selectedFile.name.split(".").pop()?.toLowerCase() || "";
+        const upload = await api.createCampaignCreativeUploadUrl(extension);
+        const response = await fetch(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: selectedFile });
+        if (!response.ok) throw new Error("Creative upload failed. Please try again.");
+        const confirmed = await api.confirmCampaignCreative(upload.file_key);
+        creativeKey = confirmed.file_key;
+      }
+      const draft = { campaignName, purpose, adLink, adText, fileName, creativeKey, targeting, startDate, endDate, startTime, endTime, budget };
+      const saved = await api.saveCampaignDraft({ draft_id: draftId, payload: draft, creative_key: creativeKey });
+      setDraftId(saved.id);
+      window.sessionStorage.setItem("v2WordOfMouthDraft", JSON.stringify(draft));
+      go(`/campaigns/word-of-mouth/preview?draft=${encodeURIComponent(saved.id)}`);
+    } catch (error) {
+      setSubmitError(error.message || "Unable to save campaign draft.");
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -164,7 +186,7 @@ export function V2WordOfMouth() {
 
           <section className="v2-wom-panel v2-wom-creatives">
             <div className="v2-wom-creative-block"><FieldHeading title="Ad Creatives" subtitle={<>Input any Link to your ad below <em>(Optional)</em></>} /><input className="v2-wom-input" value={adLink} onChange={(e) => setAdLink(e.target.value)} placeholder="link here" /></div>
-            <div className="v2-wom-creative-block"><FieldHeading title="Upload Image or Video for this ad" /><input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} /><button className="v2-wom-upload" type="button" onClick={() => fileRef.current?.click()}><img src={assets.upload} alt="" /><strong>{fileName || "Choose file"}</strong><span>{fileName ? "File selected" : "Size limit: 25mb"}</span></button></div>
+            <div className="v2-wom-creative-block"><FieldHeading title="Upload Image or Video for this ad" /><input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => { const file = e.target.files?.[0] || null; setSelectedFile(file); setFileName(file?.name || ""); }} /><button className="v2-wom-upload" type="button" onClick={() => fileRef.current?.click()}><img src={assets.upload} alt="" /><strong>{fileName || "Choose file"}</strong><span>{fileName ? "File selected" : "Size limit: 25mb"}</span></button></div>
             <div className="v2-wom-creative-block"><div className="v2-wom-text-head"><FieldHeading title={<>Add any text <em>(Optional)</em></>} /><small>Add any message you think would support your ad below (limited to 100 chars)</small></div><textarea maxLength={100} value={adText} onChange={(e) => setAdText(e.target.value)} placeholder="type here" /></div>
           </section>
 
@@ -193,7 +215,7 @@ export function V2WordOfMouth() {
 
           <section className="v2-wom-panel"><FieldHeading title="Budget" subtitle="Choose your budget for this campaign" /><SelectShell value={budget} onChange={(e) => setBudget(e.target.value)} ariaLabel="Campaign budget"><option value="5000">₦5000</option><option value="10000">₦10,000</option><option value="25000">₦25,000</option><option value="50000">₦50,000</option></SelectShell></section>
 
-          <section className="v2-wom-result"><span className="v2-wom-result-icon"><img src={assets.result} alt="" /></span><div><h2>Result:</h2><p>Reach Estimation: 1,785 – 14,252 would see this Ad</p><p>Impression Estimation: 15,820 – 28,235</p></div><button type="submit">Proceed</button></section>
+          <section className="v2-wom-result"><span className="v2-wom-result-icon"><img src={assets.result} alt="" /></span><div><h2>Result:</h2><p>Reach and impression estimates will be supplied by the live campaign quote service.</p></div>{submitError && <p role="alert">{submitError}</p>}<button type="submit" disabled={submitting}>{submitting ? "Saving draft..." : "Proceed"}</button></section>
         </form>
       </div>
     </main>
