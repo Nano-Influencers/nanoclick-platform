@@ -69,3 +69,51 @@ async def test_password_reset_uses_high_entropy_token_and_invalidates_previous(d
     assert rows and all(row.used for row in rows)
     latest = next(row for row in rows if row.token == hash_token_identifier(second_token))
     assert latest.attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_password_reset_locks_after_five_failed_account_mismatches(db):
+    from datetime import datetime, timedelta
+
+    user = User(
+        email=f"reset-limit-{uuid.uuid4()}@example.com",
+        password_hash=hash_password("old-password"),
+        full_name="Reset Limit User",
+        role="advertiser",
+        referral_code=f"RL{uuid.uuid4().hex[:10]}",
+        email_verified=True,
+    )
+    token = "reset-limit-" + uuid.uuid4().hex
+    db.add(user)
+    await db.flush()
+    db.add(PasswordResetToken(
+        user_id=user.id,
+        token=hash_token_identifier(token),
+        expires_at=datetime.utcnow() + timedelta(minutes=15),
+    ))
+    await db.commit()
+
+    async def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for _ in range(5):
+                response = await client.post("/auth/reset-password", json={
+                    "token": token,
+                    "email": "wrong-account@example.com",
+                    "new_password": "new-password-1",
+                })
+                assert response.status_code == 400
+            blocked = await client.post("/auth/reset-password", json={
+                "token": token,
+                "email": user.email,
+                "new_password": "new-password-1",
+            })
+            assert blocked.status_code == 429
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    row = (await db.execute(select(PasswordResetToken).where(PasswordResetToken.token == hash_token_identifier(token)))).scalar_one()
+    assert row.attempts == 5
