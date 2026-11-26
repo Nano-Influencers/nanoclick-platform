@@ -75,8 +75,8 @@ class CampaignCreativeConfirmRequest(BaseModel):
 @router.post("/creative-upload-url")
 async def create_campaign_creative_upload_url(body: CampaignCreativeUploadRequest, current_user: User = Depends(require_advertiser)):
     extension = body.file_extension.lower().lstrip(".")
-    if extension not in {"jpg", "jpeg", "png", "webp", "mp4"}:
-        raise HTTPException(400, "Campaign creatives must be JPG, PNG, WebP, or MP4")
+    if extension not in {"jpg", "jpeg", "png", "webp", "mp4", "pdf"}:
+        raise HTTPException(400, "Campaign attachments must be JPG, PNG, WebP, MP4, or PDF")
     try:
         return generate_presigned_upload_url(extension, f"campaigns/{current_user.id}")
     except Exception as exc:
