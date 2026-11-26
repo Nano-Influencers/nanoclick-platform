@@ -37,6 +37,8 @@ async def get_current_user(
     except (ValueError, TypeError, KeyError):
         raise HTTPException(status_code=401, detail="Invalid authentication subject", headers={"WWW-Authenticate": "Bearer"})
     session_jti = payload.get("sid")
+    if not session_jti:
+        raise HTTPException(status_code=401, detail="Authentication session is missing", headers={"WWW-Authenticate": "Bearer"})
     if session_jti:
         session_result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(str(session_jti))))
         session = session_result.scalar_one_or_none()
