@@ -19,7 +19,7 @@ from app.services.targeting import get_eligible_workers_with_metadata
 from app.config import settings
 from app.services.storage import generate_presigned_upload_url, validate_uploaded_object, delete_storage_object
 
-router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+router = APIRouter(prefix="/campaigns", tags=["campaigns"])\n\n# This code gate remains false until server-side pricing and live wallet/payment tests are signed off.\nCAMPAIGN_LAUNCH_VERIFIED = False
 
 
 def _has_targeting(targeting) -> bool:
