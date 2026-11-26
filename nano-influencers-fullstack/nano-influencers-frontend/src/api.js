@@ -45,10 +45,11 @@ async function fetchWithTimeout(url, options = {}) {
 }
 
 async function request(path, { method = "GET", body, auth = true, headers: extraHeaders = {}, _retried = false } = {}) {
-  const headers = { "Content-Type": "application/json", "X-Request-ID": requestId(), ...extraHeaders };
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  const headers = { ...(isFormData ? {} : { "Content-Type": "application/json" }), "X-Request-ID": requestId(), ...extraHeaders };
   if (auth && accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
   let res;
-  try { res = await fetchWithTimeout(apiUrl(path), { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" }); }
+  try { res = await fetchWithTimeout(apiUrl(path), { method, headers, body: body !== undefined ? (isFormData ? body : JSON.stringify(body)) : undefined, credentials: "include" }); }
   catch (error) { if (error instanceof ApiError) throw error; throw new ApiError("Unable to reach the server. Check your connection and try again.", 0); }
   if (res.status === 401 && auth && res.headers.get("www-authenticate")?.toLowerCase().includes("bearer")) {
     if (_retried) {
@@ -128,11 +129,11 @@ export const api = {
     const extension = String(file?.name || "").split(".").pop().toLowerCase();
     if (!file || !["jpg", "jpeg", "png", "webp"].includes(extension)) throw new ApiError("Choose a JPG, PNG, or WebP image.", 400);
     if (file.size > 5 * 1024 * 1024) throw new ApiError("Profile photos must be 5 MB or smaller.", 400);
-    const upload = await request("/auth/me/avatar/upload-url", { method: "POST", body: { file_extension: extension } });
-    const uploaded = await fetchWithTimeout(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: file });
-    if (!uploaded.ok) throw new ApiError("The profile photo could not be uploaded. Please try again.", uploaded.status);
-    return request("/auth/me/avatar/confirm", { method: "POST", body: { file_key: upload.file_key } });
+    const form = new FormData();
+    form.append("file", file, file.name || "profile-photo");
+    return request("/auth/me/avatar", { method: "POST", body: form });
   },
+  async updateSettings(payload) { return request("/auth/me/settings", { method: "PATCH", body: payload }); },
   async removeAvatar() { return request("/auth/me/avatar", { method: "DELETE" }); },
   async changePassword(current_password, new_password) { return request("/auth/change-password", { method: "POST", body: { current_password, new_password } }); },
   async forgotPassword(email) { return request("/auth/forgot-password", { method: "POST", auth: false, body: { email } }); },
