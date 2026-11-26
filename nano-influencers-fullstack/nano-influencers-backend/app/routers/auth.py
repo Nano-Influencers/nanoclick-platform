@@ -424,7 +424,7 @@ async def reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(
     if len(body.new_password) < 8: raise HTTPException(400, "New password must be at least 8 characters")
     user_result = await db.execute(select(User).where(User.id == reset_token.user_id)); user = user_result.scalar_one_or_none()
     if not user: raise HTTPException(404, "Account no longer exists")
-    user.password_hash = hash_password(body.new_password); reset_token.used = True; await _revoke_user_sessions(db, user.id)
+    user.password_hash = hash_password(body.new_password)\n    await db.execute(update(PasswordResetToken).where(PasswordResetToken.user_id == user.id, PasswordResetToken.used.is_(False)).values(used=True))\n    await _revoke_user_sessions(db, user.id)
     return {"message": "Password reset — you can now log in with your new password"}
 
 
