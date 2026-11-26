@@ -94,9 +94,10 @@ async def confirm_campaign_creative(body: CampaignCreativeConfirmRequest, curren
 
 @router.post("/drafts")
 async def upsert_campaign_draft(body: CampaignDraftUpsert, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
-    if body.creative_key:
+    keys_to_validate = [body.creative_key] + [body.payload.get(name) for name in ("instructionFileKey", "taskMediaKey") if body.payload.get(name)]
+    for file_key in filter(None, keys_to_validate):
         try:
-            validate_uploaded_object(body.creative_key, f"campaigns/{current_user.id}")
+            validate_uploaded_object(file_key, f"campaigns/{current_user.id}")
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
     old_key = None
