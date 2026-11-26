@@ -6,8 +6,6 @@ import "./v2-settings.css";
 const ASSET_BASE = "/assets/nano-v2-app/";
 const assets = {
   brand: `${ASSET_BASE}dashboard-brand.svg`,
-  profileSmall: `${ASSET_BASE}settings-profile-small.png`,
-  profileLarge: `${ASSET_BASE}settings-profile-large.png`,
   notification: `${ASSET_BASE}dashboard-notification.svg`,
   dashboard: `${ASSET_BASE}dashboard-menu.svg`,
   wallet: `${ASSET_BASE}dashboard-wallet.svg`,
@@ -32,6 +30,10 @@ const tabs = [
   { id: "notifications", label: "Notifications", icon: assets.notificationTab },
   { id: "preferences", label: "Preferences", icon: assets.preferencesTab },
 ];
+
+function avatarInitials(user) { return String(user?.full_name || user?.email || "U").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U"; }
+
+async function logoutAndRedirect() { await api.logout(); window.location.replace("/login"); }
 
 function Brand() {
   return (
@@ -69,7 +71,7 @@ function AppSidebar() {
           <SidebarLink href="#help" icon={assets.help}>Help &amp; Support</SidebarLink>
         </div>
       </div>
-      <button className="v2-settings-logout" type="button"><span>Log Out</span><img src={assets.logout} alt="" /></button>
+      <button className="v2-settings-logout" type="button" onClick={logoutAndRedirect}><span>Log Out</span><img src={assets.logout} alt="" /></button>
       <button className="v2-settings-collapse" type="button" aria-label="Collapse sidebar"><img src={assets.collapse} alt="" /></button>
     </aside>
   );
@@ -82,7 +84,7 @@ function TopHeader({ user }) {
       <p className="v2-settings-welcome">Welcome Back 👋</p>
       <div className="v2-settings-user">
         <button className="v2-settings-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
-        <div className="v2-settings-profile-chip"><img src={user?.avatar_url || assets.profileSmall} alt="" /><span>{user?.full_name || user?.email || "My Account"}</span></div>
+        <div className="v2-settings-profile-chip">{user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <div className="v2-settings-avatar-fallback">{avatarInitials(user)}</div>}<span>{user?.full_name || user?.email || "My Account"}</span></div>
       </div>
     </header>
   );
@@ -260,9 +262,23 @@ function ToggleRow({ title, description, checked, onChange, disabled = false }) 
   );
 }
 
-function NotificationSettings() {
-  const [values, setValues] = useState({ emailCampaign: true, emailWallet: true, emailMarketing: false, pushCampaign: true, pushWallet: true, pushMessages: true, smsCritical: false });
+function NotificationSettings({ user, onUserUpdate }) {
+  const defaults = { emailCampaign: true, emailWallet: true, emailMarketing: false, pushCampaign: true, pushWallet: true, pushMessages: true, smsCritical: false };
+  const [values, setValues] = useState(() => ({ ...defaults, ...(user?.notification_preferences || {}) }));
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { setValues({ ...defaults, ...(user?.notification_preferences || {}) }); }, [user?.notification_preferences]);
   const toggle = (key) => (next) => setValues((current) => ({ ...current, [key]: next }));
+  const save = async () => {
+    setSaving(true); setError(""); setFeedback("");
+    try {
+      const updated = await api.updateSettings({ notification_preferences: values });
+      onUserUpdate?.(updated);
+      setFeedback("Notification preferences saved.");
+    } catch (err) { setError(err.message || "Unable to save notification preferences."); }
+    finally { setSaving(false); }
+  };
   return (
     <div className="v2-settings-primary v2-settings-notification-panel">
       <SectionCard title="Email Notifications" subtitle="Manage your email notifications">
@@ -282,16 +298,38 @@ function NotificationSettings() {
       <SectionCard title="SMS Alerts" subtitle="Manage your sms alerts">
         <div className="v2-settings-toggle-list"><ToggleRow title="Critical Alerts Only" description="Receive SMS for important account activity" checked={values.smsCritical} onChange={toggle("smsCritical")} /></div>
       </SectionCard>
-      <SettingsActions />
+      {error && <p role="alert" className="v2-code-error">{error}</p>}
+      {feedback && <p role="status">{feedback}</p>}
+      <SettingsActions onSave={save} saving={saving} />
     </div>
   );
 }
 
-function PreferenceSettings({ onDelete, user }) {
-  const [currency, setCurrency] = useState("Nigerian Naira (₦)");
-  const [timezone, setTimezone] = useState("Africa/Lagos (GMT+1)");
-  const [language, setLanguage] = useState("English");
-  const [autoRenew, setAutoRenew] = useState(true);
+function PreferenceSettings({ onDelete, user, onUserUpdate }) {
+  const saved = user?.regional_preferences || {};
+  const [currency, setCurrency] = useState(saved.currency || "Nigerian Naira (₦)");
+  const [timezone, setTimezone] = useState(saved.timezone || "Africa/Lagos (GMT+1)");
+  const [language, setLanguage] = useState(saved.language || "English");
+  const [autoRenew, setAutoRenew] = useState(saved.autoRenew ?? true);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const preferences = user?.regional_preferences || {};
+    setCurrency(preferences.currency || "Nigerian Naira (₦)");
+    setTimezone(preferences.timezone || "Africa/Lagos (GMT+1)");
+    setLanguage(preferences.language || "English");
+    setAutoRenew(preferences.autoRenew ?? true);
+  }, [user?.regional_preferences]);
+  const save = async () => {
+    setSaving(true); setError(""); setFeedback("");
+    try {
+      const updated = await api.updateSettings({ regional_preferences: { currency, timezone, language, autoRenew } });
+      onUserUpdate?.(updated);
+      setFeedback("Regional settings saved.");
+    } catch (err) { setError(err.message || "Unable to save regional settings."); }
+    finally { setSaving(false); }
+  };
   const exportData = () => {
     const payload = { profile: { name: user?.full_name || "", email: user?.email || "" }, preferences: { currency, timezone, language, autoRenew } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
@@ -326,7 +364,9 @@ function PreferenceSettings({ onDelete, user }) {
           </button>
         </div>
       </SectionCard>
-      <SettingsActions />
+      {error && <p role="alert" className="v2-code-error">{error}</p>}
+      {feedback && <p role="status">{feedback}</p>}
+      <SettingsActions onSave={save} saving={saving} />
     </div>
   );
 }
@@ -412,8 +452,8 @@ export default function V2Settings() {
         <div className="v2-settings-workspace">
           <SettingsTabs activeTab={activeTab} onChange={changeTab} />
           {activeTab === "profile" && <ProfileSettings user={user} onUserUpdate={setUser} />}
-          {activeTab === "notifications" && <NotificationSettings />}
-          {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} user={user} />}
+          {activeTab === "notifications" && <NotificationSettings user={user} onUserUpdate={setUser} />}
+          {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} user={user} onUserUpdate={setUser} />}
         </div>
       </div>
       <DeleteModal open={deleteOpen} onClose={closeDelete} />

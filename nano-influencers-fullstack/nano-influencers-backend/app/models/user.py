@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Boolean, DateTime, ForeignKey, Integer
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy import String as SAString
@@ -16,6 +17,8 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     avatar_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    notification_preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    regional_preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     referral_code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     referred_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

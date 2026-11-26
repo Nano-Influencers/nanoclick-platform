@@ -5,7 +5,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,12 +18,12 @@ from app.models.email_otp import EmailOTP
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.schemas.auth import AvatarConfirmRequest, AvatarUploadRequest, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
+from app.schemas.auth import AccountSettingsRequest, AvatarConfirmRequest, AvatarUploadRequest, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
 from app.services.auth_service import create_access_token, create_refresh_token, decode_token, generate_referral_code, hash_password, hash_token_identifier, new_oauth_state, token_jti, verify_password
 from app.services.email_service import send_password_reset_email, send_verification_otp
 from app.services.pending_registration import (acquire_pending_lock, delete_pending_registration, load_pending_registration, release_pending_lock, save_pending_registration)
 from app.services.oauth_service import exchange_facebook_code, exchange_google_code, facebook_auth_url, google_auth_url
-from app.services.storage import generate_presigned_download_url, generate_presigned_upload_url, validate_uploaded_image
+from app.services.storage import delete_storage_object, generate_presigned_download_url, generate_presigned_upload_url, store_profile_avatar, validate_uploaded_image
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -264,6 +264,29 @@ async def me(current_user: User = Depends(get_current_user)):
     return _user_response_payload(current_user)
 
 
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_profile_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    content = await file.read(5 * 1024 * 1024 + 1)
+    try:
+        new_key = store_profile_avatar(content, str(current_user.id))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        logger.exception("profile_avatar_upload_failed user_id=%s", current_user.id)
+        raise HTTPException(503, "Profile photo storage is unavailable. Please try again.") from exc
+    old_key = current_user.avatar_key
+    current_user.avatar_key = new_key
+    if old_key and old_key != new_key:
+        try:
+            delete_storage_object(old_key)
+        except Exception:
+            logger.warning("old_profile_avatar_cleanup_failed user_id=%s", current_user.id)
+    return _user_response_payload(current_user)
+
+
 @router.post("/me/avatar/upload-url")
 async def create_avatar_upload_url(
     body: AvatarUploadRequest,
@@ -298,6 +321,42 @@ async def confirm_avatar_upload(
 @router.delete("/me/avatar", response_model=UserResponse)
 async def remove_avatar(current_user: User = Depends(get_current_user)):
     current_user.avatar_key = None
+    return _user_response_payload(current_user)
+
+
+@router.patch("/me/settings", response_model=UserResponse)
+async def update_account_settings(
+    body: AccountSettingsRequest,
+    current_user: User = Depends(get_current_user),
+):
+    if body.notification_preferences is not None:
+        allowed_notifications = {
+            "emailCampaign", "emailWallet", "emailMarketing",
+            "pushCampaign", "pushWallet", "pushMessages", "smsCritical",
+        }
+        if set(body.notification_preferences) - allowed_notifications:
+            raise HTTPException(400, "Unknown notification preference")
+        current_user.notification_preferences = {
+            **(current_user.notification_preferences or {}),
+            **body.notification_preferences,
+        }
+    if body.regional_preferences is not None:
+        allowed_regional = {"currency", "timezone", "language", "autoRenew"}
+        if set(body.regional_preferences) - allowed_regional:
+            raise HTTPException(400, "Unknown regional preference")
+        values = body.regional_preferences
+        if "currency" in values and (not isinstance(values["currency"], str) or values["currency"] not in {"Nigerian Naira (₦)", "US Dollar ($)", "British Pound (£)"}):
+            raise HTTPException(400, "Unsupported currency")
+        if "timezone" in values and (not isinstance(values["timezone"], str) or values["timezone"] not in {"Africa/Lagos (GMT+1)", "UTC"}):
+            raise HTTPException(400, "Unsupported timezone")
+        if "language" in values and (not isinstance(values["language"], str) or values["language"] != "English"):
+            raise HTTPException(400, "Unsupported language")
+        if "autoRenew" in values and not isinstance(values["autoRenew"], bool):
+            raise HTTPException(400, "Auto-renew must be true or false")
+        current_user.regional_preferences = {
+            **(current_user.regional_preferences or {}),
+            **values,
+        }
     return _user_response_payload(current_user)
 
 
