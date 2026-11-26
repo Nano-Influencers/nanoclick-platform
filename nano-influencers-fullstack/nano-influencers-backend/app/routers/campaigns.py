@@ -150,6 +150,8 @@ async def delete_campaign_draft(draft_id: uuid.UUID, current_user: User = Depend
 
 @router.post("", response_model=CampaignResponse, status_code=201)
 async def create_campaign(body: CampaignCreate, current_user: User = Depends(require_advertiser), db: AsyncSession = Depends(get_db)):
+    if not CAMPAIGN_LAUNCH_VERIFIED or not settings.CAMPAIGN_LAUNCH_ENABLED:
+        raise HTTPException(503, "Campaign launch is paused until server-side pricing and wallet verification are signed off.")
     if body.tni_service_type not in TNI_TO_CW_CATEGORY:
         raise HTTPException(400, f"Unknown tni_service_type: {body.tni_service_type}")
     cw_category = TNI_TO_CW_CATEGORY[body.tni_service_type]
