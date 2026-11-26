@@ -124,6 +124,7 @@ export const api = {
   async restoreSession() { return accessToken ? { ok: true, reason: "access_token" } : tryRefresh(); },
   async me() { return request("/auth/me"); },
   async updateProfile(payload) { return request("/auth/me/profile", { method: "PATCH", body: payload }); },
+  async updateNotificationPreferences(payload) { return request("/auth/me/notification-preferences", { method: "PATCH", body: payload }); },
   async uploadAvatar(file) {
     const extension = String(file?.name || "").split(".").pop().toLowerCase();
     if (!file || !["jpg", "jpeg", "png", "webp"].includes(extension)) throw new ApiError("Choose a JPG, PNG, or WebP image.", 400);
