@@ -220,7 +220,7 @@ export function V2ReferAndEarn() {
     return () => { active = false; };
   }, []);
   const referralLink = user?.referral_code
-    ? `https://nanoinfluencer.ng/ref/${encodeURIComponent(user.referral_code)}`
+    ? new URL(`/ref/${encodeURIComponent(user.referral_code)}`, window.location.origin).toString()
     : "";
   const copy = async () => {
     if (!referralLink) return;
