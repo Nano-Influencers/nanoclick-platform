@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     RESEND_API_KEY: str = ""
     SMTP_FROM_EMAIL: str = ""
+    SUPPORT_EMAIL: str = ""
     SMTP_USE_TLS: bool = True
     PASSWORD_RESET_URL: str = "http://localhost:5173/reset-password.html"
 
