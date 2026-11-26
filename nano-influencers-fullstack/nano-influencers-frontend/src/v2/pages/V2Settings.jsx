@@ -153,16 +153,22 @@ function ProfileSettings({ user, onUserUpdate }) {
   }, [user]);
   useEffect(() => { setAvatar(user?.avatar_url || null); }, [user?.avatar_url]);
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const resetForm = () => { const parts = String(user?.full_name || "").trim().split(/\\s+/).filter(Boolean); setForm({ first: parts.shift() || "", last: parts.join(" "), email: user?.email || "", phone: user?.phone_number || "", currentPassword: "", newPassword: "", confirmPassword: "" }); setSaveError(""); setSaveSuccess(""); };
   const saveProfile = async () => {
     const fullName = [form.first, form.last].map((part) => part.trim()).filter(Boolean).join(" ");
     if (fullName.length < 2 || fullName.length > 255) { setSaveError("Enter a valid first and last name."); return; }
+    const passwordRequested = Boolean(form.currentPassword || form.newPassword || form.confirmPassword);
+    if (passwordRequested && (!form.currentPassword || !form.newPassword || !form.confirmPassword)) { setSaveError("Complete all password fields to change your password."); return; }
+    if (passwordRequested && form.newPassword.length < 8) { setSaveError("New password must be at least 8 characters."); return; }
+    if (passwordRequested && form.newPassword !== form.confirmPassword) { setSaveError("New password and confirmation do not match."); return; }
     setSaving(true);
     setSaveError("");
     setSaveSuccess("");
     try {
       const updated = await api.updateProfile({ full_name: fullName, phone_number: form.phone.trim() || null });
       onUserUpdate?.(updated);
-      setSaveSuccess("Profile updated successfully.");
+      if (passwordRequested) { await api.changePassword(form.currentPassword, form.newPassword); setForm((current) => ({ ...current, currentPassword: "", newPassword: "", confirmPassword: "" })); }
+      setSaveSuccess(passwordRequested ? "Profile and password updated successfully." : "Profile updated successfully.");
     } catch (error) {
       setSaveError(error.message || "Unable to save profile changes.");
     } finally {
@@ -240,7 +246,7 @@ function ProfileSettings({ user, onUserUpdate }) {
       </SectionCard>
       {saveError && <p role="alert" className="v2-code-error">{saveError}</p>}
       {saveSuccess && <p role="status">{saveSuccess}</p>}
-      <SettingsActions onSave={saveProfile} saving={saving} />
+      <SettingsActions onSave={saveProfile} onCancel={resetForm} saving={saving} />
     </div>
   );
 }
@@ -331,7 +337,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
     finally { setSaving(false); }
   };
   const exportData = () => {
-    const payload = { profile: { name: user?.full_name || "", email: user?.email || "" }, preferences: { currency, timezone, language, autoRenew } };
+    const payload = { profile: { name: user?.full_name || "", email: user?.email || "", phone_number: user?.phone_number || null, referral_code: user?.referral_code || null }, notification_preferences: user?.notification_preferences || {}, regional_preferences: { currency, timezone, language, autoRenew } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
@@ -350,14 +356,14 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
       </SectionCard>
       <SectionCard title="Display & Campaigns" subtitle="Control how the dashboard looks and behaves">
         <div className="v2-settings-toggle-list">
-          <ToggleRow title="Auto-Renew Campaigns" description="Automatically extend campaigns when they expire" checked={autoRenew} onChange={setAutoRenew} />
+          <ToggleRow title="Auto-Renew Campaigns" description="Not available yet — automatic campaign renewal is not enabled." checked={false} disabled />
           <ToggleRow title="Dark Mode" description="Change UI to dark mode" checked={false} disabled />
         </div>
       </SectionCard>
       <SectionCard title="Data & Privacy" subtitle="Manage your data export and account deletion">
         <div className="v2-settings-privacy-list">
           <button className="is-export" type="button" onClick={exportData}>
-            <span className="v2-settings-action-icon"><img src={assets.export} alt="" /></span><span className="v2-settings-action-copy"><strong>Export My Data</strong><small>Download a copy of your account data</small></span><img className="v2-settings-action-chevron" src={assets.actionChevron} alt="" />
+            <span className="v2-settings-action-icon"><img src={assets.export} alt="" /></span><span className="v2-settings-action-copy"><strong>Export My Data</strong><small>Download your profile and saved preferences</small></span><img className="v2-settings-action-chevron" src={assets.actionChevron} alt="" />
           </button>
           <button className="is-delete" type="button" onClick={onDelete}>
             <span className="v2-settings-action-icon"><img src={assets.trash} alt="" /></span><span className="v2-settings-action-copy"><strong>Delete Account</strong><small>Permanently remove your account and all data</small></span><img className="v2-settings-action-chevron" src={assets.actionChevron} alt="" />
@@ -375,7 +381,7 @@ function SettingsActions({ onSave, saving = false }) {
   return <div className="v2-settings-actions"><Button variant="secondary" disabled={saving}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button></div>;
 }
 
-function DeleteModal({ open, onClose }) {
+function DeleteModal({ open, onClose, onConfirm, busy = false, error = "" }) {
   if (!open) return null;
   return (
     <div className="v2-settings-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
@@ -385,7 +391,7 @@ function DeleteModal({ open, onClose }) {
           <img src={assets.deleteIllustration} alt="" />
           <div><h2 id="delete-title">Delete Account?</h2><p>Are you sure you want to delete this account?<br />This action cannot be undone.</p></div>
         </div>
-        <div className="v2-settings-modal-actions"><Button variant="secondary" onClick={onClose}>Cancel</Button><button className="v2-settings-delete-confirm" type="button" onClick={onClose}>Delete</button></div>
+        {error && <p role="alert">{error}</p>}<div className="v2-settings-modal-actions"><Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button><button className="v2-settings-delete-confirm" type="button" onClick={onConfirm} disabled={busy}>{busy ? "Deleting..." : "Delete"}</button></div>
       </div>
     </div>
   );
@@ -393,7 +399,7 @@ function DeleteModal({ open, onClose }) {
 
 export default function V2Settings() {
   const [user, setUser] = useState(null);
-  const [profileError, setProfileError] = useState("");
+  const [profileError, setProfileError] = useState("");\n  const [deleteBusy, setDeleteBusy] = useState(false);\n  const [deleteError, setDeleteError] = useState("");
   useEffect(() => {
     let active = true;
     (async () => {
@@ -456,7 +462,7 @@ export default function V2Settings() {
           {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} user={user} onUserUpdate={setUser} />}
         </div>
       </div>
-      <DeleteModal open={deleteOpen} onClose={closeDelete} />
+      <DeleteModal open={deleteOpen} onClose={closeDelete} onConfirm={confirmDelete} busy={deleteBusy} error={deleteError} />
     </main>
   );
 }
