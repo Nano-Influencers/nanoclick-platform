@@ -76,7 +76,10 @@ export default function V2ForgotPassword() {
   const submit = async (event) => {
     event.preventDefault();
     if (!email.trim()) return;
-    setBusy(true); setError("");\n    try { await api.forgotPassword(email.trim()); go(`/forgot-password/code?email=${encodeURIComponent(email.trim())}`); }\n    catch (err) { setError(err.message || "Unable to send a reset code. Please try again."); }\n    finally { setBusy(false); }
+    setBusy(true); setError("");
+    try { await api.forgotPassword(email.trim()); go(`/forgot-password/code?email=${encodeURIComponent(email.trim())}`); }
+    catch (err) { setError(err.message || "Unable to send a reset code. Please try again."); }
+    finally { setBusy(false); }
   };
   return (
     <ForgotShell>
@@ -99,10 +102,9 @@ export function V2ForgotPasswordCode() {
   const [seconds, restart] = useCountdown();
   const verify = () => {
     if (code.length !== 6) return;
-    if (code !== "123456") { setError("Invalid verification code"); return; }
-    go(`/forgot-password/reset?email=${encodeURIComponent(email)}`);
+    go(`/forgot-password/reset?email=${encodeURIComponent(email)}&code=${encodeURIComponent(code)}`);
   };
-  const resend = () => { setCode(""); setError(""); restart(); };
+  const resend = async () => { try { await api.forgotPassword(email); setCode(""); setError(""); restart(); } catch (err) { setError(err.message || "Unable to resend code."); } };
   return (
     <ForgotShell>
       <Heading title="Enter verification code">We sent a 6-digit code to <strong>{email}</strong></Heading>
@@ -123,15 +125,21 @@ function PasswordField({ label, value, onChange }) {
 export function V2ForgotPasswordReset() {
   const params = new URLSearchParams(window.location.search);
   const previewError = params.get("state") === "error";
-  const code = params.get("code") || "";\n  const [password, setPassword] = useState("");
+  const code = params.get("code") || "";
+  const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState("");\n  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [seconds, restart] = useCountdown();
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
     if (password !== confirm) { setError("Passwords do not match"); return; }
-    if (!code) { setError("Your reset code is missing. Please request a new code."); return; }\n    setBusy(true);\n    try { await api.resetPassword(code, password); go("/forgot-password/success"); }\n    catch (err) { setError(err.message || "Unable to reset password. Request a new code and try again."); }\n    finally { setBusy(false); }
+    if (!code) { setError("Your reset code is missing. Please request a new code."); return; }
+    setBusy(true);
+    try { await api.resetPassword(code, password); go("/forgot-password/success"); }
+    catch (err) { setError(err.message || "Unable to reset password. Request a new code and try again."); }
+    finally { setBusy(false); }
   };
   return (
     <ForgotShell>
