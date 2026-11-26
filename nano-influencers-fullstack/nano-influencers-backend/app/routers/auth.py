@@ -81,8 +81,11 @@ async def _create_refresh_session(db: AsyncSession, user_id: uuid.UUID, refresh_
 
 
 async def _issue_tokens(db: AsyncSession, user: User) -> TokenResponse:
-    access = create_access_token(str(user.id), user.role)
     refresh = create_refresh_token(str(user.id))
+    session_jti = token_jti(refresh)
+    if not session_jti:
+        raise HTTPException(500, "Failed to create authentication session")
+    access = create_access_token(str(user.id), user.role, session_jti=session_jti)
     await _create_refresh_session(db, user.id, refresh)
     return TokenResponse(access_token=access, refresh_token=refresh)
 
