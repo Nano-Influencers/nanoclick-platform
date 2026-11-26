@@ -14,6 +14,10 @@ export default function V2Analytics() {
     let live = true;
     (async () => {
       try {
+        // Access tokens are memory-only. Restore the browser session before
+        // calling protected endpoints after a page load or refresh.
+        const restored = await api.restoreSession();
+        if (!restored) throw new Error("Your session has expired. Please log in again.");
         const rows = await api.listCampaigns({ limit: 100 });
         const pairs = await Promise.all(rows.map(async (campaign) => {
           try { return [campaign.id, await api.getCampaignReport(campaign.id)]; }
