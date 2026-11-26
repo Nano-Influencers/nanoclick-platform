@@ -121,6 +121,12 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+    email: EmailStr | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return str(value).strip().lower() if value is not None else value
 
 
 class SendOTPRequest(BaseModel):
