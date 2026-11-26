@@ -76,12 +76,13 @@ export function V2PreviewSelections() {
   }, [draftId]);
 
   const items = draft ? [
-    { icon: assets.category, label: "Platform", description: "Selected social platform", value: draft.platform || "Not provided" },
-    { icon: assets.focus, label: "Task", description: "Selected service", value: draft.task || "Not provided" },
-    { icon: assets.link, label: "Profile or Page Link", description: "Destination supplied in the draft", value: draft.link || "Not provided" },
+    { icon: assets.category, label: "Platform", description: "Selected social platform", value: draft.platform || "Custom task" },
+    { icon: assets.focus, label: "Task", description: "Selected service", value: draft.task || (draft.taskCount ? `${draft.taskCount} custom task types` : "Not provided") },
+    { icon: assets.link, label: "Profile or Page Link", description: "Destination supplied in the draft", value: draft.link || draft.pageAbout || "Not provided" },
     { icon: assets.location, label: "Location", description: "Selected target area", value: [draft.targetState, draft.country].filter(Boolean).join(", ") || "Not provided" },
-    { icon: assets.notes, label: "Instructions", description: "Additional campaign instructions", value: draft.instruction || "Not provided" },
-    { icon: assets.promotion, label: "Quantity", description: "Requested task quantity", value: draft.quantity || "Not provided" },
+    { icon: assets.notes, label: "Instructions", description: "Additional campaign instructions", value: draft.instruction || draft.instructionFileName || "Not provided" },
+    { icon: assets.promotion, label: "Quantity", description: "Requested task quantity", value: draft.quantity || draft.totalQuantity || "Not provided" },
+    { icon: assets.schedule, label: "Delivery", description: "Requested delivery schedule", value: [draft.delivery, draft.startDate, draft.startTime].filter(Boolean).join(" · ") || "Not provided" },
   ] : [];
 
   return (
