@@ -97,7 +97,11 @@ async function tryRefresh() {
     // Web Locks. A waiting tab then reads the replacement cookie, avoiding a
     // second request with the token that the first tab just rotated.
     if (globalThis.navigator?.locks?.request) {
-      return globalThis.navigator.locks.request("nanoclick-refresh-session", performRefresh);
+      try {
+        return await globalThis.navigator.locks.request("nanoclick-refresh-session", performRefresh);
+      } catch {
+        return performRefresh();
+      }
     }
     return performRefresh();
   })();
