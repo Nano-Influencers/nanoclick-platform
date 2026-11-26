@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { api } from "../../api.js";
 import "./v2-auth.css";
 
@@ -29,7 +29,6 @@ function OAuthButton({ icon, children, provider }) {
 }
 
 export default function V2Login() {
-  const navigate = useNavigate();
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,7 +42,7 @@ export default function V2Login() {
     setBusy(true);
     try {
       await api.login(email.trim(), password);
-      navigate("/dashboard", { replace: true });
+      window.location.assign("/dashboard");
     } catch (err) {
       setError(err?.message || "Unable to sign in. Please check your details and try again.");
     } finally {
