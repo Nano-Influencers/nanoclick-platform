@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../../api.js";
 import { Button } from "../components/ui/Button.jsx";
 import "./v2-settings.css";
 
@@ -74,14 +75,14 @@ function AppSidebar() {
   );
 }
 
-function TopHeader() {
+function TopHeader({ user }) {
   return (
     <header className="v2-settings-topbar">
       <div className="v2-settings-mobile-brand"><Brand /></div>
       <p className="v2-settings-welcome">Welcome Back 👋</p>
       <div className="v2-settings-user">
         <button className="v2-settings-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
-        <div className="v2-settings-profile-chip"><img src={assets.profileSmall} alt="Adaeze O." /><span>Adaeze O.</span></div>
+        <div className="v2-settings-profile-chip"><img src={assets.profileSmall} alt="" /><span>{user?.full_name || user?.email || "My Account"}</span></div>
       </div>
     </header>
   );
@@ -131,10 +132,20 @@ function PasswordField({ label, value, onChange, placeholder }) {
   );
 }
 
-function ProfileSettings() {
+function ProfileSettings({ user }) {
   const uploadRef = useRef(null);
-  const [avatar, setAvatar] = useState(assets.profileLarge);
-  const [form, setForm] = useState({ first: "Adaeze", last: "Okafor", email: "adaeze@gmail.com", phone: "+234 803 123 4567", currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [avatar, setAvatar] = useState(null);
+  const [form, setForm] = useState({ first: "", last: "", email: "", phone: "", currentPassword: "", newPassword: "", confirmPassword: "" });
+  useEffect(() => {
+    const parts = String(user?.full_name || "").trim().split(/\\s+/).filter(Boolean);
+    setForm((current) => ({
+      ...current,
+      first: parts.shift() || "",
+      last: parts.join(" "),
+      email: user?.email || "",
+      phone: user?.phone_number || "",
+    }));
+  }, [user]);
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const onPhoto = (event) => {
     const file = event.target.files?.[0];
@@ -146,8 +157,8 @@ function ProfileSettings() {
       <SectionCard title="Profile Photo" subtitle="Update your brand avatar" className="is-profile-photo">
         <div className="v2-settings-photo-row">
           <div className="v2-settings-photo-identity">
-            {avatar ? <img className="v2-settings-large-avatar" src={avatar} alt="Adaeze Okafor" /> : <div className="v2-settings-avatar-placeholder">AO</div>}
-            <strong>Adaeze Okafor</strong>
+            {avatar ? <img className="v2-settings-large-avatar" src={avatar} alt={user?.full_name || "Profile photo"} /> : <div className="v2-settings-avatar-placeholder">{String(user?.full_name || user?.email || "U").trim().split(/\\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</div>}
+            <strong>{user?.full_name || user?.email || "Your profile"}</strong>
           </div>
           <div className="v2-settings-photo-actions">
             <input ref={uploadRef} type="file" accept="image/*" hidden onChange={onPhoto} />
@@ -222,13 +233,13 @@ function NotificationSettings() {
   );
 }
 
-function PreferenceSettings({ onDelete }) {
+function PreferenceSettings({ onDelete, user }) {
   const [currency, setCurrency] = useState("Nigerian Naira (₦)");
   const [timezone, setTimezone] = useState("Africa/Lagos (GMT+1)");
   const [language, setLanguage] = useState("English");
   const [autoRenew, setAutoRenew] = useState(true);
   const exportData = () => {
-    const payload = { profile: { name: "Adaeze Okafor" }, preferences: { currency, timezone, language, autoRenew } };
+    const payload = { profile: { name: user?.full_name || "", email: user?.email || "" }, preferences: { currency, timezone, language, autoRenew } };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
@@ -287,6 +298,22 @@ function DeleteModal({ open, onClose }) {
 }
 
 export default function V2Settings() {
+  const [user, setUser] = useState(null);
+  const [profileError, setProfileError] = useState("");
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const restored = await api.restoreSession();
+        if (!restored) throw new Error("Your session has expired. Please log in again.");
+        const profile = await api.me();
+        if (active) setUser(profile);
+      } catch (error) {
+        if (active) setProfileError(error.message || "Unable to load profile");
+      }
+    })();
+    return () => { active = false; };
+  }, []);
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const initialTab = tabs.some((tab) => tab.id === params.get("tab")) ? params.get("tab") : "profile";
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -318,16 +345,17 @@ export default function V2Settings() {
     <main className={`ni-v2 v2-settings-page is-${activeTab}`}>
       <AppSidebar />
       <div className="v2-settings-main">
-        <TopHeader />
+        <TopHeader user={user} />
+        {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <div className="v2-settings-title-row">
           <div><h1>Settings</h1><p>Manage your account, security, and preferences</p></div>
           <button className="v2-settings-date" type="button">Last 30 days <img src={assets.dateChevron} alt="" /></button>
         </div>
         <div className="v2-settings-workspace">
           <SettingsTabs activeTab={activeTab} onChange={changeTab} />
-          {activeTab === "profile" && <ProfileSettings />}
+          {activeTab === "profile" && <ProfileSettings user={user} />}
           {activeTab === "notifications" && <NotificationSettings />}
-          {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} />}
+          {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} user={user} />}
         </div>
       </div>
       <DeleteModal open={deleteOpen} onClose={closeDelete} />
