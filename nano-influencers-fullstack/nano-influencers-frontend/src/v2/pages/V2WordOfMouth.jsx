@@ -120,6 +120,7 @@ export function V2WordOfMouth() {
   const [adText, setAdText] = useState("");
   const [fileName, setFileName] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
+  const [savedCreativeKey, setSavedCreativeKey] = useState(null);
   const [draftId, setDraftId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -184,7 +185,8 @@ export function V2WordOfMouth() {
         const response = await fetch(upload.upload_url, { method: "PUT", headers: { "Content-Type": upload.content_type }, body: selectedFile });
         if (!response.ok) throw new Error("Creative upload failed. Please try again.");
         const confirmed = await api.confirmCampaignCreative(upload.file_key);
-        creativeKey = confirmed.file_key;\n        setSavedCreativeKey(creativeKey);
+        creativeKey = confirmed.file_key;
+        setSavedCreativeKey(creativeKey);
       }
       const draft = { campaignName, purpose, adLink, adText, fileName, creativeKey, targeting, startDate, endDate, startTime, endTime, budget };
       const saved = await api.saveCampaignDraft({ draft_id: draftId, payload: draft, creative_key: creativeKey });
