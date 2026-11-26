@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     AUTH_COOKIE_SECURE: bool = False
     AUTH_COOKIE_SAMESITE: str = "lax"
 
+    PAYMENTS_ENABLED: bool = False
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
     PAYSTACK_CALLBACK_URL: str = "http://localhost:5173/payment-return.html"
