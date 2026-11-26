@@ -12,11 +12,11 @@ import V2ForgotPassword, {
 } from "./pages/V2ForgotPassword.jsx";
 import V2Dashboard from "./pages/V2Dashboard.jsx";
 import V2Analytics from "./pages/V2Analytics.jsx";
-import { V2FreeTrial, V2WeeklyGiveaway } from "./pages/V2DashboardExtras.jsx";
+import { V2FreeTrial, V2WeeklyGiveaway, V2ReferAndEarn } from "./pages/V2DashboardExtras.jsx";
 import { V2Wallet, V2WalletSuccess } from "./pages/V2Wallet.jsx";
 import V2Settings from "./pages/V2Settings.jsx";
 import V2HelpSupport from "./pages/V2HelpSupport.jsx";
-import V2Campaign from "./pages/V2Campaign.jsx";
+import V2Campaign, { V2SelectServicesPlaceholder } from "./pages/V2Campaign.jsx";
 import V2SelectPackage from "./pages/V2SelectPackage.jsx";
 import V2SocialMediaDetails from "./pages/V2SocialMediaDetails.jsx";
 import V2CustomTask from "./pages/V2CustomTask.jsx";
@@ -62,6 +62,7 @@ function V2RouteResolver() {
   if (pathname === "/verify-email") return <EmailVerificationPage />;
   if (pathname === "/dashboard/free-trial") return <V2FreeTrial />;
   if (pathname === "/dashboard/giveaway") return <V2WeeklyGiveaway />;
+  if (pathname === "/refer" || pathname === "/referrals") return <V2ReferAndEarn />;
   if (pathname === "/wallet/success") return <V2WalletSuccess />;
   if (pathname === "/wallet") return <V2Wallet />;
   if (pathname === "/settings") return <V2Settings />;
@@ -80,6 +81,7 @@ function V2RouteResolver() {
   if (pathname === "/campaigns/preview-selections") return <V2PreviewSelections />;
   if (pathname === "/campaigns/social-media-details") return <V2SocialMediaDetails />;
   if (pathname === "/campaigns/select-package") return <V2SelectPackage />;
+  if (pathname === "/campaigns/select-services") return <V2SelectServicesPlaceholder />;
   if (pathname === "/campaigns/manage") return <V2ManageCampaign />;
   if (pathname === "/campaigns/ongoing") return <V2OngoingCampaigns />;
   if (pathname === "/campaigns/pending") return <V2PendingCampaigns />;
