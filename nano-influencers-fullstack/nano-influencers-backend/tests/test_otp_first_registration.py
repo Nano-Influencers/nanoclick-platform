@@ -61,6 +61,8 @@ async def test_registration_does_not_write_user_until_email_otp_is_verified(db, 
                 "password": "correct-horse-battery",
                 "full_name": "Adaeze Okafor",
                 "role": "advertiser",
+                # Phone is deliberately not part of the signup contract.
+                "phone_number": "+2348012345678",
             })
             assert registration.status_code == 202
             assert registration.json()["email_sent"] is True
@@ -86,6 +88,7 @@ async def test_registration_does_not_write_user_until_email_otp_is_verified(db, 
             user = (await db.execute(select(User).where(User.email == email))).scalar_one()
             assert user.email == email
             assert user.full_name == "Adaeze Okafor"
+            assert user.phone_number is None
             assert user.email_verified is True
             assert (await db.execute(select(Wallet).where(Wallet.user_id == user.id))).scalar_one_or_none() is not None
             assert email.lower() not in pending
