@@ -50,10 +50,17 @@ async def test_web_login_uses_httponly_refresh_cookie_without_returning_refresh_
             assert refresh.status_code == 200
             assert refresh.json()["access_token"]
             assert refresh.json().get("refresh_token") is None
+            active_access = refresh.json()["access_token"]
+            me_before_logout = await client.get("/auth/me", headers={"Authorization": f"Bearer {active_access}"})
+            assert me_before_logout.status_code == 200
 
             logout = await client.post("/auth/logout?platform=web", headers={"Origin": "http://localhost"})
             assert logout.status_code == 200
-            assert "nanoclick_refresh=" in logout.headers.get("set-cookie", "")\n            me_after_logout = await client.get("/auth/me", headers={"Authorization": f"Bearer {active_access}"})\n            assert me_after_logout.status_code == 401
+            assert "nanoclick_refresh=" in logout.headers.get("set-cookie", "")
+            me_after_logout = await client.get("/auth/me", headers={"Authorization": f"Bearer {active_access}"})
+            assert me_after_logout.status_code == 401
+            me_after_logout = await client.get("/auth/me", headers={"Authorization": f"Bearer {active_access}"})
+            assert me_after_logout.status_code == 401
     finally:
         app.dependency_overrides.pop(get_db, None)
 
