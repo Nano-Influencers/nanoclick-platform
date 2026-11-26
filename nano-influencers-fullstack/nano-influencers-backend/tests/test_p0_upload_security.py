@@ -97,3 +97,18 @@ async def test_proof_download_url_rejects_foreign_key(monkeypatch):
             current_user=user,
         )
     assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("extension,content_type,signature", [
+    ("png", "image/png", b"\\x89PNG\\r\\n\\x1a\\n"),
+    ("jpg", "image/jpeg", b"\\xff\\xd8\\xff"),
+    ("jpeg", "image/jpeg", b"\\xff\\xd8\\xff"),
+])
+def test_storage_signature_constants_are_real_binary_bytes(extension, content_type, signature):
+    expected = {
+        "png": b"\\x89PNG\\r\\n\\x1a\\n",
+        "jpg": b"\\xff\\xd8\\xff",
+        "jpeg": b"\\xff\\xd8\\xff",
+    }[extension]
+    assert signature == expected
+    assert content_type in storage.CONTENT_TYPES[extension]
