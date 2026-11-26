@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { api } from "../../api.js";
 import { Button } from "../components/ui/Button.jsx";
 import "./v2-campaign.css";
 import "./v2-campaign-populated.css";
@@ -151,21 +153,12 @@ function CompactManageRecord({ title, linked = false }) {
   );
 }
 
-function ManageCampaigns({ active }) {
-  return (
-    <section className={`v2-campaign-panel v2-campaign-manage${active ? " is-populated" : ""}`}>
-      <div className="v2-campaign-panel-heading"><h2>Manage Campaigns</h2></div>
-      {active ? (
-        <div className="v2-campaign-populated-list">
-          <CompactManageRecord title="Twitter Repost" />
-          <CompactManageRecord title="Chisom's Page Link 1" linked />
-          <Button href="/campaigns/manage" className="v2-campaign-manage-button">Go to Campaign Management</Button>
-        </div>
-      ) : (
-        <div className="v2-campaign-empty"><img src={assets.emptyCampaign} alt="" /><h3>You have no campaign available</h3><Button to="/campaigns/select-package">Create New Campaign</Button></div>
-      )}
-    </section>
-  );
+function ManageCampaigns() {
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => { let active = true; (async () => { try { const session = await api.restoreSession(); if (!session.ok) throw new Error("Please log in to view campaigns."); const data = await api.listCampaigns({ limit: 10, offset: 0 }); if (active) setCampaigns(Array.isArray(data) ? data : []); } catch (e) { if (active) setError(e.message || "Unable to load campaigns."); } finally { if (active) setLoading(false); } })(); return () => { active = false; }; }, []);
+  return <section className="v2-campaign-panel v2-campaign-manage"><div className="v2-campaign-panel-heading"><h2>Manage Campaigns</h2></div>{loading ? <p role="status">Loading campaigns…</p> : error ? <p role="alert">{error}</p> : campaigns.length ? <div className="v2-campaign-populated-list">{campaigns.map((campaign) => <article className="v2-campaign-compact-record" key={campaign.id}><div className="v2-campaign-compact-head"><span><i><img src={assets.trend} alt="" /></i><strong>{campaign.title}</strong></span><time>{new Date(campaign.created_at).toLocaleString()}</time></div><div className="v2-campaign-compact-main"><div className="v2-campaign-compact-service"><strong>{campaign.platform} · {campaign.action_type}</strong><span>{campaign.status} · {campaign.slots_filled}/{campaign.slots_total} completed</span></div><div className="v2-campaign-compact-actions"><a href={`/campaigns/${campaign.id}`}>View details</a></div></div></article>)}<Button href="/campaigns/manage" className="v2-campaign-manage-button">Go to Campaign Management</Button></div> : <div className="v2-campaign-empty"><img src={assets.emptyCampaign} alt="" /><h3>You have no campaign available</h3><Button to="/campaigns/select-package">Create New Campaign</Button></div>}</section>;
 }
 
 function SingleTasks() {
@@ -197,7 +190,6 @@ function MobileProfileMenu({ open, onClose }) {
 }
 
 export default function V2Campaign() {
-  const activeState = new URLSearchParams(window.location.search).get("state") === "active";
   const [profileOpen, setProfileOpen] = useState(false);
   return (
     <div className="v2-campaign-page">
@@ -208,7 +200,7 @@ export default function V2Campaign() {
         <section className="v2-campaign-service-grid"><ServiceCard type="growth" /><ServiceCard type="wom" /></section>
         <CustomTasks />
         <CustomTaskBanner />
-        <ManageCampaigns active={activeState} />
+        <ManageCampaigns />
         <SingleTasks />
       </main>
       <MobileBottomNav />
@@ -233,3 +225,13 @@ export function V2SelectServicesPlaceholder() {
     </div>
   );
 }
+
+export function V2CampaignDetail() {
+  const { campaignId } = useParams();
+  const [campaign, setCampaign] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => { let active = true; (async () => { try { const session = await api.restoreSession(); if (!session.ok) throw new Error("Please log in to view this campaign."); const data = await api.getCampaign(campaignId); if (active) setCampaign(data); } catch (e) { if (active) setError(e.message || "Unable to load campaign."); } finally { if (active) setLoading(false); } })(); return () => { active = false; }; }, [campaignId]);
+  return <div className="v2-campaign-page"><Sidebar /><main className="v2-campaign-main"><TopHeader profileOpen={false} onProfileClick={() => {}} /><header className="v2-campaign-page-heading"><h1>Campaign Details</h1><p>Live campaign information</p></header>{loading ? <p role="status">Loading campaign…</p> : error ? <p role="alert">{error}</p> : campaign ? <section className="v2-campaign-panel"><h2>{campaign.title}</h2><p>{campaign.platform} · {campaign.action_type}</p><p>Status: {campaign.status}</p><p>Budget: {moneyNgn(campaign.client_budget_kobo)}</p><p>Slots: {campaign.slots_filled} of {campaign.slots_total}</p><p>Created: {new Date(campaign.created_at).toLocaleString()}</p><Button to="/analytics">View Analytics</Button></section> : null}</main><MobileBottomNav /></div>;
+}
+function moneyNgn(kobo) { return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(Number(kobo || 0) / 100); }
