@@ -20,6 +20,7 @@ from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.schemas.auth import AccountSettingsRequest, AvatarConfirmRequest, AvatarUploadRequest, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
+from app.services.rate_limit import check_rate_limit
 from app.services.auth_service import create_access_token, create_refresh_token, decode_token, generate_referral_code, hash_password, hash_token_identifier, new_oauth_state, token_jti, verify_password
 from app.services.email_service import send_password_reset_email, send_verification_otp
 from app.services.pending_registration import (acquire_pending_lock, delete_pending_registration, load_pending_registration, release_pending_lock, save_pending_registration)
@@ -202,7 +203,11 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, response: Response, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, response: Response, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
+    # Apply the account/email dimension only after FastAPI has parsed the body.
+    # Reading/replaying the request stream in BaseHTTPMiddleware breaks ASGI disconnect handling.
+    request.state.rate_limit_identity = str(body.email).strip().lower()
+    await check_rate_limit(request, "auth-login", 10, 900, include_ip=False)
     result = await db.execute(select(User).where(func.lower(User.email) == str(body.email).strip().lower()))
     user = result.scalar_one_or_none()
     if not user: raise HTTPException(401, "Invalid credentials")
