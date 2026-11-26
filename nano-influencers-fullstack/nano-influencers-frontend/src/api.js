@@ -49,7 +49,12 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
   let res;
   try { res = await fetchWithTimeout(`${API_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" }); }
   catch (error) { if (error instanceof ApiError) throw error; throw new ApiError("Unable to reach the server. Check your connection and try again.", 0); }
-  if (res.status === 401 && auth && !_retried && res.headers.get("www-authenticate")?.toLowerCase().includes("bearer")) {
+  if (res.status === 401 && auth && res.headers.get("www-authenticate")?.toLowerCase().includes("bearer")) {
+    if (_retried) {
+      clearTokens();
+      window.dispatchEvent(new CustomEvent("nano-auth-expired"));
+      throw new ApiError("Your session has expired. Please log in again.", 401);
+    }
     const refreshed = await tryRefresh();
     if (refreshed.ok) return request(path, { method, body, auth, headers: extraHeaders, _retried: true });
     if (refreshed.reason === "expired" || (refreshed.reason === "anonymous" && accessToken)) {
