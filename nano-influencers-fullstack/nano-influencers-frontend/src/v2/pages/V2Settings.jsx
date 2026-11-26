@@ -316,7 +316,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
   const [currency, setCurrency] = useState(saved.currency || "Nigerian Naira (₦)");
   const [timezone, setTimezone] = useState(saved.timezone || "Africa/Lagos (GMT+1)");
   const [language, setLanguage] = useState(saved.language || "English");
-  const [autoRenew, setAutoRenew] = useState(saved.autoRenew ?? true);
+  const [autoRenew, setAutoRenew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
@@ -325,7 +325,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
     setCurrency(preferences.currency || "Nigerian Naira (₦)");
     setTimezone(preferences.timezone || "Africa/Lagos (GMT+1)");
     setLanguage(preferences.language || "English");
-    setAutoRenew(preferences.autoRenew ?? true);
+    setAutoRenew(false);
   }, [user?.regional_preferences]);
   const save = async () => {
     setSaving(true); setError(""); setFeedback("");
@@ -349,7 +349,7 @@ function PreferenceSettings({ onDelete, user, onUserUpdate }) {
     <div className="v2-settings-primary v2-settings-preferences-panel">
       <SectionCard title="Regional Settings" subtitle="Customize your locale and display preferences">
         <div className="v2-settings-form-grid">
-          <label className="v2-settings-field"><span>Currency</span><select value={currency} onChange={(e) => setCurrency(e.target.value)}><option>Nigerian Naira (₦)</option><option>US Dollar ($)</option><option>British Pound (£)</option></select></label>
+          <label className="v2-settings-field"><span>Currency</span><select value={currency} onChange={(e) => setCurrency(e.target.value)}><option>Nigerian Naira (₦)</option><option disabled>US Dollar ($) — unavailable</option><option disabled>British Pound (£) — unavailable</option></select></label>
           <label className="v2-settings-field"><span>Timezone</span><select value={timezone} onChange={(e) => setTimezone(e.target.value)}><option>Africa/Lagos (GMT+1)</option><option>UTC</option></select></label>
           <label className="v2-settings-field is-grid-full"><span>Language</span><select value={language} onChange={(e) => setLanguage(e.target.value)}><option>English</option></select></label>
         </div>
