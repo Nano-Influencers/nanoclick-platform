@@ -10,6 +10,7 @@ import V2ForgotPassword, {
   V2ForgotPasswordSuccess,
 } from "./pages/V2ForgotPassword.jsx";
 import V2Dashboard from "./pages/V2Dashboard.jsx";
+import V2Analytics from "./pages/V2Analytics.jsx";
 import { V2FreeTrial, V2WeeklyGiveaway } from "./pages/V2DashboardExtras.jsx";
 import { V2Wallet, V2WalletSuccess } from "./pages/V2Wallet.jsx";
 import V2Settings from "./pages/V2Settings.jsx";
@@ -145,7 +146,9 @@ if (pathname === "/" || pathname === "") {
   renderV2(<V2SystemState type="error" />);
 } else if (pathname === "/system/offline") {
   renderV2(<V2SystemState type="offline" />);
-} else if (pathname === "/404" || pathname === "/analytics") {
+} else if (pathname === "/analytics") {
+  renderV2(<V2Analytics />);
+} else if (pathname === "/404") {
   renderV2(<V2SystemState type="not-found" />);
 } else {
   renderV2(<V2SystemState type="not-found" />);

@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { api } from "../../api.js";
 import { Button } from "../components/ui/Button.jsx";
 import "./v2-dashboard.css";
 
@@ -105,7 +106,8 @@ function Sidebar() {
   );
 }
 
-function TopHeader({ profileOpen, onProfileClick }) {
+function TopHeader({ profileOpen, onProfileClick, user }) {
+  const displayName = user?.full_name || user?.email || "My Account";
   return (
     <header className="v2-dashboard-topbar">
       <Brand />
@@ -119,7 +121,7 @@ function TopHeader({ profileOpen, onProfileClick }) {
           aria-expanded={profileOpen}
           onClick={onProfileClick}
         >
-          <img src={assets.profile} alt="Adaeze O." /><span>Adaeze O.</span>
+          <img src={assets.profile} alt="" /><span>{displayName}</span>
         </button>
       </div>
     </header>
@@ -281,6 +283,13 @@ function MobileProfileMenu({ open, onClose }) {
 }
 
 export default function V2Dashboard() {
+  const [user, setUser] = useState(null);
+  const [profileError, setProfileError] = useState("");
+  useEffect(() => {
+    let active = true;
+    api.me().then((profile) => { if (active) setUser(profile); }).catch((error) => { if (active) setProfileError(error.message || "Unable to load profile"); });
+    return () => { active = false; };
+  }, []);
   const params = new URLSearchParams(window.location.search);
   const previewState = params.get("state") || "";
   const emptyState = previewState === "empty";
@@ -290,7 +299,8 @@ export default function V2Dashboard() {
     <main className="ni-v2 v2-dashboard-page">
       <Sidebar />
       <div className="v2-dashboard-main">
-        <TopHeader profileOpen={profileOpen} onProfileClick={() => setProfileOpen((value) => !value)} />
+        <TopHeader profileOpen={profileOpen} onProfileClick={() => setProfileOpen((value) => !value)} user={user} />
+        {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <p className="v2-dashboard-welcome mobile-only">Welcome Back 👋</p>
         <div className="v2-dashboard-title-row desktop-only"><h1>Dashboard</h1><button className="v2-dashboard-date" type="button">Last 30 days <img src={assets.dateChevron} alt="" /></button></div>
         <BalanceCard />

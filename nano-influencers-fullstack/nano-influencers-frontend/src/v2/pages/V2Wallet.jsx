@@ -204,24 +204,34 @@ function DepositModal({ open, onClose }) {
           <button type="button" className={currency === "local" ? "is-active" : ""} onClick={() => setCurrency("local")}>Local Currency</button>
           <button type="button" className={currency === "crypto" ? "is-active" : ""} onClick={() => setCurrency("crypto")}>Crypto Currency</button>
         </div>
-        <div className="v2-wallet-form-field">
-          <label htmlFor="wallet-gateway">Choose Preferred Payment Gateway</label>
-          <div className="v2-wallet-select-wrap">
-            <select id="wallet-gateway" value={gateway} onChange={(event) => setGateway(event.target.value)}>
-              <option>Paystack</option>
-            </select>
-            <img src={assets.arrowDown} alt="" />
+        {currency === "crypto" ? (
+          <div className="v2-wallet-crypto-coming-soon" role="status" aria-live="polite">
+            <h3>Coming Soon</h3>
+            <p>Crypto deposits are not available yet. Check back for updates.</p>
+            <Button variant="secondary" onClick={onClose}>Close</Button>
           </div>
-        </div>
-        <div className="v2-wallet-form-field">
-          <label htmlFor="wallet-amount">Amount to Deposit</label>
-          <input id="wallet-amount" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g ₦15,000" inputMode="decimal" />
-          <small>Minimum Deposit Amount = ₦500 Equivalent</small>
-        </div>
-        <div className="v2-wallet-modal-actions">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => navigate("/wallet/success")}>Make Deposit</Button>
-        </div>
+        ) : (
+          <>
+            <div className="v2-wallet-form-field">
+              <label htmlFor="wallet-gateway">Choose Preferred Payment Gateway</label>
+              <div className="v2-wallet-select-wrap">
+                <select id="wallet-gateway" value={gateway} onChange={(event) => setGateway(event.target.value)}>
+                  <option>Paystack</option>
+                </select>
+                <img src={assets.arrowDown} alt="" />
+              </div>
+            </div>
+            <div className="v2-wallet-form-field">
+              <label htmlFor="wallet-amount">Amount to Deposit</label>
+              <input id="wallet-amount" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="e.g ₦15,000" inputMode="decimal" />
+              <small>Minimum Deposit Amount = ₦500 Equivalent</small>
+            </div>
+            <div className="v2-wallet-modal-actions">
+              <Button variant="secondary" onClick={onClose}>Cancel</Button>
+              <Button onClick={() => navigate("/wallet/success")}>Make Deposit</Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
