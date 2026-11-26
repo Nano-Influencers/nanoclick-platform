@@ -19,6 +19,15 @@ from app.services.rate_limit import check_rate_limit
 logger = logging.getLogger("nano-influencers.api")
 _is_production = settings.APP_ENV.strip().lower() in {"production", "prod"}
 
+app = FastAPI(
+    title="Nano Influencers API",
+    description="Backend for Nano Influencers (advertiser) and Click Workers (worker) apps.",
+    version="2.0.0",
+    openapi_url=None if _is_production else "/openapi.json",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+)
+
 @app.middleware("http")
 async def request_size_limit(request: Request, call_next):
     raw_length = request.headers.get("content-length")
@@ -30,15 +39,6 @@ async def request_size_limit(request: Request, call_next):
             return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length header."})
     return await call_next(request)
 
-
-app = FastAPI(
-    title="Nano Influencers API",
-    description="Backend for Nano Influencers (advertiser) and Click Workers (worker) apps.",
-    version="2.0.0",
-    openapi_url=None if _is_production else "/openapi.json",
-    docs_url=None if _is_production else "/docs",
-    redoc_url=None if _is_production else "/redoc",
-)
 
 app.add_middleware(
     CORSMiddleware,
