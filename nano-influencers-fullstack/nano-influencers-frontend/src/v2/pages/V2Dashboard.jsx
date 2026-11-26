@@ -50,9 +50,9 @@ function buildMetrics(wallet, campaigns, referrals) {
 
 const quickActions = [
   { title: "Add Funds", desc: "Top up your wallet", tone: "orange", icon: assets.add, href: "/wallet" },
-  { title: "Refer & Earn", desc: "Earn 2% per referral", tone: "green", icon: assets.refer, href: "/refer" },
-  { title: "Win Gifts", desc: "1% cashback + weekly raffle", tone: "yellow", icon: assets.gift, href: "/dashboard/giveaway" },
-  { title: "Try for Free", desc: "2 free trial weekly", tone: "lavender", icon: assets.unlock, href: "/dashboard/free-trial" },
+  { title: "Refer & Earn", desc: "View referral count and earned bonuses", tone: "green", icon: assets.refer, href: "/refer" },
+  { title: "Win Gifts", desc: "Check published giveaway information", tone: "yellow", icon: assets.gift, href: "/dashboard/giveaway" },
+  { title: "Try for Free", desc: "See available free campaigns", tone: "lavender", icon: assets.unlock, href: "/dashboard/free-trial" },
 ];
 
 const activities = [
@@ -137,7 +137,7 @@ function BalanceCard({ balance }) {
           <p>Current Balance</p>
         </div>
         <strong>₦{(Number(balance?.balance_ngn || 0)).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-        <small>No pending transactions</small>
+        <small>Available wallet balance</small>
       </div>
       <Button className="v2-dashboard-balance-button" to="/wallet">Add Funds</Button>
     </section>
@@ -170,22 +170,14 @@ function LaunchBanner() {
   );
 }
 
-function AnalyticsChart({ emptyState = false, hasCampaigns = false }) {
-  const [period, setPeriod] = useState("Weekly");
+function AnalyticsChart({ hasCampaigns = false }) {
   return (
     <section className="v2-dashboard-analytics-card desktop-only">
-      <div className="v2-dashboard-section-heading">
-        <h2>Campaign Analytics</h2>
-        <div className="v2-dashboard-periods">
-          {["Daily", "Weekly", "Monthly"].map((item) => <button key={item} type="button" className={period === item ? "is-active" : ""} onClick={() => setPeriod(item)}>{item}</button>)}
-        </div>
+      <div className="v2-dashboard-section-heading"><h2>Campaign Analytics</h2><a href="/analytics">View reports</a></div>
+      <div className="v2-dashboard-chart-unavailable">
+        <p>{hasCampaigns ? "Campaigns are connected. Time-series reach and engagement reporting is not yet available." : "Create a campaign to start collecting performance data."}</p>
+        <a href={hasCampaigns ? "/analytics" : "/campaigns"}>{hasCampaigns ? "Open campaign reports" : "Explore campaigns"}</a>
       </div>
-      <div className="v2-dashboard-chart">
-        <div className="v2-dashboard-y-axis"><span>2200</span><span>1650</span><span>1100</span><span>550</span><span>0</span></div>
-        <div className="v2-dashboard-chart-plot"><img className="grid" src={assets.chartGrid} alt="" /><img className="lines is-empty" src={assets.emptyChartLines} alt="" /></div>
-        <div className="v2-dashboard-x-axis">{[1,2,3,4,5,6,7].map((day) => <span key={day}>Day {day}</span>)}</div>
-      </div>
-      <p className="v2-dashboard-chart-legend">{hasCampaigns ? "Trend charts will appear when campaign time-series reporting is available." : "Create a campaign to see performance trends."}</p>
     </section>
   );
 }
@@ -233,7 +225,7 @@ function ReferralSupport({ user }) {
         <img className="decor-a" src={assets.referralDecorA} alt="" /><img className="decor-b" src={assets.referralDecorB} alt="" />
         <span className="v2-dashboard-icon-circle is-orange"><img src={assets.floatingRefer} alt="" /></span>
         <h2>Refer a Friend</h2>
-        <p>Earn 2% on every campaign your referral starts and qualify for bi-weekly gadget giveaways.</p>
+        <p>Earn a referral bonus when your referred worker completes their first approved task.</p>
         <button type="button" onClick={copy}><span>{referral}</span><strong>{copied ? "Copied" : "Copy"}</strong></button>
       </section>
       <section className="v2-dashboard-support-card"><span className="v2-dashboard-icon-circle is-white"><img src={assets.help} alt="" /></span><h2>Dispute &amp; Support</h2><p>Any issues with your campaigns or account? Our support team is ready to help.</p><Button variant="nav">Contact Support</Button></section>
@@ -307,7 +299,7 @@ export default function V2Dashboard() {
         <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} hasCampaigns={campaigns.length > 0} /><QuickActions /></div>
         <div className="v2-dashboard-lower"><LatestActivity rows={transactions} loading={dashboardLoading} error={dashboardError} /><ReferralSupport user={user} /></div>
       </div>
-      <div className="v2-dashboard-floating mobile-only"><a className="is-refer" href="/refer" aria-label="Refer and earn"><img src={assets.floatingRefer} alt="" /></a><button className="is-help" type="button"><img src={assets.help} alt="" /></button></div>
+      <div className="v2-dashboard-floating mobile-only"><a className="is-refer" href="/refer" aria-label="Refer and earn"><img src={assets.floatingRefer} alt="" /></a><a className="is-help" href="/support" aria-label="Help and support"><img src={assets.help} alt="" /></a></div>
       <MobileBottomNav />
       <MobileProfileMenu open={profileOpen} onClose={() => setProfileOpen(false)} />
     </main>
