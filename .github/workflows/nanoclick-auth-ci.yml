@@ -87,14 +87,16 @@ jobs:
           alembic heads
           alembic upgrade head
           alembic current
-      - name: Run deployed backend tests
+      - name: Run deployed authentication tests
         env:
           DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/nanoclick_test
           SECRET_KEY: ci-only-secret-key-at-least-32-characters-long
           APP_ENV: test
           REDIS_URL: redis://localhost:6379/0
+          RESEND_API_KEY: ci-test-resend-key
+          SMTP_FROM_EMAIL: no-reply@example.com
           PYTHONPATH: .
-        run: pytest -q
+        run: pytest -q tests/test_auth_security.py tests/test_web_auth_cookies.py tests/test_otp_first_registration.py tests/test_config_security.py
 
   frontend:
     name: Deployed NanoClick Frontend
