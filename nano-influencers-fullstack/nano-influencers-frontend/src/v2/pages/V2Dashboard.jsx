@@ -292,7 +292,7 @@ export default function V2Dashboard() {
         <TopHeader profileOpen={profileOpen} onProfileClick={() => setProfileOpen((value) => !value)} user={user} />
         {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <p className="v2-dashboard-welcome mobile-only">Welcome Back 👋</p>
-        <div className="v2-dashboard-title-row desktop-only"><h1>Dashboard</h1><button className="v2-dashboard-date" type="button">Last 30 days <img src={assets.dateChevron} alt="" /></button></div>
+        <div className="v2-dashboard-title-row desktop-only"><h1>Dashboard</h1><span className="v2-dashboard-date">Live account data</span></div>
         <BalanceCard balance={wallet} />
         <div className="v2-dashboard-metrics-scroll">{dashboardLoading ? <p role="status">Loading dashboard…</p> : dashboardMetrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
         <LaunchBanner />
