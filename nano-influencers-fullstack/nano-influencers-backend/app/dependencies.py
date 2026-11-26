@@ -4,7 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User\nfrom app.models.auth_session import AuthSession\nfrom app.services.auth_service import hash_token_identifier\nfrom datetime import datetime
 from app.services.auth_service import decode_token
 import pyotp
 
@@ -32,7 +32,7 @@ async def get_current_user(
         user_id = uuid.UUID(payload["sub"])
     except (ValueError, TypeError, KeyError):
         raise HTTPException(status_code=401, detail="Invalid authentication subject", headers={"WWW-Authenticate": "Bearer"})
-    result = await db.execute(select(User).where(User.id == user_id))
+    session_jti = payload.get("sid")\n    if session_jti:\n        session_result = await db.execute(select(AuthSession).where(AuthSession.token_jti_hash == hash_token_identifier(str(session_jti))))\n        session = session_result.scalar_one_or_none()\n        if not session or session.revoked_at is not None or session.expires_at <= datetime.utcnow():\n            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session revoked or expired", headers={"WWW-Authenticate": "Bearer"})\n    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found", headers={"WWW-Authenticate": "Bearer"})
