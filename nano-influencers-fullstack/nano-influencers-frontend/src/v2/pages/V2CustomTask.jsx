@@ -70,7 +70,6 @@ function Consent({ checked, onChange, children }) {
 }
 
 export default function V2CustomTask() {
-  const fileInput = useRef(null);
   const [taskCount, setTaskCount] = useState("");
   const [quantity, setQuantity] = useState("");
   const [country, setCountry] = useState("Nigeria");
@@ -78,7 +77,6 @@ export default function V2CustomTask() {
   const [delivery, setDelivery] = useState("Default Time");
   const [startDate, setStartDate] = useState("Today");
   const [startTime, setStartTime] = useState("19:00");
-  const [fileName, setFileName] = useState("");
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [copied, setCopied] = useState(false);
