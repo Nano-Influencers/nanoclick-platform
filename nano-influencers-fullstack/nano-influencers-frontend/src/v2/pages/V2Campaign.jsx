@@ -173,7 +173,7 @@ function SingleTasks() {
     <section className="v2-campaign-panel v2-campaign-single">
       <div className="v2-campaign-panel-heading"><h2>Single Tasks</h2><p>Premium tools designed for specific business needs</p></div>
       <div className="v2-campaign-label">Select Service</div>
-      <div className="v2-campaign-single-grid">{singleTasks.map(([name, icon]) => <button className="v2-campaign-single-card" type="button" key={name}><img src={icon} alt="" /><span>{name}</span></button>)}</div>
+      <div className="v2-campaign-single-grid">{singleTasks.map(([name, icon]) => <a className="v2-campaign-single-card" href="/campaigns/select-services" key={name}><img src={icon} alt="" /><span>{name}</span></a>)}</div>
     </section>
   );
 }
@@ -213,6 +213,23 @@ export default function V2Campaign() {
       </main>
       <MobileBottomNav />
       <MobileProfileMenu open={profileOpen} onClose={() => setProfileOpen(false)} />
+    </div>
+  );
+}
+
+export function V2SelectServicesPlaceholder() {
+  return (
+    <div className="v2-campaign-page">
+      <Sidebar />
+      <main className="v2-campaign-main">
+        <TopHeader profileOpen={false} onProfileClick={() => {}} />
+        <header className="v2-campaign-page-heading"><h1>Select Services</h1><p>This is the service selection destination. Service links will be added here later.</p></header>
+        <section className="v2-campaign-panel v2-campaign-single v2-select-services-placeholder">
+          <div className="v2-campaign-panel-heading"><h2>Services coming soon</h2><p>You've reached the Select Services page. The available service destinations can be connected here when they are ready.</p></div>
+          <Button to="/campaigns">Back to Campaigns</Button>
+        </section>
+      </main>
+      <MobileBottomNav />
     </div>
   );
 }
