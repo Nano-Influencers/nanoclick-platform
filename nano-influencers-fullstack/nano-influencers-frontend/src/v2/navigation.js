@@ -1,3 +1,5 @@
+import { api } from "../api.js";
+
 const sidebarRoutes = {
   Dashboard: "/dashboard",
   Overview: "/dashboard",
@@ -83,7 +85,10 @@ function ensureLogoutDialog() {
 
   dialog.querySelector(".v2-logout-confirm__backdrop").addEventListener("click", close);
   dialog.querySelector(".v2-logout-confirm__cancel").addEventListener("click", close);
-  dialog.querySelector(".v2-logout-confirm__submit").addEventListener("click", () => go("/login"));
+  dialog.querySelector(".v2-logout-confirm__submit").addEventListener("click", async () => {
+    await api.logout();
+    go("/login");
+  });
   document.body.appendChild(dialog);
   return dialog;
 }
