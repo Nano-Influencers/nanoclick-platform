@@ -113,6 +113,7 @@ async def test_profile_phone_update_requires_auth_and_persists_name_and_phone(db
         referral_code=f"REF{uuid.uuid4().hex[:10]}",
     )
     db.add(user)
+    await db.flush()
     db.add(Wallet(user_id=user.id))
     await db.flush()
     token = create_access_token(str(user.id), user.role)
