@@ -132,7 +132,7 @@ function PlatformCard({ name, icon }) {
 function CustomTasks() {
   return (
     <section className="v2-campaign-panel v2-campaign-custom">
-      <div className="v2-campaign-panel-heading is-split"><div><h2>Custom Tasks</h2><p>Choose the right service to grow your brand and reach your audience.</p></div><button type="button">Watch Video for more info about this Service</button></div>
+      <div className="v2-campaign-panel-heading is-split"><div><h2>Custom Tasks</h2><p>Choose the right service to grow your brand and reach your audience.</p></div><button type="button" disabled>Service video guide coming soon</button></div>
       <div className="v2-campaign-label">Select Platform</div>
       <div className="v2-campaign-platform-grid">{platforms.map(([name, icon]) => <PlatformCard key={name} name={name} icon={icon} />)}</div>
     </section>
