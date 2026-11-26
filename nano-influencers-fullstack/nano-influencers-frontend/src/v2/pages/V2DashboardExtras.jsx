@@ -1,4 +1,5 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { api } from "../../api.js";
 import "./v2-dashboard-extras.css";
 
 const ASSET_BASE = "/assets/nano-v2-app/";
@@ -193,6 +194,71 @@ function GiveawayAccordion() {
         })}
       </div>
     </section>
+  );
+}
+
+
+export function V2ReferAndEarn() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const session = await api.restoreSession();
+        if (!session.ok) { window.location.replace("/login"); return; }
+        const profile = await api.me();
+        if (active) setUser(profile);
+      } catch (err) {
+        if (active) setError(err.message || "Unable to load your referral details.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+  const referralLink = user?.referral_code
+    ? `${window.location.origin}/ref/${encodeURIComponent(user.referral_code)}`
+    : "";
+  const copy = async () => {
+    if (!referralLink) return;
+    try {
+      await navigator.clipboard.writeText(referralLink);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setError("Unable to copy the referral link. Please copy it manually.");
+    }
+  };
+  return (
+    <main className="ni-v2 v2-extra-page v2-refer-page">
+      <div className="v2-extra-main">
+        <BackHeader />
+        <PageIntro title="Refer & Earn" subtitle="Invite friends to Nano Influencers and earn rewards when they launch campaigns." />
+        <section className="v2-extra-panel v2-refer-hero">
+          <span className="v2-extra-icon"><img src={assets.refer} alt="" /></span>
+          <h2>Share Nano Influencers</h2>
+          <p>Earn 2% on every eligible campaign your referral starts. Share your personal link to get started.</p>
+          {loading ? <p>Loading your referral link…</p> : error ? <p role="alert">{error}</p> : (
+            <div className="v2-refer-link-row">
+              <input aria-label="Your referral link" readOnly value={referralLink || "Referral link unavailable"} />
+              <button type="button" onClick={copy} disabled={!referralLink}>{copied ? "Copied" : "Copy link"}</button>
+            </div>
+          )}
+          {user?.referral_code && <p className="v2-refer-code">Your referral code: <strong>{user.referral_code}</strong></p>}
+        </section>
+        <section className="v2-extra-panel v2-refer-steps">
+          <div className="v2-extra-section-heading"><h2>How it works</h2><p>Three simple steps to earn referral rewards.</p></div>
+          <div className="v2-extra-requirements">
+            <RequirementCard number="01" icon={assets.share} title="Share your link">Send your personal referral link to friends, clients, and your business network.</RequirementCard>
+            <RequirementCard number="02" icon={assets.eye} title="Your friend joins">Your friend creates an account using your referral link.</RequirementCard>
+            <RequirementCard number="03" icon={assets.award} title="Earn rewards">Receive 2% on eligible campaigns started by your referral.</RequirementCard>
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }
 
