@@ -137,7 +137,7 @@ function ProfileSettings({ user }) {
   const [avatar, setAvatar] = useState(null);
   const [form, setForm] = useState({ first: "", last: "", email: "", phone: "", currentPassword: "", newPassword: "", confirmPassword: "" });
   useEffect(() => {
-    const parts = String(user?.full_name || "").trim().split(/\\s+/).filter(Boolean);
+    const parts = String(user?.full_name || "").trim().split(/\s+/).filter(Boolean);
     setForm((current) => ({
       ...current,
       first: parts.shift() || "",
@@ -157,7 +157,7 @@ function ProfileSettings({ user }) {
       <SectionCard title="Profile Photo" subtitle="Update your brand avatar" className="is-profile-photo">
         <div className="v2-settings-photo-row">
           <div className="v2-settings-photo-identity">
-            {avatar ? <img className="v2-settings-large-avatar" src={avatar} alt={user?.full_name || "Profile photo"} /> : <div className="v2-settings-avatar-placeholder">{String(user?.full_name || user?.email || "U").trim().split(/\\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</div>}
+            {avatar ? <img className="v2-settings-large-avatar" src={avatar} alt={user?.full_name || "Profile photo"} /> : <div className="v2-settings-avatar-placeholder">{String(user?.full_name || user?.email || "U").trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}</div>}
             <strong>{user?.full_name || user?.email || "Your profile"}</strong>
           </div>
           <div className="v2-settings-photo-actions">
