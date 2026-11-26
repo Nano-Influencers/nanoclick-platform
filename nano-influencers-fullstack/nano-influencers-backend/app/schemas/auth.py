@@ -4,6 +4,11 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class RegisterRequest(BaseModel):
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return str(value).strip().lower() if value is not None else value
+
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
     full_name: str = Field(min_length=2, max_length=255)
@@ -27,6 +32,11 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return str(value).strip().lower() if value is not None else value
+
     email: EmailStr
     password: str
 
@@ -100,6 +110,11 @@ class ChangePasswordRequest(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return str(value).strip().lower() if value is not None else value
+
     email: EmailStr
 
 
@@ -109,9 +124,19 @@ class ResetPasswordRequest(BaseModel):
 
 
 class SendOTPRequest(BaseModel):
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return str(value).strip().lower() if value is not None else value
+
     email: EmailStr
 
 
 class VerifyOTPRequest(BaseModel):
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return str(value).strip().lower() if value is not None else value
+
     email: EmailStr
     code: str
