@@ -101,16 +101,16 @@ export function V2ForgotPasswordCode() {
   const [error, setError] = useState(state === "error" ? "Invalid verification code" : "");
   const [seconds, restart] = useCountdown();
   const verify = () => {
-    if (code.length !== 6) return;
+    if (code.length < 32) { setError("Paste the complete reset token from your email."); return; }
     go(`/forgot-password/reset?email=${encodeURIComponent(email)}&code=${encodeURIComponent(code)}`);
   };
   const resend = async () => { try { await api.forgotPassword(email); setCode(""); setError(""); restart(); } catch (err) { setError(err.message || "Unable to resend code."); } };
   return (
     <ForgotShell>
-      <Heading title="Enter verification code">We sent a 6-digit code to <strong>{email}</strong></Heading>
+      <Heading title="Enter reset token">We sent a secure reset token to <strong>{email}</strong></Heading>
       <div className="v2-forgot-form">
-        <div><CodeInputs value={code} error={Boolean(error)} onChange={(next) => { setCode(next); setError(""); }} />{error && <p className="v2-forgot-error">{error}</p>}</div>
-        <div className="v2-forgot-actions"><button className="v2-forgot-primary" type="button" onClick={verify}>Verify Code</button><button className="v2-forgot-secondary" type="button" onClick={() => go("/forgot-password")}>Change Email</button></div>
+        <div><label className="v2-forgot-field"><strong>Reset token</strong><input required minLength={32} maxLength={128} value={code} onChange={(e) => { setCode(e.target.value.trim()); setError(""); }} placeholder="Paste your reset token" autoComplete="one-time-code" /></label>{error && <p className="v2-forgot-error">{error}</p>}</div>
+        <div className="v2-forgot-actions"><button className="v2-forgot-primary" type="button" onClick={verify}>Verify Token</button><button className="v2-forgot-secondary" type="button" onClick={() => go("/forgot-password")}>Change Email</button></div>
       </div>
       <Resend seconds={seconds} onResend={resend} />
     </ForgotShell>
@@ -142,13 +142,13 @@ export function V2ForgotPasswordReset() {
     if (password !== confirm) { setError("Passwords do not match"); return; }
     if (!code) { setError("Your reset code is missing. Please request a new code."); return; }
     setBusy(true);
-    try { await api.resetPassword(code, password); go("/forgot-password/success"); }
+    try { await api.resetPassword(code, password, email); go("/forgot-password/success"); }
     catch (err) { setError(err.message || "Unable to reset password. Request a new code and try again."); }
     finally { setBusy(false); }
   };
   return (
     <ForgotShell>
-      <Heading title="Create new password">Enter your new password to complete the reset-code verification.</Heading>
+      <Heading title="Create new password">Enter your new password to complete the reset-token verification.</Heading>
       <form className="v2-forgot-form" onSubmit={submit}>
         <PasswordField label="New Password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} />
         <PasswordField label="Confirm New Password" value={confirm} onChange={(e) => { setConfirm(e.target.value); setError(""); }} />
