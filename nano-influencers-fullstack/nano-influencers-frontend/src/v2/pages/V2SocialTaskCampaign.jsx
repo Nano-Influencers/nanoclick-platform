@@ -627,7 +627,7 @@ function TaskSpecificFields({ selectedTask, values, setValue, selectedReactions,
     return (
       <section className="v2-stc-panel">
         <div className="v2-stc-special-title"><h2>{selectedTask.specialTitle || selectedTask.label}</h2>{selectedTask.specialCopy ? <p>{selectedTask.specialCopy}</p> : null}{selectedTask.unitCost ? <p>(Cost {money(selectedTask.unitCost)})</p> : null}</div>
-        <div className="v2-stc-field"><FieldHeader title="Upload sound." /><UploadBox fileName={taskMedia} onFile={setTaskMedia} accept="image/*,video/mp4" /></div>
+        <div className="v2-stc-field"><FieldHeader title="Upload sound." /><p>Audio uploads are not supported yet. Supported attachments are images, MP4 video and PDF instructions.</p></div>
         <div className="v2-stc-field"><FieldHeader title={selectedTask.mediaLabel || "Choose Video Part"} /><div className="v2-stc-two"><input className="v2-stc-input" value={values.mediaStart} onChange={(event) => setValue("mediaStart", event.target.value)} placeholder="Start time" /><input className="v2-stc-input" value={values.mediaEnd} onChange={(event) => setValue("mediaEnd", event.target.value)} placeholder="End time" /></div></div>
         <div className="v2-stc-field"><FieldHeader title="What kind of Content" /><input className="v2-stc-input" value={values.contentType} onChange={(event) => setValue("contentType", event.target.value)} placeholder="type here" /></div>
         <div className="v2-stc-field"><FieldHeader title="What do you want to Achieve?" /><textarea className="v2-stc-textarea" value={values.goal} onChange={(event) => setValue("goal", event.target.value)} placeholder="Drop anything you like the nano-inflencer to know about this task" /></div>
@@ -767,9 +767,8 @@ export default function V2SocialTaskCampaign() {
   const [startDate, setStartDate] = useState("Today");
   const [startTime, setStartTime] = useState("19:00");
   const [instruction, setInstruction] = useState("");
-  const [instructionFile, setInstructionFile] = useState("");
-  const [taskMedia, setTaskMedia] = useState("");
-  const [cashbackEvidence, setCashbackEvidence] = useState("");
+  const [instructionFile, setInstructionFile] = useState(null);
+  const [taskMedia, setTaskMedia] = useState(null);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [copied, setCopied] = useState(false);
