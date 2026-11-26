@@ -96,6 +96,57 @@ async def test_deposit_idempotency_prevents_duplicate_provider_initialization(db
 
 
 @pytest.mark.asyncio
+async def test_deposit_status_reconciles_verified_provider_payment_once(db, monkeypatch):
+    user = await create_worker(db)
+    deposit = Deposit(user_id=user.id, reference=f"dep_{uuid.uuid4().hex[:16]}", amount_kobo=275_000, status="pending")
+    db.add(deposit)
+    await db.commit()
+    calls = 0
+
+    async def verify(reference):
+        nonlocal calls
+        calls += 1
+        return {"status": "success", "amount": 275_000, "currency": "NGN"}
+
+    monkeypatch.setattr(paystack, "verify_transaction", verify)
+    client = await client_for(user, db)
+    try:
+        first = await client.get(f"/wallet/deposits/{deposit.reference}")
+        second = await client.get(f"/wallet/deposits/{deposit.reference}")
+    finally:
+        await client.aclose()
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["status"] == second.json()["status"] == "completed"
+    wallet = await db.scalar(select(Wallet).where(Wallet.user_id == user.id))
+    assert wallet.balance_kobo == 275_000
+    assert await db.scalar(select(func.count(Transaction.id)).where(Transaction.wallet_id == wallet.id, Transaction.type == "deposit")) == 1
+
+
+@pytest.mark.asyncio
+async def test_deposit_status_does_not_credit_provider_amount_mismatch(db, monkeypatch):
+    user = await create_worker(db)
+    deposit = Deposit(user_id=user.id, reference=f"dep_{uuid.uuid4().hex[:16]}", amount_kobo=275_000, status="pending")
+    db.add(deposit)
+    await db.commit()
+
+    async def verify(reference):
+        return {"status": "success", "amount": 274_999, "currency": "NGN"}
+
+    monkeypatch.setattr(paystack, "verify_transaction", verify)
+    client = await client_for(user, db)
+    try:
+        response = await client.get(f"/wallet/deposits/{deposit.reference}")
+    finally:
+        await client.aclose()
+
+    assert response.status_code == 409
+    wallet = await db.scalar(select(Wallet).where(Wallet.user_id == user.id))
+    assert wallet.balance_kobo == 0
+    assert deposit.status == "pending"
+
+
+@pytest.mark.asyncio
 async def test_successful_deposit_webhook_credits_once_and_duplicate_event_is_ignored(db, monkeypatch):
     user = await create_worker(db)
     deposit = Deposit(user_id=user.id, reference=f"dep_{uuid.uuid4().hex[:16]}", amount_kobo=500_000, status="pending")
