@@ -345,11 +345,11 @@ async def update_account_settings(
         if set(body.regional_preferences) - allowed_regional:
             raise HTTPException(400, "Unknown regional preference")
         values = body.regional_preferences
-        if "currency" in values and values["currency"] not in {"Nigerian Naira (₦)", "US Dollar ($)", "British Pound (£)"}:
+        if "currency" in values and (not isinstance(values["currency"], str) or values["currency"] not in {"Nigerian Naira (₦)", "US Dollar ($)", "British Pound (£)"}):
             raise HTTPException(400, "Unsupported currency")
-        if "timezone" in values and values["timezone"] not in {"Africa/Lagos (GMT+1)", "UTC"}:
+        if "timezone" in values and (not isinstance(values["timezone"], str) or values["timezone"] not in {"Africa/Lagos (GMT+1)", "UTC"}):
             raise HTTPException(400, "Unsupported timezone")
-        if "language" in values and values["language"] != "English":
+        if "language" in values and (not isinstance(values["language"], str) or values["language"] != "English"):
             raise HTTPException(400, "Unsupported language")
         if "autoRenew" in values and not isinstance(values["autoRenew"], bool):
             raise HTTPException(400, "Auto-renew must be true or false")
