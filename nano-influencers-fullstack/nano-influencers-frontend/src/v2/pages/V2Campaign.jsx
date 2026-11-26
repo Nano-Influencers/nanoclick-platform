@@ -75,7 +75,7 @@ function Sidebar() {
             <SidebarItem href="/dashboard" icon={assets.dashboard} label="Overview" />
             <SidebarItem href="/wallet" icon={assets.wallet} label="Wallet" />
             <SidebarItem href="/campaigns" icon={assets.campaign} label="Campaigns" active />
-            <SidebarItem href="#analytics" icon={assets.analytics} label="Analytics" />
+            <SidebarItem href="/analytics" icon={assets.analytics} label="Analytics" />
           </section>
           <section className="v2-campaign-support-nav">
             <p className="v2-campaign-nav-label">Support</p>
@@ -84,7 +84,7 @@ function Sidebar() {
           </section>
         </nav>
       </div>
-      <button className="v2-campaign-logout" type="button"><span>Log Out</span><img src={assets.logout} alt="" /></button>
+      <button className="v2-campaign-logout" type="button" onClick={async () => { await api.logout(); window.location.replace("/login"); }}><span>Log Out</span><img src={assets.logout} alt="" /></button>
     </aside>
   );
 }
@@ -95,7 +95,7 @@ function TopHeader({ profileOpen, onProfileClick }) {
       <div className="v2-campaign-mobile-brand"><Brand /></div>
       <p className="v2-campaign-welcome">Welcome Back 👋</p>
       <div className="v2-campaign-user">
-        <button className="v2-campaign-notification" type="button" aria-label="Notifications"><img src={assets.notification} alt="" /></button>
+        <a className="v2-campaign-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
         <button className={`v2-campaign-profile${profileOpen ? " is-open" : ""}`} type="button" aria-label="Open profile menu" aria-expanded={profileOpen} onClick={onProfileClick}><img src={assets.profile} alt="Adaeze O." /><span>Adaeze O.</span></button>
       </div>
     </header>
@@ -183,7 +183,7 @@ function MobileProfileMenu({ open, onClose }) {
       <button className="v2-dashboard-profile-backdrop" type="button" aria-label="Close profile menu" onClick={onClose} />
       <div className="v2-dashboard-profile-dropdown">
         <a href="/settings"><img src={assets.settings} alt="" /><span>Settings</span></a>
-        <button type="button"><img src={assets.logout} alt="" /><span>Log Out</span></button>
+        <button type="button" onClick={async () => { await api.logout(); window.location.replace("/login"); }}><img src={assets.logout} alt="" /><span>Log Out</span></button>
       </div>
     </div>
   );
