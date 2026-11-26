@@ -255,11 +255,11 @@ export function V2ManageCampaign() {
 }
 
 export function V2OngoingCampaigns() {
-  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Ongoing Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="ongoing" /></section></div>;
+  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Ongoing Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="ongoing" /></section></main></div>;
 }
 
 export function V2PendingCampaigns() {
-  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Pending Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="pending" /></section></div>;
+  return <div className="v2-cm-page"><main className="v2-cm-main"><BackHeader /><h1>Pending Campaigns</h1><section className="v2-cm-list-panel"><CampaignsData mode="pending" /></section></main></div>;
 }
 
 export function V2CampaignNotifications() {
