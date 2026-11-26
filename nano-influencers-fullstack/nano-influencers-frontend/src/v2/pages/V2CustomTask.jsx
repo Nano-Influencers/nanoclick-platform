@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { api } from "../../api.js";
 import "./v2-custom-task.css";
 
@@ -107,7 +107,7 @@ export default function V2CustomTask() {
     if (submitting) return;
     setSubmitting(true); setSubmitError("");
     try {
-      const draft = { taskCount, quantity, totalQuantity, country, targetState, delivery, startDate, startTime, fileName, privacyAccepted, termsAccepted, priceQuoteStatus: "unavailable" };
+      const draft = { taskCount, quantity, totalQuantity, country, targetState, delivery, startDate, startTime, privacyAccepted, termsAccepted, priceQuoteStatus: "unavailable" };
       const saved = await api.saveCampaignDraft({ payload: draft, creative_key: null });
       sessionStorage.setItem("v2CustomTaskDraft", JSON.stringify(draft));
       window.location.assign(`/campaigns/preview-selections?draft=${encodeURIComponent(saved.id)}`);
@@ -203,15 +203,7 @@ export default function V2CustomTask() {
               </div>
             </div>
 
-            <div className="v2-ct-upload-block">
-              <h2>Upload the Evidence (Screen Shot) of Image and link shared on your whatsapp status</h2>
-              <input ref={fileInput} type="file" accept="image/*" hidden onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} />
-              <button className="v2-ct-upload" type="button" onClick={() => fileInput.current?.click()}>
-                <img src={assets.upload} alt="" />
-                <strong>{fileName || "Choose file"}</strong>
-                <span>Size limit: 25mb</span>
-              </button>
-            </div>
+
           </section>
 
           <section className="v2-ct-panel v2-ct-terms">
