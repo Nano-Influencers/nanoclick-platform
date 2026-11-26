@@ -153,7 +153,7 @@ function ProfileSettings({ user, onUserUpdate }) {
   }, [user]);
   useEffect(() => { setAvatar(user?.avatar_url || null); }, [user?.avatar_url]);
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
-  const resetForm = () => { const parts = String(user?.full_name || "").trim().split(/\\s+/).filter(Boolean); setForm({ first: parts.shift() || "", last: parts.join(" "), email: user?.email || "", phone: user?.phone_number || "", currentPassword: "", newPassword: "", confirmPassword: "" }); setSaveError(""); setSaveSuccess(""); };
+  const resetForm = () => { const parts = String(user?.full_name || "").trim().split(/\s+/).filter(Boolean); setForm({ first: parts.shift() || "", last: parts.join(" "), email: user?.email || "", phone: user?.phone_number || "", currentPassword: "", newPassword: "", confirmPassword: "" }); setSaveError(""); setSaveSuccess(""); };
   const saveProfile = async () => {
     const fullName = [form.first, form.last].map((part) => part.trim()).filter(Boolean).join(" ");
     if (fullName.length < 2 || fullName.length > 255) { setSaveError("Enter a valid first and last name."); return; }
