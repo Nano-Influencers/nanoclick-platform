@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import V2Landing from "./pages/V2Landing.jsx";
 import V2Register from "./pages/V2Register.jsx";
 import V2Login from "./pages/V2Login.jsx";
+import V2OAuthCallback from "./pages/V2OAuthCallback.jsx";
 import V2ForgotPassword, {
   V2ForgotPasswordCode,
   V2ForgotPasswordReset,
@@ -67,6 +68,8 @@ if (pathname === "/" || pathname === "") {
   renderV2(<V2Register />);
 } else if (pathname === "/login") {
   renderV2(<V2Login />);
+} else if (pathname === "/oauth-callback") {
+  renderV2(<V2OAuthCallback />);
 } else if (pathname === "/forgot-password/code") {
   renderV2(<V2ForgotPasswordCode />);
 } else if (pathname === "/forgot-password/reset") {
