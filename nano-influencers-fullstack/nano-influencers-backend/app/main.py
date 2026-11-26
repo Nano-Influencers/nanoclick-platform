@@ -10,7 +10,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from app.config import settings
 from app.database import AsyncSessionLocal, engine
-from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards
+from app.routers import auth, wallet, campaigns, tasks, kyc, admin, notifications, rewards, support
 from app.routers import admin_audit, admin_mfa, admin_kyc_documents, campaign_reports, submission_revisions, admin_lifecycle, proofs, admin_rewards, admin_gifts, gifts
 from app.services.audit_service import record as record_audit
 from app.services.auth_service import decode_token
@@ -84,6 +84,7 @@ async def sensitive_endpoint_rate_limit(request: Request, call_next):
         "/wallet/withdraw": ("wallet-withdraw", 10, 3600),
         "/wallet/deposit/initialize": ("wallet-deposit", 10, 3600),
         "/wallet/resolve-account": ("wallet-resolve-account", 30, 900),
+        "/support/contact": ("support-contact", 5, 3600),
     }
     rule = rules.get(path)
     if rule:
@@ -129,6 +130,7 @@ async def sensitive_action_audit(request: Request, call_next):
     return response
 
 app.include_router(auth.router)
+app.include_router(support.router)
 app.include_router(wallet.router)
 app.include_router(campaigns.router)
 app.include_router(campaign_reports.router)
