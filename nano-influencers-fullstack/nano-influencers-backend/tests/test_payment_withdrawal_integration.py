@@ -6,6 +6,7 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user, require_worker
 from app.main import app
@@ -52,6 +53,20 @@ def clear_overrides():
     yield
     app.dependency_overrides.clear()
 
+
+
+@pytest.mark.asyncio
+async def test_deposit_initialization_is_disabled_until_payment_launch(db, monkeypatch):
+    user = await create_worker(db)
+    monkeypatch.setattr(settings, "PAYMENTS_ENABLED", False)
+    client = await client_for(user, db)
+    try:
+        response = await client.post("/wallet/deposit/initialize", json={"amount_ngn": "2500.00"})
+    finally:
+        await client.aclose()
+    assert response.status_code == 503
+    assert "temporarily disabled" in response.json()["detail"]
+    assert await db.scalar(select(func.count(Deposit.id)).where(Deposit.user_id == user.id)) == 0
 
 @pytest.mark.asyncio
 async def test_deposit_idempotency_prevents_duplicate_provider_initialization(db, monkeypatch):
