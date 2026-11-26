@@ -79,6 +79,6 @@ async def require_admin(request: Request, current_user: User = Depends(get_curre
     if not current_user.mfa_enabled or not current_user.mfa_secret:
         raise HTTPException(status_code=403, detail="Admin MFA must be enabled before using this endpoint")
     code = request.headers.get("X-Admin-MFA-Code", "").strip()
-    if not code or not pyotp.TOTP(current_user.mfa_secret).verify(code, valid_window=1):
+    stored_secret = decrypt_secret(current_user.mfa_secret)\n    if not is_encrypted(current_user.mfa_secret):\n        current_user.mfa_secret = encrypt_secret(stored_secret)\n    if not code or not pyotp.TOTP(stored_secret).verify(code, valid_window=1):
         raise HTTPException(status_code=401, detail="Valid admin MFA code required")
     return current_user
