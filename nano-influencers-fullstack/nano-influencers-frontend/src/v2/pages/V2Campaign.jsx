@@ -90,13 +90,20 @@ function Sidebar() {
 }
 
 function TopHeader({ profileOpen, onProfileClick }) {
+  const [user, setUser] = useState(null);
+  useEffect(() => { let active = true; api.me().then((profile) => { if (active) setUser(profile); }).catch(() => {}); return () => { active = false; }; }, []);
+  const displayName = user?.full_name || user?.email || "My Account";
+  const initials = displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
   return (
     <header className="v2-campaign-topbar">
       <div className="v2-campaign-mobile-brand"><Brand /></div>
       <p className="v2-campaign-welcome">Welcome Back 👋</p>
       <div className="v2-campaign-user">
         <a className="v2-campaign-notification" href="/campaigns/notifications" aria-label="Notifications"><img src={assets.notification} alt="" /></a>
-        <button className={`v2-campaign-profile${profileOpen ? " is-open" : ""}`} type="button" aria-label="Open profile menu" aria-expanded={profileOpen} onClick={onProfileClick}><img src={assets.profile} alt="Adaeze O." /><span>Adaeze O.</span></button>
+        <button className={`v2-campaign-profile${profileOpen ? " is-open" : ""}`} type="button" aria-label="Open profile menu" aria-expanded={profileOpen} onClick={onProfileClick}>
+          {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <span className="v2-campaign-avatar-fallback">{initials}</span>}
+          <span>{displayName}</span>
+        </button>
       </div>
     </header>
   );
