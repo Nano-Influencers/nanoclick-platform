@@ -179,7 +179,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, response: Response, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email))
+    result = await db.execute(select(User).where(func.lower(User.email) == str(body.email).strip().lower()))
     user = result.scalar_one_or_none()
     if not user: raise HTTPException(401, "Invalid credentials")
     if user.password_hash is None: raise HTTPException(400, f"This account uses {user.oauth_provider or 'social'} login")

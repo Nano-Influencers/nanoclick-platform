@@ -33,3 +33,22 @@
   .v2-auth-card{width:342px}
   .v2-auth-forgot .v2-auth-heading-copy p{max-width:342px}
 }
+
+
+/* Authentication feedback must remain clearly visible on the login form. */
+.v2-auth-error {
+  width: 100%;
+  margin: -8px 0 0;
+  padding: 10px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.v2-auth-submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}

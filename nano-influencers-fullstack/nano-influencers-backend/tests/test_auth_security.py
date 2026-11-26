@@ -16,6 +16,7 @@ from app.services.auth_service import (
     hash_token_identifier,
     new_oauth_state,
     token_jti,
+    hash_password,
 )
 
 
@@ -197,3 +198,24 @@ async def test_expired_oauth_code_is_rejected(db_factory):
     async with _client() as client:
         response = await client.post("/auth/oauth/exchange", params={"code": code})
         assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_login_matches_email_case_insensitively_and_rejects_wrong_password(db_factory):
+    password = "Correct-Horse-123!"
+    async with db_factory() as db:
+        user = await _add_user(db, role="advertiser")
+        user.email = user.email.lower()
+        user.password_hash = hash_password(password)
+        user.email_verified = True
+        await db.commit()
+        login_email = user.email.upper()
+
+    async with _client() as client:
+        success = await client.post("/auth/login?platform=app", json={"email": login_email, "password": password})
+        assert success.status_code == 200
+        assert success.json()["access_token"]
+
+        wrong_password = await client.post("/auth/login?platform=app", json={"email": login_email, "password": "Definitely-Wrong-123!"})
+        assert wrong_password.status_code == 401
+        assert wrong_password.json()["detail"] == "Invalid credentials"
