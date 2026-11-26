@@ -268,7 +268,8 @@ function SummaryInfo({ icon, label, value, description }) {
 }
 
 export function V2WordOfMouthPreview() {
-  const [draft, setDraft] = useState({});\n  const [draftId, setDraftId] = useState(null);
+  const [draft, setDraft] = useState({});
+  const [draftId, setDraftId] = useState(null);
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState("");
   useEffect(() => {
@@ -278,6 +279,7 @@ export function V2WordOfMouthPreview() {
       return;
     }
     let active = true;
+    setDraftId(id);
     setDraftLoading(true);
     api.getCampaignDraft(id)
       .then((saved) => { if (active && saved?.payload) setDraft(saved.payload); })
