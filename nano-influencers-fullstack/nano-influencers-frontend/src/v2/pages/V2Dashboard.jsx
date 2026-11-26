@@ -127,7 +127,7 @@ function TopHeader({ profileOpen, onProfileClick, user }) {
   );
 }
 
-function BalanceCard({ balance }) {
+function BalanceCard({ balance, loading = false }) {
   return (
     <section className="v2-dashboard-balance-card">
       <img className="v2-dashboard-balance-decor" src={assets.balanceDecor} alt="" />
@@ -293,7 +293,7 @@ export default function V2Dashboard() {
         {profileError && <p role="status" className="v2-dashboard-profile-error">{profileError}</p>}
         <p className="v2-dashboard-welcome mobile-only">Welcome Back 👋</p>
         <div className="v2-dashboard-title-row desktop-only"><h1>Dashboard</h1><span className="v2-dashboard-date">Live account data</span></div>
-        <BalanceCard balance={wallet} />
+        <BalanceCard balance={wallet} loading={dashboardLoading} />
         <div className="v2-dashboard-metrics-scroll">{dashboardLoading ? <p role="status">Loading dashboard…</p> : dashboardMetrics.map((metric) => <MetricCard key={metric.title} metric={metric} />)}</div>
         <LaunchBanner />
         <div className="v2-dashboard-insights"><AnalyticsChart emptyState={emptyState} hasCampaigns={campaigns.length > 0} /><QuickActions /></div>
