@@ -46,7 +46,7 @@ def _get_redis() -> Redis:
     return _redis
 
 
-async def check_rate_limit(request: Request, name: str, limit: int, window_seconds: int) -> None:
+async def check_rate_limit(request: Request, name: str, limit: int, window_seconds: int, *, include_ip: bool = True) -> None:
     """Apply atomic IP + account fixed-window limits; fail closed in production."""
     if limit < 1 or window_seconds < 1:
         raise ValueError("limit and window_seconds must be positive")
@@ -55,7 +55,9 @@ async def check_rate_limit(request: Request, name: str, limit: int, window_secon
     identity_key = hashlib.sha256(str(identity).strip().lower().encode("utf-8")).hexdigest()[:32] if identity else "anonymous"
     redis = _get_redis()
     try:
-        dimensions = [("ip", ip_key)] + ([("account", identity_key)] if identity else [])
+        dimensions = ([("ip", ip_key)] if include_ip else []) + ([("account", identity_key)] if identity else [])
+        if not dimensions:
+            return
         for dimension, digest in dimensions:
             key = f"nanoclick:rl:{name}:{dimension}:{digest}"
             count, ttl = await redis.eval(_FIXED_WINDOW_SCRIPT, 1, key, window_seconds)
