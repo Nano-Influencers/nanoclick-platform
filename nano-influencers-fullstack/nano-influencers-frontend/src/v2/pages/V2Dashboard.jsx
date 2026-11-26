@@ -223,7 +223,7 @@ function LatestActivity({ rows = [], loading = false, error = "" }) {
 
 function ReferralSupport({ user }) {
   const [copied, setCopied] = useState(false);
-  const referral = user?.referral_code ? `https://nanoinfluencer.ng/ref/${encodeURIComponent(user.referral_code)}` : "Referral link unavailable";
+  const referral = user?.referral_code ? new URL(`/ref/${encodeURIComponent(user.referral_code)}`, window.location.origin).toString() : "Referral link unavailable";
   const copy = async () => {
     try { await navigator.clipboard.writeText(referral); setCopied(true); window.setTimeout(() => setCopied(false), 1400); } catch { setCopied(false); }
   };
