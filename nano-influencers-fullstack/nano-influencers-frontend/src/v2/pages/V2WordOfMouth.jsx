@@ -239,40 +239,74 @@ export function V2WordOfMouthPreview() {
   const [draft, setDraft] = useState({});
   const [draftLoading, setDraftLoading] = useState(false);
   const [draftError, setDraftError] = useState("");
-  useEffect(() => { const id = new URLSearchParams(window.location.search).get("draft"); if (!id) { setDraftError("No saved draft was provided. Return to the campaign builder and save a draft first."); return; } let active = true; setDraftLoading(true); api.getCampaignDraft(id).then((saved) => { if (active && saved?.payload) setDraft(saved.payload); }).catch((error) => { if (active) setDraftError(error.message || "Unable to load saved draft."); }).finally(() => { if (active) setDraftLoading(false); }); return () => { active = false; }; }, []);
-  const [accepted, setAccepted] = useState(() => window.innerWidth <= 700);
-  const budget = Number(draft.budget || 5000);
-  const total = budget;
-  const location = draft.targeting?.location || defaultDraft.targeting.location;
-  const demographics = draft.targeting?.demographics || defaultDraft.targeting.demographics;
-  const niche = draft.targeting?.niche || defaultDraft.targeting.niche;
-  const schedule = draft.startDate && draft.endDate ? `${draft.startDate} · ${draft.startTime || "09:00"} → ${draft.endDate} · ${draft.endTime || "21:00"}` : "05 Aug 2026 · 09:00 → 20 Aug 2026 · 21:00";
-  const purpose = draft.purpose || defaultDraft.purpose;
-  const campaignName = draft.campaignName || defaultDraft.campaignName;
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("draft");
+    if (!id) {
+      setDraftError("No saved draft was provided. Return to the campaign builder and save a draft first.");
+      return;
+    }
+    let active = true;
+    setDraftLoading(true);
+    api.getCampaignDraft(id)
+      .then((saved) => { if (active && saved?.payload) setDraft(saved.payload); })
+      .catch((error) => { if (active) setDraftError(error.message || "Unable to load saved draft."); })
+      .finally(() => { if (active) setDraftLoading(false); });
+    return () => { active = false; };
+  }, []);
 
-  const confirm = () => {
-    setDraftError("Your draft is saved, but campaign launch is paused until the backend quote and verified wallet-debit workflow is available. No funds have been charged.");
-  };
+  const location = draft.targeting?.location || {};
+  const demographics = draft.targeting?.demographics || {};
+  const niche = draft.targeting?.niche || {};
+  const budget = Number(draft.budget || 0);
+  const schedule = draft.startDate && draft.endDate
+    ? `${draft.startDate} · ${draft.startTime || "Not set"} → ${draft.endDate} · ${draft.endTime || "Not set"}`
+    : "Not set";
 
   return (
     <main className="ni-v2 v2-wom-preview-page">
       <div className="v2-wom-preview-shell">
-        <header className="v2-wom-backbar"><button type="button" onClick={() => go("/campaigns/word-of-mouth")}><img src={assets.arrowLeft} alt="" /><span>Go Back</span></button></header>
-        <h1 className="v2-wom-summary-title">Order Summary</h1>{draftLoading && <p role="status">Loading saved draft…</p>}{draftError && <p role="alert">{draftError}</p>}
-
-        <section className="v2-wom-summary-panel v2-wom-ad-summary">
-          <h2>Ad Overview</h2>
-          <div className="v2-wom-summary-grid"><SummaryInfo icon={assets.megaphone} label="Campaign Name:" value={campaignName} /><SummaryInfo icon={assets.radar} label="Campaign Purpose" value={purpose} /></div>
-          <div className="v2-wom-summary-section"><h2>Ad Creatives</h2><div className="v2-wom-creative-preview"><img src={assets.creative} alt="Campaign creative" /><span>📎 {draft.fileName || "No creative uploaded"}</span></div><div className="v2-wom-link-preview"><img src={assets.link} alt="" /><span>{draft.adLink || "Not provided"}</span></div><div className="v2-wom-copy-preview"><strong>Ad Copy</strong><p>{draft.adText || "Not provided"}</p></div></div>
-          <div className="v2-wom-summary-section v2-wom-target-summary"><h2>Targeting</h2><p><i /> <span>LOCATION TARGETING:</span> {location.state || "Not specified"} — {location.area || "Not specified"}</p><p><i /> <span>BASIC DEMOGRAPHICS TARGETING:</span> Age {demographics.age || "Not specified"} · {demographics.gender || "Not specified"}</p><p><i /> <span>TARGET NICHE:</span> {niche.value || "Not specified"}</p></div>
-          <div className="v2-wom-summary-section"><div className="v2-wom-summary-grid"><SummaryInfo icon={assets.schedule} label="Schedule" value={schedule} /><SummaryInfo icon={assets.budget} label="Budget" value={`₦${budget.toLocaleString("en-NG")}`} /></div></div>
-        </section>
-
-        <section className="v2-wom-summary-panel v2-wom-performance"><h2>Estimated Ads Performance</h2><div className="v2-wom-summary-grid"><SummaryInfo icon={assets.reach} label="Potential Reach" description="people would see this ad" value="Unavailable until a verified quote is configured" /><SummaryInfo icon={assets.impressions} label="Impressions" description="times your ad is shown" value="Awaiting live quote" /></div><div className="v2-wom-delivery"><h2>Delivery Mode</h2><p className="is-green"><i /> <strong>WhatsApp</strong> — DMs, Status, and Group Chats</p><p className="is-orange"><i /> <strong>Instagram</strong> — DMs, Story, Post, Comment Session and Group Chats</p><p className="is-blue"><i /> <strong>Facebook</strong> — DMs, Messenger, Story, Post, Comment Sessions &amp; Groups</p></div><div className="v2-wom-warning">⚠️ <span>If targeting is too narrow it might take longer to exhaust the ad cost. Expand your target audience a bit to get the best reach.</span></div></section>
-
-        <section className="v2-wom-summary-panel v2-wom-payment"><h2>Payment Summary</h2><div><span>Draft budget</span><strong>{budget > 0 ? `₦${budget.toLocaleString("en-NG")}` : "Not provided"}</strong></div><p role="status">Campaign launch is paused. No payment has been initialized and no wallet funds have been charged.</p></section>
-
-        <section className="v2-wom-summary-panel v2-wom-terms"><h2>Terms &amp; Conditions</h2><label><input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} /><span>{accepted ? "✓" : ""}</span><p>I have read and agreed to the terms &amp; conditions of this service. Read terms and conditions here</p></label></section>
+        <header className="v2-wom-backbar"><button type="button" onClick={() => go("/campaigns/word-of-mouth")}><img src={assets.arrowLeft} alt="" /><span>Back to draft</span></button></header>
+        <h1 className="v2-wom-summary-title">Campaign Draft Review</h1>
+        {draftLoading && <p role="status">Loading saved draft…</p>}
+        {draftError && <p role="alert">{draftError}</p>}
+        {!draftLoading && !draftError && (
+          <>
+            <section className="v2-wom-summary-panel v2-wom-ad-summary">
+              <h2>Ad Overview</h2>
+              <div className="v2-wom-summary-grid">
+                <SummaryInfo icon={assets.megaphone} label="Campaign Name" value={draft.campaignName || "Not provided"} />
+                <SummaryInfo icon={assets.radar} label="Campaign Purpose" value={draft.purpose || "Not provided"} />
+              </div>
+              <div className="v2-wom-summary-section">
+                <h2>Ad Creatives</h2>
+                <p>Creative file: {draft.fileName || "No creative uploaded"}</p>
+                <p>Storage: {draft.creativeKey ? "Uploaded and confirmed" : "No file uploaded"}</p>
+                <div className="v2-wom-link-preview"><img src={assets.link} alt="" /><span>{draft.adLink || "No destination link provided"}</span></div>
+                <div className="v2-wom-copy-preview"><strong>Ad Copy</strong><p>{draft.adText || "No ad copy provided"}</p></div>
+              </div>
+              <div className="v2-wom-summary-section v2-wom-target-summary">
+                <h2>Targeting</h2>
+                <p><i /> <span>LOCATION:</span> {location.state || "Not specified"} — {location.area || "Not specified"}</p>
+                <p><i /> <span>DEMOGRAPHICS:</span> Age {demographics.age || "Not specified"} · {demographics.gender || "Not specified"}</p>
+                <p><i /> <span>TARGET NICHE:</span> {niche.value || "Not specified"}</p>
+              </div>
+              <div className="v2-wom-summary-section">
+                <div className="v2-wom-summary-grid">
+                  <SummaryInfo icon={assets.schedule} label="Schedule" value={schedule} />
+                  <SummaryInfo icon={assets.budget} label="Draft Budget" value={budget > 0 ? `₦${budget.toLocaleString("en-NG")}` : "Not provided"} />
+                </div>
+              </div>
+            </section>
+            <section className="v2-wom-summary-panel v2-wom-performance">
+              <h2>Estimated Performance</h2>
+              <p>Reach and impression estimates are unavailable until an approved server-side pricing and delivery quote is configured.</p>
+            </section>
+            <section className="v2-wom-summary-panel v2-wom-payment">
+              <h2>Payment Status</h2>
+              <p>Campaign launch is paused. No payment has been initialized and no wallet funds have been charged.</p>
+            </section>
+          </>
+        )}
         <button className="v2-wom-confirm" type="button" disabled>Campaign Launch Paused</button>
       </div>
     </main>
