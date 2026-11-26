@@ -70,6 +70,7 @@ async def test_deposit_initialization_is_disabled_until_payment_launch(db, monke
 
 @pytest.mark.asyncio
 async def test_deposit_idempotency_prevents_duplicate_provider_initialization(db, monkeypatch):
+    monkeypatch.setattr(settings, "PAYMENTS_ENABLED", True)
     user = await create_worker(db)
     calls = 0
 
