@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import "./v2-dashboard-extras.css";
 
@@ -58,28 +58,19 @@ function RequirementCard({ number, icon, title, children, chips }) {
 }
 
 function UploadProof({ icon = assets.upload, description }) {
-  const inputRef = useRef(null);
-  const [fileName, setFileName] = useState("");
   return (
     <section className="v2-extra-panel v2-extra-upload-panel">
       <div className="v2-extra-section-heading">
         <h2>Submit Proof of your Ad Post</h2>
         <p>{description}</p>
       </div>
-      <input
-        ref={inputRef}
-        className="v2-extra-file-input"
-        type="file"
-        accept="image/*"
-        onChange={(event) => setFileName(event.target.files?.[0]?.name || "")}
-      />
-      <button className="v2-extra-dropzone" type="button" onClick={() => inputRef.current?.click()}>
+      <div className="v2-extra-dropzone is-disabled" aria-disabled="true">
         <img src={icon} alt="" />
-        <strong>{fileName || "Choose file"}</strong>
-        <span>{fileName ? "Tap to choose another file" : "Size limit: 5mb"}</span>
-      </button>
+        <strong>Proof uploads are not available yet</strong>
+        <span>No file has been selected or submitted.</span>
+      </div>
       <button className="v2-extra-primary" type="button" disabled>Proof submission unavailable</button>
-      <p className="v2-extra-review-note">Proof submission is temporarily unavailable while the review workflow is being connected. No proof has been submitted.</p>
+      <p className="v2-extra-review-note">Proof submission is paused until secure storage, eligibility checks and an admin review workflow are connected. No proof has been submitted.</p>
     </section>
   );
 }
