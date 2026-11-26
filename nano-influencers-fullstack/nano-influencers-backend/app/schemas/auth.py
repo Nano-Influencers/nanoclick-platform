@@ -1,24 +1,45 @@
+import re
 import uuid
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
-    full_name: str
+    password: str = Field(min_length=8, max_length=128)
+    full_name: str = Field(min_length=2, max_length=255)
     role: str
     referral_code: str | None = None
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Please enter your full name")
+        return value
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: str) -> str:
+        if value not in {"advertiser", "worker"}:
+            raise ValueError("role must be advertiser or worker")
+        return value
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
 
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str | None = None
     token_type: str = "bearer"
 
+
 class RefreshRequest(BaseModel):
     refresh_token: str | None = None
+
 
 class UserResponse(BaseModel):
     id: uuid.UUID
@@ -28,18 +49,48 @@ class UserResponse(BaseModel):
     referral_code: str
     kyc_verified: bool
     email_verified: bool = False
+    phone_number: str | None = None
     model_config = {"from_attributes": True}
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str | None = Field(default=None, min_length=2, max_length=255)
+    phone_number: str | None = Field(default=None, max_length=32)
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_profile_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Name must contain at least 2 characters")
+        return value
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone_number(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        normalized = re.sub(r"[\s()-]", "", value)
+        if not re.fullmatch(r"\+?\d{7,15}", normalized):
+            raise ValueError("Enter a valid phone number with 7 to 15 digits")
+        return normalized
+
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+
 
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
 
 class SendOTPRequest(BaseModel):
     email: EmailStr
