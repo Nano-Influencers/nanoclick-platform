@@ -55,7 +55,7 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    if request.url.path.startswith(("/auth/", "/wallet/", "/kyc/")):
+    if request.url.path.startswith(("/auth/", "/wallet/", "/kyc/", "/admin/", "/campaigns/drafts", "/support/")):
         response.headers["Cache-Control"] = "no-store"
     if _is_production:
         response.headers["Content-Security-Policy-Report-Only"] = "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:"
