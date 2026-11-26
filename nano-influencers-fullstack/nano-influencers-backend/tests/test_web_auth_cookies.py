@@ -46,13 +46,26 @@ async def test_web_login_uses_httponly_refresh_cookie_without_returning_refresh_
             assert "HttpOnly" in set_cookie
             assert "Path=/auth" in set_cookie
 
-            refresh = await client.post("/auth/refresh?platform=web")
+            refresh = await client.post("/auth/refresh?platform=web", headers={"Origin": "http://localhost"})
             assert refresh.status_code == 200
             assert refresh.json()["access_token"]
             assert refresh.json().get("refresh_token") is None
 
-            logout = await client.post("/auth/logout?platform=web")
+            logout = await client.post("/auth/logout?platform=web", headers={"Origin": "http://localhost"})
             assert logout.status_code == 200
             assert "nanoclick_refresh=" in logout.headers.get("set-cookie", "")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+@pytest.mark.asyncio
+async def test_cookie_refresh_rejects_cross_site_origin(db):
+    async def override_db():
+        yield db
+    app.dependency_overrides[get_db] = override_db
+    try:
+        async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            client.cookies.set("nanoclick_refresh", "not-a-valid-token", domain="test", path="/auth")
+            response = await client.post("/auth/refresh?platform=web", headers={"Origin": "https://attacker.example"})
+            assert response.status_code == 403
     finally:
         app.dependency_overrides.pop(get_db, None)
