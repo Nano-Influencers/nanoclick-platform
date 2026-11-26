@@ -147,6 +147,18 @@ def delete_storage_object(file_key: str) -> None:
     _s3().delete_object(Bucket=settings.S3_BUCKET_NAME, Key=file_key)
 
 
+def _matches_signature(extension: str, signature: bytes) -> bool:
+    signatures = {
+        "jpg": signature.startswith(b"\xff\xd8\xff"),
+        "jpeg": signature.startswith(b"\xff\xd8\xff"),
+        "png": signature.startswith(b"\x89PNG\r\n\x1a\n"),
+        "webp": len(signature) >= 12 and signature[:4] == b"RIFF" and signature[8:12] == b"WEBP",
+        "pdf": signature.startswith(b"%PDF-"),
+        "mp4": len(signature) >= 8 and signature[4:8] == b"ftyp",
+    }
+    return signatures.get(extension, False)
+
+
 def validate_uploaded_object(file_key: str, required_prefix: str) -> dict:
     """Verify existence, caller namespace, size and content type server-side."""
     ext = _validate_key(file_key)
