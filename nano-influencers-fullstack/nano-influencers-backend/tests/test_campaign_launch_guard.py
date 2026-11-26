@@ -11,12 +11,12 @@ from app.dependencies import require_advertiser
 from app.main import app
 from app.models.campaign import Campaign
 from app.models.user import User
-from app.models.wallet import Wallet
+from app.models.wallet import Wallet\nfrom app.routers import campaigns as campaigns_router
 
 
 @pytest.mark.asyncio
 async def test_campaign_launch_is_server_side_disabled_without_debit(db, monkeypatch):
-    monkeypatch.setattr(settings, "CAMPAIGN_LAUNCH_ENABLED", False)
+    monkeypatch.setattr(settings, "CAMPAIGN_LAUNCH_ENABLED", True)\n    monkeypatch.setattr(campaigns_router, "CAMPAIGN_LAUNCH_VERIFIED", False)
     user = User(
         email=f"paused-campaign-{uuid.uuid4().hex}@example.com",
         full_name="Advertiser",
