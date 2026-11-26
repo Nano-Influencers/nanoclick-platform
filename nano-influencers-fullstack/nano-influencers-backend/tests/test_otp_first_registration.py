@@ -134,6 +134,10 @@ async def test_profile_phone_update_requires_auth_and_persists_name_and_phone(db
             assert updated.status_code == 200
             assert updated.json()["full_name"] == "New Profile Name"
             assert updated.json()["phone_number"] == "+2348012345678"
+            await db.commit()
+            await db.refresh(user)
+            assert user.full_name == "New Profile Name"
+            assert user.phone_number == "+2348012345678"
 
             invalid_phone = await client.patch(
                 "/auth/me/profile",
