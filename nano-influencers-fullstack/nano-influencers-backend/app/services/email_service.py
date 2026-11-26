@@ -59,3 +59,12 @@ async def send_verification_otp(recipient: str, code: str) -> None:
         "This code expires in 10 minutes. If you did not request it, ignore this email."
     )
     await _send_email(recipient, "Your Nano Influencers verification code", text)
+
+
+async def send_support_message(recipient: str, sender_name: str, sender_email: str, message: str) -> None:
+    """Forward an authenticated customer's support request to the configured inbox."""
+    text = (
+        f"Support request from {sender_name} <{sender_email}>\n\n"
+        f"{message}\n"
+    )
+    await _send_email(recipient, "Nano Influencers support request", text)
