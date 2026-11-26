@@ -18,7 +18,7 @@ from app.models.email_otp import EmailOTP
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.schemas.auth import AvatarConfirmRequest, AvatarUploadRequest, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
+from app.schemas.auth import NotificationPreferencesRequest, AvatarConfirmRequest, AvatarUploadRequest, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
 from app.services.auth_service import create_access_token, create_refresh_token, decode_token, generate_referral_code, hash_password, hash_token_identifier, new_oauth_state, token_jti, verify_password
 from app.services.email_service import send_password_reset_email, send_verification_otp
 from app.services.pending_registration import (acquire_pending_lock, delete_pending_registration, load_pending_registration, release_pending_lock, save_pending_registration)
@@ -298,6 +298,24 @@ async def confirm_avatar_upload(
 @router.delete("/me/avatar", response_model=UserResponse)
 async def remove_avatar(current_user: User = Depends(get_current_user)):
     current_user.avatar_key = None
+    return _user_response_payload(current_user)
+
+
+@router.patch("/me/notification-preferences", response_model=UserResponse)
+async def update_notification_preferences(
+    body: NotificationPreferencesRequest,
+    current_user: User = Depends(get_current_user),
+):
+    allowed = {
+        "emailCampaign", "emailWallet", "emailMarketing",
+        "pushCampaign", "pushWallet", "pushMessages", "smsCritical",
+    }
+    if set(body.notification_preferences) - allowed:
+        raise HTTPException(400, "Unknown notification preference")
+    current_user.notification_preferences = {
+        **(current_user.notification_preferences or {}),
+        **body.notification_preferences,
+    }
     return _user_response_payload(current_user)
 
 
