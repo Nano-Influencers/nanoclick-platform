@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../api.js";
 import "./v2-auth.css";
 
 export default function V2OAuthCallback() {
+  const navigate = useNavigate();
   const code = new URLSearchParams(window.location.search).get("oauth_code") || "";
   const started = useRef(false);
   const [error, setError] = useState("");
@@ -16,7 +17,7 @@ export default function V2OAuthCallback() {
       return;
     }
     api.exchangeOAuthCode(code)
-      .then(() => window.location.assign("/dashboard"))
+      .then(() => navigate("/dashboard", { replace: true }))
       .catch((err) => setError(err.message || "Social sign-in failed. Please try again."));
   }, [code, navigate]);
 
