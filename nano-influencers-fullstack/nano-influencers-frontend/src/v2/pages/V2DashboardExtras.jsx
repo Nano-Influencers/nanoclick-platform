@@ -78,8 +78,8 @@ function UploadProof({ icon = assets.upload, description }) {
         <strong>{fileName || "Choose file"}</strong>
         <span>{fileName ? "Tap to choose another file" : "Size limit: 5mb"}</span>
       </button>
-      <button className="v2-extra-primary" type="button">Submit Proof</button>
-      <p className="v2-extra-review-note">Reviewed manually — usually within 30 minutes.</p>
+      <button className="v2-extra-primary" type="button" disabled>Proof submission unavailable</button>
+      <p className="v2-extra-review-note">Proof submission is temporarily unavailable while the review workflow is being connected. No proof has been submitted.</p>
     </section>
   );
 }
@@ -103,10 +103,7 @@ export function V2FreeTrial() {
           subtitle="Only 5 trials are released each week. Complete the four requirements below and your access unlocks as soon as your proof clears review."
         />
 
-        <section className="v2-trial-status">
-          <img src={assets.award} alt="" />
-          <div><p><strong>2</strong><span>of 5 trials left this week</span></p><small>Resets every Monday at 00:00 WAT · 3 already claimed</small></div>
-        </section>
+        <section className="v2-trial-status"><p>Trial availability is currently being verified. No remaining-trial count is available.</p></section>
 
         <section className="v2-extra-panel">
           <div className="v2-extra-section-heading"><h2>How to Qualify</h2><p>All four steps are required. Skipping any one of them voids the submission.</p></div>
@@ -154,7 +151,7 @@ const giveawayTerms = [
   },
   {
     title: "03. Giveaway Timeline",
-    body: <><p>Giveaway Timeline This giveaway runs strictly from 17th to 24th January 2026.</p><p>Any purchase or activity made before or after these dates will not count for this week's giveaway.</p></>,
+    body: <>The current giveaway schedule has not been published. Check this page for confirmed dates before making a purchase for giveaway eligibility.</>,
   },
   {
     title: "04. Eligibility",
@@ -270,17 +267,10 @@ export function V2WeeklyGiveaway() {
         <PageIntro title="Weekly Giveaway" subtitle="Spend, share, and win this week" />
 
         <section className="v2-extra-panel v2-giveaway-prize">
-          <div className="v2-giveaway-image"><img src={assets.blender} alt="Multipurpose kitchen blender" /></div>
-          <div className="v2-giveaway-controls" aria-label="Prize carousel controls">
-            <button type="button"><img src={assets.carouselLeft} alt="Previous prize" /></button>
-            <div><i className="is-active" /><i /><i /></div>
-            <button type="button"><img src={assets.carouselRight} alt="Next prize" /></button>
-          </div>
           <div className="v2-giveaway-prize-copy">
-            <span>Grand prize</span>
-            <h2>Multipurpose Kitchen Blender</h2>
-            <p>Estimated value <strong>₦145,000</strong> · delivered free anywhere in Nigeria.</p>
-            <a href="#walkthrough"><img src={assets.video} alt="" />Watch the 60-second walkthrough</a>
+            <span>Prize information</span>
+            <h2>Current prizes are not yet available</h2>
+            <p>Confirmed prizes, values and giveaway dates will appear here when the live giveaway programme is connected.</p>
           </div>
         </section>
 
