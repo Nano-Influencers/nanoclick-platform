@@ -33,7 +33,8 @@ export default function V2Login() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const loginReason = new URLSearchParams(window.location.search).get("reason");
+  const [error, setError] = useState(loginReason === "session_expired" ? "Your session has expired. Please log in again." : "");
   const [busy, setBusy] = useState(false);
 
   const submit = async (event) => {
