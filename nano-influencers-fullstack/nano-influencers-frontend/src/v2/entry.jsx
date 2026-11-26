@@ -1,9 +1,10 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter, useLocation } from "react-router-dom";
 import V2Landing from "./pages/V2Landing.jsx";
 import V2Register from "./pages/V2Register.jsx";
 import V2Login from "./pages/V2Login.jsx";
+import V2OAuthCallback from "./pages/V2OAuthCallback.jsx";
 import V2ForgotPassword, {
   V2ForgotPasswordCode,
   V2ForgotPasswordReset,
@@ -45,100 +46,59 @@ import { EmailVerificationPage } from "./pages/V2Verification.jsx";
 
 installV2Navigation();
 
-const pathname = window.location.pathname;
 const root = document.getElementById("root");
 const socialCreatorPath = /^\/campaigns\/create\/(facebook|youtube|x|twitter|instagram|tiktok|linkedin|audiomack|boomplay|spotify|youtube-music)$/;
 
-function renderV2(component) {
-  createRoot(root).render(
-    <React.StrictMode>
-      <V2ErrorBoundary>
-        <V2ConnectivityGate>
-          <BrowserRouter>{component}</BrowserRouter>
-        </V2ConnectivityGate>
-      </V2ErrorBoundary>
-    </React.StrictMode>,
-  );
+function V2RouteResolver() {
+  const { pathname } = useLocation();
+  if (pathname === "/" || pathname === "") return <V2Landing />;
+  if (pathname === "/register") return <V2Register />;
+  if (pathname === "/login") return <V2Login />;
+  if (pathname === "/oauth-callback") return <V2OAuthCallback />;
+  if (pathname === "/forgot-password/code") return <V2ForgotPasswordCode />;
+  if (pathname === "/forgot-password/reset") return <V2ForgotPasswordReset />;
+  if (pathname === "/forgot-password/success") return <V2ForgotPasswordSuccess />;
+  if (pathname === "/forgot-password") return <V2ForgotPassword />;
+  if (pathname === "/verify-email") return <EmailVerificationPage />;
+  if (pathname === "/dashboard/free-trial") return <V2FreeTrial />;
+  if (pathname === "/dashboard/giveaway") return <V2WeeklyGiveaway />;
+  if (pathname === "/wallet/success") return <V2WalletSuccess />;
+  if (pathname === "/wallet") return <V2Wallet />;
+  if (pathname === "/settings") return <V2Settings />;
+  if (pathname === "/help-support" || pathname === "/support") return <V2HelpSupport />;
+  if (pathname === "/campaigns/create/whatsapp" || pathname === "/campaigns/create/telegram") return <V2WhatsAppTaskCampaign />;
+  if (socialCreatorPath.test(pathname)) return <V2SocialTaskCampaign />;
+  if (pathname === "/campaigns/word-of-mouth/insufficient-balance") return <V2InsufficientBalance />;
+  if (pathname === "/campaigns/word-of-mouth/subscription-success") return <V2SubscriptionSuccessful />;
+  if (pathname === "/campaigns/word-of-mouth/preview") return <V2WordOfMouthPreview />;
+  if (pathname === "/campaigns/word-of-mouth") return <V2WordOfMouth />;
+  if (pathname === "/campaigns/custom-task/insufficient-balance") return <V2InsufficientBalance />;
+  if (pathname === "/campaigns/custom-task/subscription-success") return <V2SubscriptionSuccessful />;
+  if (pathname === "/campaigns/custom-task") return <V2CustomTask />;
+  if (pathname === "/campaigns/subscription-success") return <V2SubscriptionSuccessful />;
+  if (pathname === "/campaigns/insufficient-balance") return <V2InsufficientBalance />;
+  if (pathname === "/campaigns/preview-selections") return <V2PreviewSelections />;
+  if (pathname === "/campaigns/social-media-details") return <V2SocialMediaDetails />;
+  if (pathname === "/campaigns/select-package") return <V2SelectPackage />;
+  if (pathname === "/campaigns/manage") return <V2ManageCampaign />;
+  if (pathname === "/campaigns/ongoing") return <V2OngoingCampaigns />;
+  if (pathname === "/campaigns/pending") return <V2PendingCampaigns />;
+  if (pathname === "/campaigns/notifications") return <V2CampaignNotifications />;
+  if (pathname === "/campaigns") return <V2Campaign />;
+  if (pathname === "/dashboard" || pathname === "/app") return <V2Dashboard />;
+  if (pathname === "/system/error") return <V2SystemState type="error" />;
+  if (pathname === "/system/offline") return <V2SystemState type="offline" />;
+  if (pathname === "/analytics") return <V2Analytics />;
+  if (pathname === "/404") return <V2SystemState type="not-found" />;
+  return <V2SystemState type="not-found" />;
 }
 
-if (pathname === "/" || pathname === "") {
-  renderV2(<V2Landing />);
-} else if (pathname === "/register") {
-  renderV2(<V2Register />);
-} else if (pathname === "/login") {
-  renderV2(<V2Login />);
-} else if (pathname === "/forgot-password/code") {
-  renderV2(<V2ForgotPasswordCode />);
-} else if (pathname === "/forgot-password/reset") {
-  renderV2(<V2ForgotPasswordReset />);
-} else if (pathname === "/forgot-password/success") {
-  renderV2(<V2ForgotPasswordSuccess />);
-} else if (pathname === "/forgot-password") {
-  renderV2(<V2ForgotPassword />);
-} else if (pathname === "/verify-email") {
-  renderV2(<EmailVerificationPage />);
-} else if (pathname === "/dashboard/free-trial") {
-  renderV2(<V2FreeTrial />);
-} else if (pathname === "/dashboard/giveaway") {
-  renderV2(<V2WeeklyGiveaway />);
-} else if (pathname === "/wallet/success") {
-  renderV2(<V2WalletSuccess />);
-} else if (pathname === "/wallet") {
-  renderV2(<V2Wallet />);
-} else if (pathname === "/settings") {
-  renderV2(<V2Settings />);
-} else if (pathname === "/help-support" || pathname === "/support") {
-  renderV2(<V2HelpSupport />);
-} else if (pathname === "/campaigns/create/whatsapp" || pathname === "/campaigns/create/telegram") {
-  renderV2(<V2WhatsAppTaskCampaign />);
-} else if (socialCreatorPath.test(pathname)) {
-  renderV2(<V2SocialTaskCampaign />);
-} else if (pathname === "/campaigns/word-of-mouth/insufficient-balance") {
-  renderV2(<V2InsufficientBalance />);
-} else if (pathname === "/campaigns/word-of-mouth/subscription-success") {
-  renderV2(<V2SubscriptionSuccessful />);
-} else if (pathname === "/campaigns/word-of-mouth/preview") {
-  renderV2(<V2WordOfMouthPreview />);
-} else if (pathname === "/campaigns/word-of-mouth") {
-  renderV2(<V2WordOfMouth />);
-} else if (pathname === "/campaigns/custom-task/insufficient-balance") {
-  renderV2(<V2InsufficientBalance />);
-} else if (pathname === "/campaigns/custom-task/subscription-success") {
-  renderV2(<V2SubscriptionSuccessful />);
-} else if (pathname === "/campaigns/custom-task") {
-  renderV2(<V2CustomTask />);
-} else if (pathname === "/campaigns/subscription-success") {
-  renderV2(<V2SubscriptionSuccessful />);
-} else if (pathname === "/campaigns/insufficient-balance") {
-  renderV2(<V2InsufficientBalance />);
-} else if (pathname === "/campaigns/preview-selections") {
-  renderV2(<V2PreviewSelections />);
-} else if (pathname === "/campaigns/social-media-details") {
-  renderV2(<V2SocialMediaDetails />);
-} else if (pathname === "/campaigns/select-package") {
-  renderV2(<V2SelectPackage />);
-} else if (pathname === "/campaigns/manage") {
-  renderV2(<V2ManageCampaign />);
-} else if (pathname === "/campaigns/ongoing") {
-  renderV2(<V2OngoingCampaigns />);
-} else if (pathname === "/campaigns/pending") {
-  renderV2(<V2PendingCampaigns />);
-} else if (pathname === "/campaigns/notifications") {
-  renderV2(<V2CampaignNotifications />);
-} else if (pathname === "/campaigns/claim-success") {
-  renderV2(<V2ClaimSubmitted />);
-} else if (pathname === "/campaigns") {
-  renderV2(<V2Campaign />);
-} else if (pathname === "/dashboard" || pathname === "/app") {
-  renderV2(<V2Dashboard />);
-} else if (pathname === "/system/error") {
-  renderV2(<V2SystemState type="error" />);
-} else if (pathname === "/system/offline") {
-  renderV2(<V2SystemState type="offline" />);
-} else if (pathname === "/analytics") {
-  renderV2(<V2Analytics />);
-} else if (pathname === "/404") {
-  renderV2(<V2SystemState type="not-found" />);
-} else {
-  renderV2(<V2SystemState type="not-found" />);
-}
+createRoot(root).render(
+  <React.StrictMode>
+    <V2ErrorBoundary>
+      <V2ConnectivityGate>
+        <BrowserRouter><V2RouteResolver /></BrowserRouter>
+      </V2ConnectivityGate>
+    </V2ErrorBoundary>
+  </React.StrictMode>,
+);

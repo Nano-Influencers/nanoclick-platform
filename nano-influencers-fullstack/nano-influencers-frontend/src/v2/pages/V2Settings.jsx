@@ -110,11 +110,11 @@ function SectionCard({ title, subtitle, children, className = "" }) {
   );
 }
 
-function Field({ label, type = "text", value, onChange, placeholder, full = false }) {
+function Field({ label, type = "text", value, onChange, placeholder, full = false, disabled = false, readOnly = false }) {
   return (
     <label className={`v2-settings-field${full ? " is-full" : ""}`}>
       <span>{label}</span>
-      <input type={type} value={value} onChange={onChange} placeholder={placeholder} />
+      <input type={type} value={value} onChange={onChange} placeholder={placeholder} disabled={disabled} readOnly={readOnly} />
     </label>
   );
 }
@@ -132,9 +132,12 @@ function PasswordField({ label, value, onChange, placeholder }) {
   );
 }
 
-function ProfileSettings({ user }) {
+function ProfileSettings({ user, onUserUpdate }) {
   const uploadRef = useRef(null);
   const [avatar, setAvatar] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState("");
   const [form, setForm] = useState({ first: "", last: "", email: "", phone: "", currentPassword: "", newPassword: "", confirmPassword: "" });
   useEffect(() => {
     const parts = String(user?.full_name || "").trim().split(/\s+/).filter(Boolean);
@@ -147,6 +150,22 @@ function ProfileSettings({ user }) {
     }));
   }, [user]);
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const saveProfile = async () => {
+    const fullName = [form.first, form.last].map((part) => part.trim()).filter(Boolean).join(" ");
+    if (fullName.length < 2 || fullName.length > 255) { setSaveError("Enter a valid first and last name."); return; }
+    setSaving(true);
+    setSaveError("");
+    setSaveSuccess("");
+    try {
+      const updated = await api.updateProfile({ full_name: fullName, phone_number: form.phone.trim() || null });
+      onUserUpdate?.(updated);
+      setSaveSuccess("Profile updated successfully.");
+    } catch (error) {
+      setSaveError(error.message || "Unable to save profile changes.");
+    } finally {
+      setSaving(false);
+    }
+  };
   const onPhoto = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -170,10 +189,10 @@ function ProfileSettings({ user }) {
 
       <SectionCard title="Personal Information" subtitle="Update your account details">
         <div className="v2-settings-form-grid">
-          <Field label="First Name" value={form.first} onChange={set("first")} />
-          <Field label="Last Name" value={form.last} onChange={set("last")} />
-          <Field label="Email" type="email" value={form.email} onChange={set("email")} />
-          <Field label="Phone Number" value={form.phone} onChange={set("phone")} />
+          <Field label="First Name" value={form.first} onChange={set("first")} disabled={!user} />
+          <Field label="Last Name" value={form.last} onChange={set("last")} disabled={!user} />
+          <Field label="Email" type="email" value={form.email} readOnly disabled={!user} />
+          <Field label="Phone Number" value={form.phone} onChange={set("phone")} placeholder="+234..." disabled={!user} />
         </div>
       </SectionCard>
 
@@ -184,7 +203,9 @@ function ProfileSettings({ user }) {
           <PasswordField label="Confirm New Password" value={form.confirmPassword} onChange={set("confirmPassword")} placeholder="Re-enter your password" />
         </div>
       </SectionCard>
-      <SettingsActions />
+      {saveError && <p role="alert" className="v2-code-error">{saveError}</p>}
+      {saveSuccess && <p role="status">{saveSuccess}</p>}
+      <SettingsActions onSave={saveProfile} saving={saving} />
     </div>
   );
 }
@@ -277,8 +298,8 @@ function PreferenceSettings({ onDelete, user }) {
   );
 }
 
-function SettingsActions() {
-  return <div className="v2-settings-actions"><Button variant="secondary">Cancel</Button><Button>Save Changes</Button></div>;
+function SettingsActions({ onSave, saving = false }) {
+  return <div className="v2-settings-actions"><Button variant="secondary" disabled={saving}>Cancel</Button><Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button></div>;
 }
 
 function DeleteModal({ open, onClose }) {
@@ -304,8 +325,12 @@ export default function V2Settings() {
     let active = true;
     (async () => {
       try {
-        const restored = await api.restoreSession();
-        if (!restored) throw new Error("Your session has expired. Please log in again.");
+        const session = await api.restoreSession();
+        if (!session.ok) {
+          if (session.reason === "anonymous") { window.location.replace("/login"); return; }
+          if (session.reason === "expired") { window.location.replace("/login?reason=session_expired"); return; }
+          throw new Error("Unable to verify your session right now. Please try again.");
+        }
         const profile = await api.me();
         if (active) setUser(profile);
       } catch (error) {
@@ -353,7 +378,7 @@ export default function V2Settings() {
         </div>
         <div className="v2-settings-workspace">
           <SettingsTabs activeTab={activeTab} onChange={changeTab} />
-          {activeTab === "profile" && <ProfileSettings user={user} />}
+          {activeTab === "profile" && <ProfileSettings user={user} onUserUpdate={setUser} />}
           {activeTab === "notifications" && <NotificationSettings />}
           {activeTab === "preferences" && <PreferenceSettings onDelete={openDelete} user={user} />}
         </div>

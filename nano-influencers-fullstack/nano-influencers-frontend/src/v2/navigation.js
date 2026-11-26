@@ -1,3 +1,5 @@
+import { api } from "../api.js";
+
 const sidebarRoutes = {
   Dashboard: "/dashboard",
   Overview: "/dashboard",
@@ -29,7 +31,8 @@ function textOf(element) {
 
 function go(path) {
   if (!path || typeof window === "undefined") return;
-  window.location.assign(path);
+  window.history.pushState({}, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 
@@ -83,7 +86,10 @@ function ensureLogoutDialog() {
 
   dialog.querySelector(".v2-logout-confirm__backdrop").addEventListener("click", close);
   dialog.querySelector(".v2-logout-confirm__cancel").addEventListener("click", close);
-  dialog.querySelector(".v2-logout-confirm__submit").addEventListener("click", () => go("/login"));
+  dialog.querySelector(".v2-logout-confirm__submit").addEventListener("click", async () => {
+    await api.logout();
+    go("/login");
+  });
   document.body.appendChild(dialog);
   return dialog;
 }
@@ -212,13 +218,6 @@ export function installV2Navigation() {
 
   document.addEventListener("submit", (event) => {
     const form = event.target;
-
-    if (form?.matches?.(".v2-auth-login .v2-auth-form")) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      go("/dashboard");
-      return;
-    }
 
     if (form?.matches?.(".v2-ct-form")) {
       const params = new URLSearchParams(window.location.search);

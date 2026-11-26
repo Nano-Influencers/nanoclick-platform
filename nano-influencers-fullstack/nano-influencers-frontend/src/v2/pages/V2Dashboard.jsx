@@ -291,8 +291,12 @@ export default function V2Dashboard() {
       try {
         // The V2 shell mounts independently, so restore the refresh-cookie
         // session before requesting the authenticated profile.
-        const restored = await api.restoreSession();
-        if (!restored) throw new Error("Your session has expired. Please log in again.");
+        const session = await api.restoreSession();
+        if (!session.ok) {
+          if (session.reason === "anonymous") { window.location.replace("/login"); return; }
+          if (session.reason === "expired") { window.location.replace("/login?reason=session_expired"); return; }
+          throw new Error("Unable to verify your session right now. Please try again.");
+        }
         const profile = await api.me();
         if (active) setUser(profile);
       } catch (error) {

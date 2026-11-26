@@ -20,7 +20,7 @@ function Brand() {
 
 function OAuthButton({ provider, icon }) {
   return (
-    <button className="v2-register-oauth-button" type="button" onClick={() => { window.location.href = "/dashboard"; }}>
+    <button className="v2-register-oauth-button" type="button" onClick={() => { window.location.href = api.oauthUrl(provider.toLowerCase()); }}>
       <img src={icon} alt="" />
       <span>Continue with {provider}</span>
     </button>
@@ -62,16 +62,19 @@ export default function V2Register() {
     const formData = new FormData(event.currentTarget);
     const firstName = String(formData.get("first_name") || "").trim();
     const lastName = String(formData.get("last_name") || "").trim();
-    const email = String(formData.get("email") || "").trim().toLowerCase();
+    const email = String(formData.get("email") || "").trim();
     const password = String(formData.get("password") || "");
     const confirmPassword = String(formData.get("confirm_password") || "");
+    const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+    if (!firstName || !lastName || fullName.length < 2 || fullName.length > 255) { setError("Enter your first and last name."); return; }
     if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     if (password !== confirmPassword) { setError("Passwords do not match."); return; }
     setError("");
     setSubmitting(true);
     try {
-      await api.register({ email, password, full_name: [firstName, lastName].filter(Boolean).join(" ") });
-      window.location.href = `/verify-email?email=${encodeURIComponent(email)}`;
+      const result = await api.register({ email, password, full_name: fullName });
+      const delivery = result?.email_sent === false ? "&delivery=failed" : "";
+      window.location.href = `/verify-email?email=${encodeURIComponent(email)}${delivery}`;
     } catch (err) {
       setError(err.message || "Unable to create your account. Please try again.");
     } finally {

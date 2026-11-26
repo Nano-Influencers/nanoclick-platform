@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -18,9 +18,10 @@ from app.models.email_otp import EmailOTP
 from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.schemas.auth import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest
+from app.schemas.auth import ChangePasswordRequest, ForgotPasswordRequest, LoginRequest, RefreshRequest, RegisterRequest, ResetPasswordRequest, TokenResponse, UserResponse, SendOTPRequest, VerifyOTPRequest, UpdateProfileRequest
 from app.services.auth_service import create_access_token, create_refresh_token, decode_token, generate_referral_code, hash_password, hash_token_identifier, new_oauth_state, token_jti, verify_password
 from app.services.email_service import send_password_reset_email, send_verification_otp
+from app.services.pending_registration import (acquire_pending_lock, delete_pending_registration, load_pending_registration, release_pending_lock, save_pending_registration)
 from app.services.oauth_service import exchange_facebook_code, exchange_google_code, facebook_auth_url, google_auth_url
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -122,30 +123,58 @@ async def _oauth_redirect(db: AsyncSession, user: User, platform: str, redirect_
     return RedirectResponse(url=f"{base}{sep}oauth_code={code}", status_code=302)
 
 
-@router.post("/register", response_model=UserResponse, status_code=201)
+@router.post("/register", status_code=202)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    if body.role not in ("advertiser", "worker"):
-        raise HTTPException(400, "role must be advertiser or worker")
-    ex = await db.execute(select(User).where(User.email == body.email))
-    if ex.scalar_one_or_none():
-        raise HTTPException(400, "Email already registered")
+    """Stage a registration in Redis; create no database user until OTP succeeds."""
+    email = str(body.email).strip()
+    full_name = body.full_name.strip()
+    existing = await db.execute(select(User).where(func.lower(User.email) == email.lower()))
+    existing_user = existing.scalar_one_or_none()
+    if existing_user:
+        if existing_user.email_verified:
+            raise HTTPException(409, "Email already registered")
+        # Accounts left unverified by the previous release are already stored
+        # in PostgreSQL. Keep them recoverable without creating another user.
+        legacy_code = await _issue_email_otp(db, existing_user)
+        legacy_email_sent = True
+        try:
+            await send_verification_otp(existing_user.email, legacy_code)
+        except Exception:
+            legacy_email_sent = False
+            logger.exception("Legacy account verification email delivery failed")
+        return {
+            "detail": "An existing unverified account is waiting for email verification.",
+            "email_sent": legacy_email_sent,
+        }
+
     referred_by = None
     if body.referral_code:
         ref = await db.execute(select(User).where(User.referral_code == body.referral_code))
-        r = ref.scalar_one_or_none()
-        if r: referred_by = r.id
-    user = User(email=body.email, password_hash=hash_password(body.password), full_name=body.full_name, role=body.role, referral_code=generate_referral_code(), referred_by=referred_by, email_verified=False)
-    db.add(user)
-    await db.flush()
-    db.add(Wallet(user_id=user.id))
-    await db.commit()
+        referral_user = ref.scalar_one_or_none()
+        if referral_user:
+            referred_by = str(referral_user.id)
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    await save_pending_registration(email, {
+        "email": email,
+        "full_name": full_name,
+        "password_hash": hash_password(body.password),
+        "role": body.role,
+        "referred_by": referred_by,
+        "otp_hash": _otp_digest(code, email),
+        "attempts": 0,
+    })
+    email_sent = True
     try:
-        code = await _issue_email_otp(db, user)
-        await send_verification_otp(user.email, code)
+        await send_verification_otp(email, code)
     except Exception:
-        logger.exception("Registration OTP delivery failed for user_id=%s", user.id)
-        raise HTTPException(503, "Account created, but the verification email could not be sent. Please use resend verification.")
-    return user
+        # Keep the temporary registration so the user can retry delivery.
+        email_sent = False
+        logger.exception("Registration OTP delivery failed")
+    return {
+        "detail": "Registration is pending email verification.",
+        "email_sent": email_sent,
+    }
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -216,6 +245,19 @@ async def exchange_oauth_code(response: Response, code: str = Query(..., min_len
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)): return current_user
+
+
+@router.patch("/me/profile", response_model=UserResponse)
+async def update_my_profile(
+    body: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+):
+    changes = body.model_dump(exclude_unset=True)
+    if "full_name" in changes:
+        current_user.full_name = changes["full_name"]
+    if "phone_number" in changes:
+        current_user.phone_number = changes["phone_number"]
+    return current_user
 
 
 @router.post("/change-password")
@@ -302,8 +344,11 @@ async def facebook_callback(code: str, state: str, db: AsyncSession = Depends(ge
 
 
 # Email verification OTPs
-def _otp_digest(code: str) -> str:
-    return hmac.new(settings.SECRET_KEY.encode(), code.encode(), hashlib.sha256).hexdigest()
+def _otp_digest(code: str, email: str | None = None) -> str:
+    # New registrations bind the OTP to the exact email address. The
+    # email=None form remains for compatibility with legacy EmailOTP rows.
+    value = f"{email.strip().lower()}:{code}" if email else code
+    return hmac.new(settings.SECRET_KEY.encode(), value.encode(), hashlib.sha256).hexdigest()
 
 
 async def _issue_email_otp(db: AsyncSession, user: User) -> str:
@@ -323,9 +368,18 @@ async def _issue_email_otp(db: AsyncSession, user: User) -> str:
 
 
 async def _send_otp_for_email(db: AsyncSession, email: str) -> None:
+    pending = await load_pending_registration(email)
+    if pending:
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        pending["otp_hash"] = _otp_digest(code, pending["email"])
+        pending["attempts"] = 0
+        await save_pending_registration(email, pending)
+        await send_verification_otp(pending["email"], code)
+        return
+
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    # Keep the same response for unknown, verified, and unverified addresses.
+    # Legacy unverified accounts remain supported during migration.
     if not user or user.email_verified:
         return
     code = await _issue_email_otp(db, user)
@@ -351,6 +405,47 @@ async def resend_otp(body: SendOTPRequest, db: AsyncSession = Depends(get_db)):
 async def verify_otp(body: VerifyOTPRequest, db: AsyncSession = Depends(get_db)):
     if len(body.code) != 6 or not body.code.isdigit():
         raise HTTPException(400, "Invalid or expired verification code")
+
+    email = str(body.email).strip()
+    pending = await load_pending_registration(email)
+    if pending:
+        lock_token = secrets.token_urlsafe(24)
+        if not await acquire_pending_lock(email, lock_token):
+            raise HTTPException(409, "Verification is already being processed. Please try again.")
+        try:
+            pending = await load_pending_registration(email)
+            if not pending or pending.get("email", "").lower() != email.lower():
+                raise HTTPException(400, "Invalid or expired verification code")
+            if int(pending.get("attempts", 0)) >= 5:
+                raise HTTPException(400, "Invalid or expired verification code")
+            if not hmac.compare_digest(_otp_digest(body.code, pending["email"]), pending["otp_hash"]):
+                pending["attempts"] = int(pending.get("attempts", 0)) + 1
+                await save_pending_registration(email, pending)
+                raise HTTPException(400, "Invalid or expired verification code")
+
+            duplicate = await db.execute(select(User).where(func.lower(User.email) == email.lower()).with_for_update())
+            if duplicate.scalar_one_or_none():
+                raise HTTPException(409, "Email already registered")
+            referred_by = uuid.UUID(pending["referred_by"]) if pending.get("referred_by") else None
+            user = User(
+                email=pending["email"],
+                password_hash=pending["password_hash"],
+                full_name=pending["full_name"],
+                role=pending["role"],
+                referral_code=generate_referral_code(),
+                referred_by=referred_by,
+                email_verified=True,
+            )
+            db.add(user)
+            await db.flush()
+            db.add(Wallet(user_id=user.id))
+            await db.commit()
+            await delete_pending_registration(email)
+            return {"detail": "Email verified and account created successfully."}
+        finally:
+            await release_pending_lock(email, lock_token)
+
+    # Compatibility path for accounts created before OTP-first registration.
     result = await db.execute(select(User).where(User.email == body.email).with_for_update())
     user = result.scalar_one_or_none()
     if not user:

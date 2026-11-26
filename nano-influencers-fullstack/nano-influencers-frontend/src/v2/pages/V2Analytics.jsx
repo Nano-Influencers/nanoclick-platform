@@ -16,8 +16,12 @@ export default function V2Analytics() {
       try {
         // Access tokens are memory-only. Restore the browser session before
         // calling protected endpoints after a page load or refresh.
-        const restored = await api.restoreSession();
-        if (!restored) throw new Error("Your session has expired. Please log in again.");
+        const session = await api.restoreSession();
+        if (!session.ok) {
+          if (session.reason === "anonymous") { window.location.replace("/login"); return; }
+          if (session.reason === "expired") { window.location.replace("/login?reason=session_expired"); return; }
+          throw new Error("Unable to verify your session right now. Please try again.");
+        }
         const rows = await api.listCampaigns({ limit: 100 });
         const pairs = await Promise.all(rows.map(async (campaign) => {
           try { return [campaign.id, await api.getCampaignReport(campaign.id)]; }

@@ -49,11 +49,25 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
   let res;
   try { res = await fetchWithTimeout(`${API_URL}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: "include" }); }
   catch (error) { if (error instanceof ApiError) throw error; throw new ApiError("Unable to reach the server. Check your connection and try again.", 0); }
-  if (res.status === 401 && auth && !_retried) {
+  if (res.status === 401 && auth && res.headers.get("www-authenticate")?.toLowerCase().includes("bearer")) {
+    if (_retried) {
+      clearTokens();
+      window.dispatchEvent(new CustomEvent("nano-auth-expired"));
+      throw new ApiError("Your session has expired. Please log in again.", 401);
+    }
     const refreshed = await tryRefresh();
-    if (refreshed) return request(path, { method, body, auth, headers: extraHeaders, _retried: true });
-    clearTokens(); window.dispatchEvent(new CustomEvent("nano-auth-expired"));
-    throw new ApiError("Session expired — please log in again.", 401);
+    if (refreshed.ok) return request(path, { method, body, auth, headers: extraHeaders, _retried: true });
+    if (refreshed.reason === "expired" || (refreshed.reason === "anonymous" && accessToken)) {
+      clearTokens();
+      window.dispatchEvent(new CustomEvent("nano-auth-expired"));
+      throw new ApiError("Your session has expired. Please log in again.", 401);
+    }
+    if (refreshed.reason === "anonymous") {
+      throw new ApiError("Please log in to continue.", 401);
+    }
+    // A network/5xx/429 refresh failure is not proof that the session expired.
+    // Keep the access token so a transient outage does not force a logout.
+    throw new ApiError("Unable to verify your session right now. Please check your connection and try again.", 503);
   }
   if (!res.ok) throw new ApiError(await parseError(res), res.status);
   if (res.status === 204) return null;
@@ -61,15 +75,40 @@ async function request(path, { method = "GET", body, auth = true, headers: extra
   return text ? JSON.parse(text) : null;
 }
 
+async function performRefresh() {
+  try {
+    const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, { method: "POST", headers: { "Content-Type": "application/json", "X-Request-ID": requestId() }, credentials: "include" });
+    if (!res.ok) {
+      if (res.status === 401) {
+        let detail = "";
+        try { detail = (await res.json()).detail || ""; } catch {}
+        return { ok: false, reason: /refresh token required/i.test(detail) ? "anonymous" : "expired" };
+      }
+      return { ok: false, reason: "unavailable" };
+    }
+    const data = await res.json();
+    if (!data.access_token) return { ok: false, reason: "unavailable" };
+    setTokens(data.access_token);
+    return { ok: true, reason: "refreshed" };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
 async function tryRefresh() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
-    try {
-      const res = await fetchWithTimeout(`${API_URL}/auth/refresh?platform=web`, { method: "POST", headers: { "Content-Type": "application/json", "X-Request-ID": requestId() }, credentials: "include" });
-      if (!res.ok) return false;
-      const data = await res.json(); if (!data.access_token) return false;
-      setTokens(data.access_token); return true;
-    } catch { return false; }
+    // Coordinate refresh-token rotation across tabs where the browser supports
+    // Web Locks. A waiting tab then reads the replacement cookie, avoiding a
+    // second request with the token that the first tab just rotated.
+    if (globalThis.navigator?.locks?.request) {
+      try {
+        return await globalThis.navigator.locks.request("nanoclick-refresh-session", performRefresh);
+      } catch {
+        return performRefresh();
+      }
+    }
+    return performRefresh();
   })();
   try { return await refreshInFlight; } finally { refreshInFlight = null; }
 }
@@ -81,8 +120,9 @@ export const api = {
   async resendOTP(email) { return request("/auth/otp/resend", { method: "POST", auth: false, body: { email } }); },
   async login(email, password) { const data = await request("/auth/login?platform=web", { method: "POST", auth: false, body: { email, password } }); setTokens(data.access_token); return data; },
   async exchangeOAuthCode(code) { const data = await request(`/auth/oauth/exchange?code=${encodeURIComponent(code)}&platform=web`, { method: "POST", auth: false }); setTokens(data.access_token); return data; },
-  async restoreSession() { return tryRefresh(); },
+  async restoreSession() { return accessToken ? { ok: true, reason: "access_token" } : tryRefresh(); },
   async me() { return request("/auth/me"); },
+  async updateProfile(payload) { return request("/auth/me/profile", { method: "PATCH", body: payload }); },
   async changePassword(current_password, new_password) { return request("/auth/change-password", { method: "POST", body: { current_password, new_password } }); },
   async forgotPassword(email) { return request("/auth/forgot-password", { method: "POST", auth: false, body: { email } }); },
   async resetPassword(token, new_password) { return request("/auth/reset-password", { method: "POST", auth: false, body: { token, new_password } }); },
