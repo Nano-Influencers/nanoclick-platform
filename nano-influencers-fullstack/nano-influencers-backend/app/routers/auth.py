@@ -171,8 +171,9 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if body.referral_code:
         ref = await db.execute(select(User).where(User.referral_code == body.referral_code))
         referral_user = ref.scalar_one_or_none()
-        if referral_user:
-            referred_by = str(referral_user.id)
+        if not referral_user or not referral_user.is_active:
+            raise HTTPException(400, "Invalid referral code")
+        referred_by = str(referral_user.id)
 
     code = f"{secrets.randbelow(1_000_000):06d}"
     await save_pending_registration(email, {
