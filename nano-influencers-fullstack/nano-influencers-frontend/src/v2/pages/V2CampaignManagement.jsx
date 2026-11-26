@@ -84,69 +84,28 @@ function CampaignRecord({
   );
 }
 
-const notificationData = {
-  deleted: {
-    title: "Campaign Deleted",
-    desc: "You just Deleted your Twitter Like Campaign, you would be refunded 95% of the unspent balance.",
-    tone: "red",
-    icon: assets.notificationTrash,
-  },
-  approved: {
-    title: "Campaign Approved",
-    desc: "Your IG Engaged Growth Campaign has been Approved by Admin",
-    tone: "green",
-    icon: assets.like,
-    button: "View Proof",
-  },
-  cashback: {
-    title: "Cashback Approved",
-    desc: "Your evidence for Twitter Repost is now approved.",
-    tone: "green",
-    icon: assets.like,
-  },
-  paused: {
-    title: "Campaign Paused",
-    desc: "You have paused your YouTube subscribe Campaign.",
-    tone: "yellow",
-    icon: assets.notificationPause,
-  },
-  rejected: {
-    title: "Campaign Has Been Rejected",
-    desc: "Unfortunately your FB report Campaign has been rejected due to violation of T&C",
-    tone: "red",
-    icon: assets.dislike,
-    button: "See Why",
-  },
-  resumed: {
-    title: "Campaign Resumed",
-    desc: "Your X follower Campaign has been resumed.",
-    tone: "blue",
-    icon: assets.play,
-  },
-  completed: {
-    title: "Campaign has been Completed",
-    desc: "Congratulations, your Word of Mouth Campaign has been Completed.",
-    tone: "green",
-    icon: assets.like,
-    button: "View Proof",
-  },
-  modified: {
-    title: "Campaign Modified/Edited",
-    desc: "Your X follower Campaign has been modified.",
-    tone: "lavender",
-    icon: assets.notificationEdit,
-  },
-};
 
-function NotificationCard({ type }) {
-  const item = notificationData[type];
+function notificationVisual(type = "") {
+  const value = type.toLowerCase();
+  if (value.includes("delete") || value.includes("reject") || value.includes("fail")) return { tone: "red", icon: assets.dislike };
+  if (value.includes("pause")) return { tone: "yellow", icon: assets.notificationPause };
+  if (value.includes("resume")) return { tone: "blue", icon: assets.play };
+  if (value.includes("wallet") || value.includes("deposit") || value.includes("withdraw") || value.includes("cashback")) return { tone: "green", icon: assets.like };
+  if (value.includes("edit") || value.includes("modify")) return { tone: "lavender", icon: assets.notificationEdit };
+  return { tone: "green", icon: assets.like };
+}
+
+function NotificationCard({ notification, onRead }) {
+  const visual = notificationVisual(notification.type);
+  const date = notification.created_at ? new Date(notification.created_at) : null;
+  const time = date && !Number.isNaN(date.getTime()) ? date.toLocaleString() : "";
   return (
-    <article className="v2-cm-notification">
-      <span className={`v2-cm-notification-icon is-${item.tone}`}><img src={item.icon} alt="" /></span>
+    <article className={`v2-cm-notification${notification.is_read ? " is-read" : ""}`}>
+      <span className={`v2-cm-notification-icon is-${visual.tone}`}><img src={visual.icon} alt="" /></span>
       <div className="v2-cm-notification-copy">
-        <div><h3>{item.title}</h3><time>Just now</time></div>
-        <p>{item.desc}</p>
-        {item.button && <Button className="v2-cm-notification-button">{item.button}</Button>}
+        <div><h3>{notification.title}</h3><time>{time}</time></div>
+        <p>{notification.body}</p>
+        {!notification.is_read && <button type="button" className="v2-cm-notification-button" onClick={() => onRead(notification.id)}>Mark as read</button>}
       </div>
     </article>
   );
@@ -263,20 +222,51 @@ export function V2PendingCampaigns() {
 }
 
 export function V2CampaignNotifications() {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const session = await api.restoreSession();
+        if (!session.ok) { window.location.replace("/login"); return; }
+        const rows = await api.listNotifications({ limit: 100 });
+        if (active) setNotifications(Array.isArray(rows) ? rows : []);
+      } catch (err) {
+        if (active) setError(err.message || "Unable to load notifications.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+  const markRead = async (id) => {
+    try {
+      await api.markNotificationRead(id);
+      setNotifications((items) => items.map((item) => item.id === id ? { ...item, is_read: true } : item));
+    } catch (err) {
+      setError(err.message || "Unable to update notification.");
+    }
+  };
   return (
     <div className="v2-cm-page">
       <main className="v2-cm-main">
         <BackHeader filter />
-        <h1>Campaign Notifications</h1>
-        <section className="v2-cm-notifications-panel">
-          <NotificationCard type="deleted" />
-          <NotificationCard type="cashback" />
-          <NotificationCard type="paused" />
-          <NotificationCard type="rejected" />
-          <NotificationCard type="resumed" />
-          <NotificationCard type="completed" />
-          <NotificationCard type="modified" />
-        </section>
+        <h1>Notifications</h1>
+        {error && <p role="alert" className="v2-cm-data-state">{error}</p>}
+        {loading ? <p className="v2-cm-data-state">Loading notifications…</p> :
+          notifications.length === 0 ? (
+            <section className="v2-cm-notifications-panel v2-cm-data-state">
+              <h3>No notifications yet</h3>
+              <p>When you enable an activity in Settings and it happens, its notification will appear here.</p>
+              <a href="/settings?tab=notifications">Manage notification settings</a>
+            </section>
+          ) : (
+            <section className="v2-cm-notifications-panel">
+              {notifications.map((item) => <NotificationCard key={item.id} notification={item} onRead={markRead} />)}
+            </section>
+          )}
       </main>
     </div>
   );
