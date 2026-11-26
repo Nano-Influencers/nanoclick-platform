@@ -119,7 +119,7 @@ function ServiceCard({ type }) {
       <div className="v2-campaign-service-title"><span className="v2-campaign-service-icon"><img src={wom ? assets.wordOfMouth : assets.trend} alt="" /></span><h2>{wom ? "Word of Mouth" : "Engaged Growth"}</h2></div>
       <div className="v2-campaign-service-facts">{rows.map(([label, value]) => <div className="v2-campaign-service-fact" key={label}><span>{label}</span><p>{value}</p></div>)}</div>
       <Button className="v2-campaign-start" to={wom ? "/campaigns/word-of-mouth" : "/campaigns/select-package"}>Start Now</Button>
-      <button className="v2-campaign-video-link" type="button">Watch Video for more info about this Service</button>
+      <button className="v2-campaign-video-link" type="button" disabled>Service video guide coming soon</button>
     </article>
   );
 }
