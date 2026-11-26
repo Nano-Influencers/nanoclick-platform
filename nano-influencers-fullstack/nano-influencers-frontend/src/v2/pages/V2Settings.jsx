@@ -167,8 +167,12 @@ function ProfileSettings({ user, onUserUpdate }) {
     try {
       const updated = await api.updateProfile({ full_name: fullName, phone_number: form.phone.trim() || null });
       onUserUpdate?.(updated);
-      if (passwordRequested) { await api.changePassword(form.currentPassword, form.newPassword); setForm((current) => ({ ...current, currentPassword: "", newPassword: "", confirmPassword: "" })); }
-      setSaveSuccess(passwordRequested ? "Profile and password updated successfully." : "Profile updated successfully.");
+      if (passwordRequested) {
+        await api.changePassword(form.currentPassword, form.newPassword);
+        window.location.replace("/login?reason=password_changed");
+        return;
+      }
+      setSaveSuccess("Profile updated successfully.");
     } catch (error) {
       setSaveError(error.message || "Unable to save profile changes.");
     } finally {
