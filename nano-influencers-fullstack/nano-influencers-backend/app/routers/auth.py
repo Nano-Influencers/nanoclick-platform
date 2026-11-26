@@ -4,6 +4,7 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
@@ -43,6 +44,20 @@ def _validate_redirect_uri(redirect_uri: str | None) -> str | None:
 
 def _is_web_platform(platform: str) -> bool:
     return platform.strip().lower() == "web"
+
+
+def _enforce_cookie_csrf(request: Request) -> None:
+    if not request.cookies.get(_COOKIE_NAME):
+        return
+    origin = request.headers.get("origin")
+    if not origin:
+        referer = request.headers.get("referer")
+        if referer:
+            parsed = urlsplit(referer)
+            origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else None
+    allowed = {item.rstrip("/") for item in settings.allowed_origins}
+    if not origin or origin.rstrip("/") not in allowed:
+        raise HTTPException(403, "Cross-origin session request rejected")
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -201,6 +216,8 @@ async def login(body: LoginRequest, response: Response, platform: str = Query("a
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(request: Request, response: Response, body: RefreshRequest | None = None, platform: str = Query("app"), db: AsyncSession = Depends(get_db)):
     supplied_refresh = body.refresh_token if body else None
+    if not supplied_refresh:
+        _enforce_cookie_csrf(request)
     refresh_token = supplied_refresh or request.cookies.get(_COOKIE_NAME)
     if not refresh_token: raise HTTPException(401, "Refresh token required")
     payload = decode_token(refresh_token)
